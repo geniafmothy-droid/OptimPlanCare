@@ -1,3 +1,4 @@
+
 import { Employee, ShiftCode } from '../types';
 import { SHIFT_TYPES, SHIFT_HOURS, NURSE_CYCLE_MATRIX } from '../constants';
 
@@ -35,7 +36,7 @@ export const generateMonthlySchedule = (
   // Separate by roles
   const infirmiers = employees.filter(e => e.role === 'Infirmier');
   const aidesSoignants = employees.filter(e => e.role === 'Aide-Soignant');
-  const cadres = employees.filter(e => e.role === 'Cadre');
+  const cadresAndManagers = employees.filter(e => e.role === 'Cadre' || e.role === 'Manager');
 
   // --- INFIRMIERS LOGIC (MATRIX CYCLE) ---
   // Apply the 7-week cycle based on the matrix
@@ -66,7 +67,7 @@ export const generateMonthlySchedule = (
   });
 
 
-  // --- AIDE-SOIGNANTS & CADRES (SIMPLE LOGIC) ---
+  // --- AIDE-SOIGNANTS & CADRES/MANAGERS (SIMPLE LOGIC) ---
   // We process these day by day as they don't have the strict matrix constraint yet
   for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
     const dateStr = d.toISOString().split('T')[0];
@@ -75,7 +76,7 @@ export const generateMonthlySchedule = (
     // SUNDAY RULE for Non-Infirmiers: Service Fermé -> RH
     // Note: The Matrix for Infirmiers already handles Sunday as RH/RC, so we don't need to force it there.
     if (dayOfWeek === 0) {
-      [...aidesSoignants, ...cadres].forEach(emp => {
+      [...aidesSoignants, ...cadresAndManagers].forEach(emp => {
         emp.shifts[dateStr] = 'RH';
       });
       continue;
@@ -93,8 +94,8 @@ export const generateMonthlySchedule = (
         }
     }
 
-    // --- CADRES ---
-    cadres.forEach(c => {
+    // --- CADRES & MANAGERS ---
+    cadresAndManagers.forEach(c => {
         if (dayOfWeek >= 1 && dayOfWeek <= 5) {
             c.shifts[dateStr] = 'IT';
         } else {

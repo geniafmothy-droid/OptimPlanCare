@@ -9,13 +9,15 @@ export interface ShiftDefinition {
   textColor: string;
   description: string;
   isWork: boolean;
+  startHour?: number; // Heure de début (ex: 6.5 pour 06h30)
+  endHour?: number;   // Heure de fin (ex: 18.5 pour 18h30)
 }
 
 export interface Employee {
   id: string;
   matricule: string;
   name: string;
-  role: 'Infirmier' | 'Aide-Soignant' | 'Cadre';
+  role: 'Infirmier' | 'Aide-Soignant' | 'Cadre' | 'Manager';
   fte: number; // Quotité : 1.0 = 100%, 0.8 = 80%, etc.
   skills: string[]; // Compétences de l'équipier (ex: 'Senior', 'Dialyse')
   shifts: Record<string, ShiftCode>; // Date string (YYYY-MM-DD) -> ShiftCode
@@ -36,3 +38,5 @@ export interface ConstraintViolation {
   message: string;
   severity: 'warning' | 'error';
 }
+
+export type ViewMode = 'month' | 'week' | 'workweek' | 'day' | 'hourly';

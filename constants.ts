@@ -3,19 +3,20 @@ import { ShiftDefinition, Employee, ShiftCode } from './types';
 import { generateMonthlySchedule } from './utils/scheduler';
 
 // Parsing the colors and codes from the image and user rules
+// Added startHour and endHour for Hourly View rendering
 export const SHIFT_TYPES: Record<ShiftCode, ShiftDefinition> = {
-  'IT': { code: 'IT', label: 'IT', color: 'bg-blue-200', textColor: 'text-blue-900', description: 'Jour (06h30-18h30) [11.5h]', isWork: true },
+  'IT': { code: 'IT', label: 'IT', color: 'bg-blue-200', textColor: 'text-blue-900', description: 'Jour (06h30-18h30) [11.5h]', isWork: true, startHour: 6.5, endHour: 18.5 },
   'NT': { code: 'NT', label: 'NT', color: 'bg-slate-200', textColor: 'text-slate-600', description: 'Non Travaillé', isWork: false },
   'RC': { code: 'RC', label: 'RC', color: 'bg-gray-100', textColor: 'text-gray-500', description: 'Repos Cycle', isWork: false },
-  'T5': { code: 'T5', label: 'T5', color: 'bg-orange-300', textColor: 'text-orange-900', description: 'Matin Long (07h00-17h30) [10h]', isWork: true },
-  'T6': { code: 'T6', label: 'T6', color: 'bg-orange-400', textColor: 'text-orange-900', description: 'Journée (07h30-18h00) [10h]', isWork: true },
-  'S': { code: 'S', label: 'S', color: 'bg-amber-200', textColor: 'text-amber-900', description: 'Soir (17h30-00h00) [6h]', isWork: true },
+  'T5': { code: 'T5', label: 'T5', color: 'bg-orange-300', textColor: 'text-orange-900', description: 'Matin Long (07h00-17h30) [10h]', isWork: true, startHour: 7.0, endHour: 17.5 },
+  'T6': { code: 'T6', label: 'T6', color: 'bg-orange-400', textColor: 'text-orange-900', description: 'Journée (07h30-18h00) [10h]', isWork: true, startHour: 7.5, endHour: 18.0 },
+  'S': { code: 'S', label: 'S', color: 'bg-amber-200', textColor: 'text-amber-900', description: 'Soir (17h30-00h00) [6h]', isWork: true, startHour: 17.5, endHour: 24.0 },
   'CA': { code: 'CA', label: 'CA', color: 'bg-blue-400', textColor: 'text-white', description: 'Congés Annuels', isWork: false },
   'RH': { code: 'RH', label: 'RH', color: 'bg-green-200', textColor: 'text-green-900', description: 'Repos Hebdo', isWork: false },
-  'FO': { code: 'FO', label: 'FO', color: 'bg-gray-300', textColor: 'text-gray-800', description: 'Formation', isWork: true },
+  'FO': { code: 'FO', label: 'FO', color: 'bg-gray-300', textColor: 'text-gray-800', description: 'Formation', isWork: true, startHour: 9.0, endHour: 17.0 },
   'ETP': { code: 'ETP', label: 'ETP', color: 'bg-yellow-100', textColor: 'text-yellow-800', description: 'Temps Partiel', isWork: false },
-  'DP': { code: 'DP', label: 'DP', color: 'bg-pink-200', textColor: 'text-pink-900', description: 'Déplacement', isWork: true },
-  'M': { code: 'M', label: 'M', color: 'bg-sky-200', textColor: 'text-sky-900', description: 'Matin', isWork: true },
+  'DP': { code: 'DP', label: 'DP', color: 'bg-pink-200', textColor: 'text-pink-900', description: 'Déplacement', isWork: true, startHour: 8.0, endHour: 16.0 },
+  'M': { code: 'M', label: 'M', color: 'bg-sky-200', textColor: 'text-sky-900', description: 'Matin', isWork: true, startHour: 7.0, endHour: 14.30 },
   'OFF': { code: 'OFF', label: '', color: 'bg-white', textColor: 'text-gray-300', description: 'Vide', isWork: false },
 };
 
