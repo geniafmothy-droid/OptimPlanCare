@@ -293,7 +293,8 @@ function App() {
   };
 
   const handleEditEmployee = (emp: Employee) => {
-    setEditingEmployee({ ...emp });
+    // Deep copy of skills array to avoid mutating the main list immediately
+    setEditingEmployee({ ...emp, skills: [...emp.skills] });
     setNewSkillInput('');
   };
 
@@ -775,13 +776,24 @@ CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (tru
                             </select>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Quotité</label>
-                            <select value={editingEmployee.fte} onChange={(e) => setEditingEmployee({...editingEmployee, fte: parseFloat(e.target.value)})} className="w-full p-2 border border-slate-300 rounded-lg bg-white outline-none">
-                                <option value={1.0}>100%</option>
-                                <option value={0.9}>90%</option>
-                                <option value={0.8}>80%</option>
-                                <option value={0.5}>50%</option>
-                            </select>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Quotité (ETP)</label>
+                            <div className="flex items-center gap-2">
+                                <input 
+                                    type="number" 
+                                    step="0.05" 
+                                    min="0" 
+                                    max="1" 
+                                    value={editingEmployee.fte} 
+                                    onChange={(e) => {
+                                        const val = parseFloat(e.target.value);
+                                        setEditingEmployee({...editingEmployee, fte: isNaN(val) ? 0 : val});
+                                    }} 
+                                    className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                />
+                                <span className="text-sm font-semibold text-slate-500 w-12 text-right">
+                                    {Math.round(editingEmployee.fte * 100)}%
+                                </span>
+                            </div>
                         </div>
                     </div>
                     <div>
