@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase } from 'lucide-react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
 import { StatsPanel } from './components/StatsPanel';
 import { ConstraintChecker } from './components/ConstraintChecker';
+import { LeaveManager } from './components/LeaveManager';
 import { SHIFT_TYPES } from './constants';
 import { Employee, ShiftCode, ViewMode } from './types';
 import { generateMonthlySchedule } from './utils/scheduler';
@@ -14,7 +15,7 @@ import { checkConstraints } from './utils/validation';
 import * as db from './services/db';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'planning' | 'stats' | 'team'>('planning');
+  const [activeTab, setActiveTab] = useState<'planning' | 'stats' | 'team' | 'leaves'>('planning');
   const [currentDate, setCurrentDate] = useState(new Date('2024-12-01'));
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   
@@ -269,6 +270,7 @@ function App() {
           name: '',
           role: 'Infirmier',
           fte: 1.0,
+          leaveBalance: 0,
           skills: [],
           shifts: {}
       };
@@ -375,6 +377,7 @@ CREATE TABLE IF NOT EXISTS public.employees (
     name TEXT NOT NULL,
     role TEXT NOT NULL,
     fte NUMERIC DEFAULT 1.0,
+    leave_balance NUMERIC DEFAULT 0,
     skills TEXT[] DEFAULT '{}'::TEXT[]
 );
 
@@ -567,6 +570,10 @@ CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (tru
               <Users className="w-5 h-5" />
               <span className="hidden md:block">Équipe</span>
             </button>
+            <button onClick={() => setActiveTab('leaves')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'leaves' ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <BriefcaseBusiness className="w-5 h-5" />
+              <span className="hidden md:block">Congés</span>
+            </button>
           </nav>
 
           {/* Filters */}
@@ -643,6 +650,13 @@ CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (tru
                     </div>
                 )}
 
+                {/* Leaves Management View */}
+                {activeTab === 'leaves' && (
+                    <div className="flex-1 overflow-y-auto h-full">
+                        <LeaveManager employees={employees} onReload={loadData} />
+                    </div>
+                )}
+
                 {/* Team List View */}
                 {activeTab === 'team' && (
                     <div className="p-8 overflow-y-auto">
@@ -668,9 +682,15 @@ CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (tru
                                             <div className="text-sm text-slate-500">{emp.role}</div>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 p-2 rounded">
-                                        <span className="font-semibold">Quotité:</span> 
-                                        <span>{Math.round(emp.fte * 100)}%</span>
+                                    <div className="flex items-center justify-between text-xs text-slate-600 bg-slate-50 p-2 rounded">
+                                        <div className="flex items-center gap-1">
+                                            <span className="font-semibold">Quotité:</span> 
+                                            <span>{Math.round(emp.fte * 100)}%</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <span className="font-semibold">Solde CA:</span> 
+                                            <span className="font-bold text-blue-600">{emp.leaveBalance || 0}j</span>
+                                        </div>
                                     </div>
                                     <div className="border-t border-slate-100 pt-3">
                                         <div className="text-xs font-semibold text-slate-400 uppercase mb-2">Compétences</div>

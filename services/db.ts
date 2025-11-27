@@ -14,6 +14,7 @@ export const fetchEmployeesWithShifts = async (): Promise<Employee[]> => {
       name,
       role,
       fte,
+      leave_balance,
       skills,
       shifts (
         date,
@@ -44,6 +45,7 @@ export const fetchEmployeesWithShifts = async (): Promise<Employee[]> => {
       name: emp.name,
       role: emp.role,
       fte: emp.fte,
+      leaveBalance: emp.leave_balance || 0,
       skills: emp.skills || [],
       shifts: shiftsRecord
     };
@@ -76,19 +78,65 @@ export const upsertShift = async (employeeId: string, date: string, shiftCode: S
   }
 };
 
+export const saveLeaveRange = async (employeeId: string, startDate: string, endDate: string, type: ShiftCode) => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const shiftsToInsert = [];
+
+    // Iterate through dates
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().split('T')[0];
+        
+        // Specific Rule: Dialyse Service closes on Sunday -> RH
+        // Even during holidays, it's better to verify Sunday rule or keep it CA?
+        // Usually systems mark CA on worked days. 
+        // For simplicity and consistency with ConstraintChecker: Sunday = RH.
+        const isSunday = d.getDay() === 0;
+        const codeToApply = isSunday ? 'RH' : type;
+
+        shiftsToInsert.push({
+            employee_id: employeeId,
+            date: dateStr,
+            shift_code: codeToApply
+        });
+    }
+
+    if (shiftsToInsert.length > 0) {
+        const { error } = await supabase
+            .from('shifts')
+            .upsert(shiftsToInsert, { onConflict: 'employee_id,date' });
+        
+        if (error) {
+             console.error('Error saving leave range:', JSON.stringify(error, null, 2));
+             throw new Error(error.message);
+        }
+    }
+};
+
+export const updateEmployeeBalance = async (employeeId: string, newBalance: number) => {
+    const { error } = await supabase
+        .from('employees')
+        .update({ leave_balance: newBalance })
+        .eq('id', employeeId);
+    
+    if (error) {
+        console.error('Error updating balance:', JSON.stringify(error, null, 2));
+        throw new Error(error.message);
+    }
+};
+
 export const upsertEmployee = async (employee: Employee) => {
   const payload: any = {
       matricule: employee.matricule,
       name: employee.name,
       role: employee.role,
       fte: employee.fte,
+      leave_balance: employee.leaveBalance,
       skills: employee.skills
   };
 
   let conflictTarget = 'matricule';
 
-  // Only send ID and use it for conflict resolution if it looks like a valid UUID 
-  // (length check > 10 distinguishes from mock 'emp-0' or similar if legacy data exists)
   if (employee.id && employee.id.length > 10) {
       payload.id = employee.id;
       conflictTarget = 'id';
@@ -122,7 +170,6 @@ export const seedDatabase = async () => {
   
   // 1. Insert Employees
   for (const emp of MOCK_EMPLOYEES) {
-    // Insert employee and get ID
     const { data, error } = await supabase
       .from('employees')
       .upsert({
@@ -130,6 +177,7 @@ export const seedDatabase = async () => {
         name: emp.name,
         role: emp.role,
         fte: emp.fte,
+        leave_balance: 25, // Default initial balance
         skills: emp.skills
       }, { onConflict: 'matricule' })
       .select()
@@ -149,7 +197,6 @@ export const seedDatabase = async () => {
       shift_code: code
     }));
 
-    // Batch insert shifts
     if (shiftsToInsert.length > 0) {
       const { error: shiftError } = await supabase
         .from('shifts')
@@ -164,10 +211,7 @@ export const bulkSaveSchedule = async (employees: Employee[]) => {
   const allShifts: any[] = [];
 
   for (const emp of employees) {
-    // We strictly need a real DB ID to save shifts. 
-    // If the employee only exists locally/mock, we can't save shifts easily without upserting employee first.
-    // Assuming employees passed here have valid IDs.
-    if (emp.id.length < 10) continue; // Skip mock IDs
+    if (emp.id.length < 10) continue; 
 
     Object.entries(emp.shifts).forEach(([date, code]) => {
       if (code !== 'OFF') {
@@ -180,7 +224,6 @@ export const bulkSaveSchedule = async (employees: Employee[]) => {
     });
   }
 
-  // Upsert in batches of 1000
   const BATCH_SIZE = 1000;
   for (let i = 0; i < allShifts.length; i += BATCH_SIZE) {
     const batch = allShifts.slice(i, i + BATCH_SIZE);
@@ -222,7 +265,8 @@ export const bulkImportEmployees = async (employees: Employee[]) => {
                  name: emp.name,
                  role: emp.role,
                  fte: emp.fte,
-                 skills: emp.skills // Persist skills if present
+                 leave_balance: emp.leaveBalance,
+                 skills: emp.skills
              }, { onConflict: 'matricule' })
              .select()
              .single();

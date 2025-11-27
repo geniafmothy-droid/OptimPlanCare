@@ -138,6 +138,7 @@ export const parseScheduleCSV = (csvText: string, existingEmployees: Employee[])
           name: fullName,
           role: role,
           fte: fte,
+          leaveBalance: 0,
           skills: [], // Default empty skills
           shifts: {}
       };
@@ -172,4 +173,75 @@ export const parseScheduleCSV = (csvText: string, existingEmployees: Employee[])
   }
 
   return newEmployees;
+};
+
+export interface LeaveRequest {
+    matricule: string;
+    type: ShiftCode;
+    balance?: number;
+    startDate: string; // YYYY-MM-DD
+    endDate: string; // YYYY-MM-DD
+}
+
+/**
+ * Parses a CSV for leave requests.
+ * Format: Nom;Matricule;type de congés (CA, HS, RTT);Nombre au compteur;date début;date fin
+ */
+export const parseLeaveCSV = (csvText: string): LeaveRequest[] => {
+    const lines = csvText.trim().split(/\r?\n/);
+    if (lines.length < 2) return [];
+  
+    const firstLine = lines[0];
+    const delimiter = firstLine.includes(';') ? ';' : ',';
+  
+    const requests: LeaveRequest[] = [];
+  
+    // Assuming strict column order as requested
+    // Nom;Matricule;type;Compteur;Debut;Fin
+    
+    for (let i = 1; i < lines.length; i++) {
+        const row = lines[i].split(delimiter).map(c => c.trim());
+        if (row.length < 6) continue;
+
+        const matricule = row[1];
+        const typeRaw = row[2].toUpperCase();
+        const balanceStr = row[3];
+        const startRaw = row[4];
+        const endRaw = row[5];
+
+        // Map textual types to ShiftCodes
+        let typeCode: ShiftCode = 'CA'; // Default
+        if (typeRaw.includes('RTT') || typeRaw.includes('HS')) typeCode = 'RH'; // Or specific code if added
+        else if (typeRaw.includes('MALADIE')) typeCode = 'NT'; // Or specific
+        else if (typeRaw.includes('FORMATION')) typeCode = 'FO';
+        else if (Object.keys(SHIFT_TYPES).includes(typeRaw)) typeCode = typeRaw as ShiftCode;
+
+        // Parse Balance
+        const balance = balanceStr ? parseFloat(balanceStr.replace(',', '.')) : undefined;
+
+        // Parse Dates (supports DD/MM/YYYY or YYYY-MM-DD)
+        const parseDate = (d: string) => {
+            const ddmmyyyy = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/;
+            const yyyymmdd = /^(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})$/;
+            let match = d.match(ddmmyyyy);
+            if (match) return `${match[3]}-${match[2].padStart(2,'0')}-${match[1].padStart(2,'0')}`;
+            match = d.match(yyyymmdd);
+            if (match) return `${match[1]}-${match[2].padStart(2,'0')}-${match[3].padStart(2,'0')}`;
+            return null;
+        };
+
+        const startDate = parseDate(startRaw);
+        const endDate = parseDate(endRaw);
+
+        if (matricule && startDate && endDate) {
+            requests.push({
+                matricule,
+                type: typeCode,
+                balance: isNaN(balance!) ? undefined : balance,
+                startDate,
+                endDate
+            });
+        }
+    }
+    return requests;
 };

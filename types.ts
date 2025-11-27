@@ -19,6 +19,7 @@ export interface Employee {
   name: string;
   role: 'Infirmier' | 'Aide-Soignant' | 'Cadre' | 'Manager';
   fte: number; // Quotité : 1.0 = 100%, 0.8 = 80%, etc.
+  leaveBalance: number; // Solde de congés
   skills: string[]; // Compétences de l'équipier (ex: 'Senior', 'Dialyse')
   shifts: Record<string, ShiftCode>; // Date string (YYYY-MM-DD) -> ShiftCode
 }
