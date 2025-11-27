@@ -1,0 +1,5 @@
+{
+  "name": "OptiPlan - Gestion de Planning",
+  "description": "Application de gestion de planning sous contraintes et compétences, visualisant les cycles de travail et validant les règles métier.",
+  "requestFramePermissions": []
+}

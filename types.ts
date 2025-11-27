@@ -1,0 +1,38 @@
+
+export type ShiftCode = 
+  | 'M' | 'T5' | 'T6' | 'S' | 'IT' | 'NT' | 'CA' | 'RH' | 'FO' | 'ETP' | 'DP' | 'OFF' | 'RC';
+
+export interface ShiftDefinition {
+  code: ShiftCode;
+  label: string;
+  color: string; // Tailwind class for background
+  textColor: string;
+  description: string;
+  isWork: boolean;
+}
+
+export interface Employee {
+  id: string;
+  matricule: string;
+  name: string;
+  role: 'Infirmier' | 'Aide-Soignant' | 'Cadre';
+  fte: number; // Quotité : 1.0 = 100%, 0.8 = 80%, etc.
+  skills: string[]; // Compétences de l'équipier (ex: 'Senior', 'Dialyse')
+  shifts: Record<string, ShiftCode>; // Date string (YYYY-MM-DD) -> ShiftCode
+}
+
+export interface DailyStats {
+  date: string;
+  totalStaff: number;
+  seniorCount: number;
+  missingSkills: string[];
+  counts: Record<ShiftCode, number>;
+}
+
+export interface ConstraintViolation {
+  employeeId: string;
+  date: string;
+  type: 'CONSECUTIVE_DAYS' | 'MISSING_SKILL' | 'INVALID_ROTATION';
+  message: string;
+  severity: 'warning' | 'error';
+}
