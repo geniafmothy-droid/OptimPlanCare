@@ -363,9 +363,9 @@ function App() {
   // SQL Download Handler
   const downloadSqlSchema = () => {
     const sqlContent = `
--- Script SQL pour Supabase (Mise à jour v2)
+-- Script SQL pour Supabase
 
--- 1. Patch : Ajout des colonnes manquantes si la table existe déjà
+-- 1. Migration : Ajout des colonnes pour la gestion des congés et compétences
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'leave_balance') THEN
@@ -374,9 +374,12 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'skills') THEN
         ALTER TABLE public.employees ADD COLUMN skills TEXT[] DEFAULT '{}'::TEXT[];
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'fte') THEN
+        ALTER TABLE public.employees ADD COLUMN fte NUMERIC DEFAULT 1.0;
+    END IF;
 END $$;
 
--- 2. Création complète (si rien n'existe)
+-- 2. Structure complète (si les tables n'existent pas)
 CREATE TABLE IF NOT EXISTS public.employees (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
