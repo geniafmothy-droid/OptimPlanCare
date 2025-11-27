@@ -363,13 +363,20 @@ function App() {
   // SQL Download Handler
   const downloadSqlSchema = () => {
     const sqlContent = `
--- Script SQL pour Supabase
+-- Script SQL pour Supabase (Mise à jour v2)
 
--- 1. Nettoyage (Optionnel, attention aux données !)
--- DROP TABLE IF EXISTS public.shifts;
--- DROP TABLE IF EXISTS public.employees;
+-- 1. Patch : Ajout des colonnes manquantes si la table existe déjà
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'leave_balance') THEN
+        ALTER TABLE public.employees ADD COLUMN leave_balance NUMERIC DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'skills') THEN
+        ALTER TABLE public.employees ADD COLUMN skills TEXT[] DEFAULT '{}'::TEXT[];
+    END IF;
+END $$;
 
--- 2. Table Employés
+-- 2. Création complète (si rien n'existe)
 CREATE TABLE IF NOT EXISTS public.employees (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -381,11 +388,9 @@ CREATE TABLE IF NOT EXISTS public.employees (
     skills TEXT[] DEFAULT '{}'::TEXT[]
 );
 
--- Activation RLS Employés
 ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Enable all access for employees" ON public.employees FOR ALL USING (true) WITH CHECK (true);
 
--- 3. Table Plannings (Shifts)
 CREATE TABLE IF NOT EXISTS public.shifts (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -395,7 +400,6 @@ CREATE TABLE IF NOT EXISTS public.shifts (
     CONSTRAINT unique_shift_per_day UNIQUE (employee_id, date)
 );
 
--- Activation RLS Shifts
 ALTER TABLE public.shifts ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (true) WITH CHECK (true);
     `;

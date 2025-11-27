@@ -68,6 +68,7 @@ const BASE_EMPLOYEES: Employee[] = NAMES.map((name, index) => ({
   // Index 3: AS
   role: index % 4 === 0 ? 'Cadre' : (index % 3 === 0 ? 'Aide-Soignant' : 'Infirmier'),
   fte: 1.0, // Default quotité 100%
+  leaveBalance: 0,
   skills: index < 5 ? ['Senior', 'Tutorat'] : ['Junior'],
   shifts: {}
 }));
