@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Employee, ShiftCode } from '../types';
-import { Calendar, Upload, Save, FileText, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+import { Calendar, Upload, Save, FileText, CheckCircle2, AlertTriangle, Loader2, Calculator } from 'lucide-react';
 import * as db from '../services/db';
 import { parseLeaveCSV } from '../utils/csvImport';
 
@@ -20,6 +20,21 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
     const [leaveType, setLeaveType] = useState<ShiftCode>('CA');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
+    const [deductFromBalance, setDeductFromBalance] = useState(false);
+
+    // Calculate duration in days
+    const durationDays = useMemo(() => {
+        if (!startDate || !endDate) return 0;
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
+        if (end < start) return 0;
+
+        // Difference in milliseconds
+        const diffTime = Math.abs(end.getTime() - start.getTime());
+        // Convert to days (inclusive)
+        return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    }, [startDate, endDate]);
 
     const handleSubmitManual = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -28,11 +43,30 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
         setIsLoading(true);
         setMessage(null);
         try {
+            // 1. Save Shifts
             await db.saveLeaveRange(selectedEmpId, startDate, endDate, leaveType);
-            setMessage({ text: 'Congés enregistrés avec succès.', type: 'success' });
+            
+            // 2. Update Balance if requested
+            if (deductFromBalance && durationDays > 0) {
+                const emp = employees.find(e => e.id === selectedEmpId);
+                if (emp) {
+                    const currentBalance = Number(emp.leaveBalance) || 0;
+                    const newBalance = currentBalance - durationDays;
+                    await db.updateEmployeeBalance(emp.id, newBalance);
+                }
+            }
+
+            setMessage({ 
+                text: deductFromBalance 
+                    ? `Congés enregistrés et ${durationDays} jours déduits du solde.` 
+                    : 'Congés enregistrés avec succès (solde inchangé).', 
+                type: 'success' 
+            });
+
             // Reset form
             setStartDate('');
             setEndDate('');
+            setDeductFromBalance(false);
             onReload();
         } catch (error: any) {
             setMessage({ text: `Erreur: ${error.message}`, type: 'error' });
@@ -65,7 +99,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                             // Save shifts
                             await db.saveLeaveRange(emp.id, req.startDate, req.endDate, req.type);
                             
-                            // Update balance if provided
+                            // Update balance if provided in CSV
                             if (req.balance !== undefined) {
                                 await db.updateEmployeeBalance(emp.id, req.balance);
                             }
@@ -129,7 +163,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                                     <option value="">-- Sélectionner --</option>
                                     {employees.map(emp => (
                                         <option key={emp.id} value={emp.id}>
-                                            {emp.name} ({emp.matricule}) - Solde: {emp.leaveBalance}j
+                                            {emp.name} ({emp.matricule}) - Solde actuel: {emp.leaveBalance}j
                                         </option>
                                     ))}
                                 </select>
@@ -167,6 +201,37 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                                     required
                                 />
                             </div>
+                        </div>
+
+                        {/* Logic de déduction */}
+                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <label className="flex items-center gap-3 cursor-pointer">
+                                <div className="relative flex items-center">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={deductFromBalance}
+                                        onChange={(e) => setDeductFromBalance(e.target.checked)}
+                                        className="w-5 h-5 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                                    />
+                                </div>
+                                <span className="text-sm font-medium text-slate-700">Déduire automatiquement du solde</span>
+                            </label>
+
+                            {startDate && endDate && durationDays > 0 && (
+                                <div className="flex items-center gap-2 text-sm text-slate-600 bg-white px-3 py-1.5 rounded border border-slate-200">
+                                    <Calculator className="w-4 h-4 text-slate-400" />
+                                    <span>Durée : <strong>{durationDays} jours</strong></span>
+                                    {deductFromBalance && selectedEmpId && (
+                                        <>
+                                            <span className="text-slate-300 mx-1">|</span>
+                                            <span className="text-blue-600">
+                                                Nouveau solde estimé : 
+                                                <strong> {(employees.find(e => e.id === selectedEmpId)?.leaveBalance || 0) - durationDays}j</strong>
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex justify-end pt-4">
