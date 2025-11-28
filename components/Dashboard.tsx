@@ -1,52 +1,80 @@
-
-import React, { useMemo } from 'react';
-import { Employee, ConstraintViolation } from '../types';
+import React, { useMemo, useState } from 'react';
+import { Employee, ConstraintViolation, ServiceConfig } from '../types';
 import { checkConstraints } from '../utils/validation';
-import { Users, AlertTriangle, CheckCircle2, TrendingUp, AlertOctagon, ShieldAlert, CalendarX } from 'lucide-react';
+import { Users, AlertTriangle, CheckCircle2, TrendingUp, AlertOctagon, ShieldAlert, Calendar, CalendarDays, LayoutList } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { SHIFT_TYPES } from '../constants';
 
 interface DashboardProps {
   employees: Employee[];
-  startDate: Date;
-  days: number;
+  currentDate: Date; // Reference date for calculation
+  serviceConfig?: ServiceConfig;
 }
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
 
-export const Dashboard: React.FC<DashboardProps> = ({ employees, startDate, days }) => {
-  
-  // 1. Calcul des Violations sur la période
-  const violations = useMemo(() => {
-    return checkConstraints(employees, startDate, days);
-  }, [employees, startDate, days]);
+export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, serviceConfig }) => {
+  const [filter, setFilter] = useState<'month' | 'week' | 'day'>('month');
 
-  // 2. Indicateurs Clés
+  // 1. Calculate effective Date Range based on local filter
+  const { startDate, days, label } = useMemo(() => {
+    const d = new Date(currentDate);
+    
+    if (filter === 'day') {
+        const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+        return { startDate: d, days: 1, label: dateStr };
+    }
+    
+    if (filter === 'week') {
+        // Calculate Monday
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(d);
+        monday.setDate(diff);
+        
+        const endOfWeek = new Date(monday);
+        endOfWeek.setDate(monday.getDate() + 6);
+        
+        const labelStr = `Semaine du ${monday.getDate()} au ${endOfWeek.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`;
+        return { startDate: monday, days: 7, label: labelStr };
+    }
+
+    // Month (Default)
+    const startMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+    const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    const labelStr = startMonth.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+    
+    return { startDate: startMonth, days: daysInMonth, label: labelStr };
+  }, [currentDate, filter]);
+  
+  // 2. Compute Violations on the calculated range
+  const violations = useMemo(() => {
+    return checkConstraints(employees, startDate, days, serviceConfig);
+  }, [employees, startDate, days, serviceConfig]);
+
+  // 3. Key Indicators
   const stats = useMemo(() => {
     const staffingIssues = violations.filter(v => v.employeeId === 'ALL').length;
     const ruleBreaks = violations.filter(v => v.employeeId !== 'ALL').length;
     const criticalErrors = violations.filter(v => v.severity === 'error').length;
     
-    // Répartition par rôle
+    // Role Distribution (Global)
     const roles: Record<string, number> = {};
     employees.forEach(e => {
       roles[e.role] = (roles[e.role] || 0) + 1;
     });
     const roleData = Object.keys(roles).map(key => ({ name: key, value: roles[key] }));
 
-    // Taux de couverture (Jours sans alerte d'effectif / Total jours)
-    // On compte le nombre de jours uniques ayant une erreur 'ALL'
+    // Coverage Rate
     const daysWithIssues = new Set(violations.filter(v => v.employeeId === 'ALL').map(v => v.date)).size;
     const coverageRate = days > 0 ? Math.round(((days - daysWithIssues) / days) * 100) : 0;
 
     return { staffingIssues, ruleBreaks, criticalErrors, roleData, coverageRate };
   }, [employees, violations, days]);
 
-  // 3. Top des violations récurrentes
+  // 4. Top Recurring Violations
   const topViolations = useMemo(() => {
       const counts: Record<string, number> = {};
       violations.forEach(v => {
-          // On simplifie le message pour grouper (ex: enlever le nom de l'employé au début)
           let key = v.message;
           if (v.employeeId !== 'ALL' && key.includes(':')) {
               key = key.split(':')[1].trim();
@@ -61,12 +89,36 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, startDate, days
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                <TrendingUp className="w-8 h-8 text-blue-600" />
-                Carnet de Bord
-            </h2>
-            <p className="text-slate-500">Synthèse de l'activité et de la conformité pour la période affichée.</p>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                    <TrendingUp className="w-8 h-8 text-blue-600" />
+                    Carnet de Bord
+                </h2>
+                <p className="text-slate-500">Analyse de la conformité : <span className="font-semibold text-slate-700 capitalize">{label}</span></p>
+            </div>
+            
+            {/* Filter Buttons */}
+            <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                <button 
+                    onClick={() => setFilter('month')}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${filter === 'month' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    <Calendar className="w-4 h-4" /> Mois
+                </button>
+                <button 
+                    onClick={() => setFilter('week')}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${filter === 'week' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    <CalendarDays className="w-4 h-4" /> Semaine
+                </button>
+                <button 
+                    onClick={() => setFilter('day')}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${filter === 'day' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    <LayoutList className="w-4 h-4" /> Jour
+                </button>
+            </div>
         </div>
 
         {/* KPI Cards */}
@@ -86,11 +138,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, startDate, days
                     <AlertOctagon className="w-8 h-8" />
                 </div>
                 <div>
-                    <div className="text-sm text-slate-500 font-medium uppercase">Jours en Sous-effectif</div>
+                    <div className="text-sm text-slate-500 font-medium uppercase">Jours Sous-effectif</div>
                     <div className={`text-3xl font-bold ${stats.staffingIssues > 0 ? 'text-red-600' : 'text-slate-800'}`}>
                         {stats.staffingIssues}
                     </div>
-                    <div className="text-xs text-slate-400">sur {days} jours affichés</div>
+                    <div className="text-xs text-slate-400">sur {days} jours analysés</div>
                 </div>
             </div>
 
@@ -112,7 +164,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, startDate, days
                 <div>
                     <div className="text-sm text-slate-500 font-medium uppercase">Taux Conformité</div>
                     <div className="text-3xl font-bold text-slate-800">{stats.coverageRate}%</div>
-                    <div className="text-xs text-slate-400">Jours sans incident majeur</div>
+                    <div className="text-xs text-slate-400">Jours sans incident</div>
                 </div>
             </div>
         </div>
@@ -140,7 +192,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, startDate, days
                     </div>
                 ) : (
                     <div className="h-64 flex items-center justify-center text-slate-400 italic">
-                        Aucune violation détectée
+                        Aucune violation détectée sur cette période.
                     </div>
                 )}
             </div>

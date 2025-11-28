@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Skill } from '../types';
-import { Plus, Trash2, Tag, Save, Loader2, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, Tag, Save, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import * as db from '../services/db';
 
 interface SkillsSettingsProps {
@@ -20,6 +20,12 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
         e.preventDefault();
         if (!newCode || !newLabel) return;
         
+        // Basic validation
+        if (skills.some(s => s.code.toUpperCase() === newCode.trim().toUpperCase())) {
+            setError(`Le code "${newCode}" existe déjà.`);
+            return;
+        }
+
         setIsLoading(true);
         setError(null);
         setSuccessMsg(null);
@@ -27,7 +33,7 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
             await db.createSkill(newCode.trim(), newLabel.trim());
             setNewCode('');
             setNewLabel('');
-            setSuccessMsg("Compétence ajoutée.");
+            setSuccessMsg("Compétence ajoutée avec succès.");
             onReload();
         } catch (err: any) {
             setError(err.message);
@@ -37,14 +43,14 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
         }
     };
 
-    const handleDelete = async (id: string) => {
-        if (!confirm("Êtes-vous sûr de vouloir supprimer cette compétence ? Cette action est irréversible.")) return;
+    const handleDelete = async (id: string, code: string) => {
+        if (!confirm(`Êtes-vous sûr de vouloir supprimer la compétence "${code}" ?\nCela ne la retirera pas des employés qui l'ont déjà, mais elle ne sera plus proposée.`)) return;
         
         setIsLoading(true);
         setSuccessMsg(null);
         try {
             await db.deleteSkill(id);
-            setSuccessMsg("Suppression réussie.");
+            setSuccessMsg(`Compétence "${code}" supprimée.`);
             onReload();
         } catch (err: any) {
             alert(err.message);
@@ -55,90 +61,107 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
     };
 
     return (
-        <div className="p-8 max-w-4xl mx-auto">
-            <h2 className="text-2xl font-bold mb-6 text-slate-800 flex items-center gap-2">
-                <Tag className="w-6 h-6 text-blue-600" />
-                Paramétrage des Compétences
-            </h2>
+        <div className="bg-white rounded-xl shadow border border-slate-200 overflow-hidden">
+            <div className="p-6 border-b border-slate-200 bg-white">
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Tag className="w-5 h-5 text-blue-600" />
+                    Paramétrage des Compétences
+                </h3>
+                <p className="text-sm text-slate-500 mt-1">
+                    Définissez ici les codes (IT, T5, S...) et compétences (Senior, Dialyse...) disponibles dans l'application.
+                </p>
+            </div>
 
-            {successMsg && (
-                <div className="mb-6 p-4 bg-green-50 text-green-700 rounded-lg flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5" /> {successMsg}
-                </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 lg:divide-x divide-slate-200">
                 {/* Formulaire d'ajout */}
-                <div className="bg-white p-6 rounded-xl shadow border border-slate-200 h-fit">
-                    <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
-                        <Plus className="w-4 h-4" /> Nouvelle Compétence
-                    </h3>
+                <div className="p-6 bg-slate-50">
+                    <h4 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                        <Plus className="w-4 h-4" /> Ajouter
+                    </h4>
                     <form onSubmit={handleAdd} className="space-y-4">
                         <div>
-                            <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Code Court</label>
+                            <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Code Court <span className="text-red-500">*</span></label>
                             <input 
                                 type="text" 
                                 value={newCode}
                                 onChange={(e) => setNewCode(e.target.value)}
-                                className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
-                                placeholder="Ex: IT, Senior"
+                                className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm"
+                                placeholder="ex: T5"
                                 maxLength={10}
                                 required
                             />
+                            <p className="text-[10px] text-slate-400 mt-1">Utilisé dans les filtres et le planning.</p>
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Libellé</label>
+                            <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Libellé Complet <span className="text-red-500">*</span></label>
                             <input 
                                 type="text" 
                                 value={newLabel}
                                 onChange={(e) => setNewLabel(e.target.value)}
-                                className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
-                                placeholder="Ex: Infirmier Titulaire"
+                                className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                placeholder="ex: Matin 10h00"
                                 required
                             />
                         </div>
-                        {error && <div className="text-xs text-red-600">{error}</div>}
+
+                        {error && (
+                            <div className="p-3 bg-red-50 text-red-600 text-xs rounded-lg flex items-start gap-2">
+                                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                                <span>{error}</span>
+                            </div>
+                        )}
+
+                        {successMsg && (
+                            <div className="p-3 bg-green-50 text-green-600 text-xs rounded-lg flex items-start gap-2 animate-in fade-in">
+                                <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                                <span>{successMsg}</span>
+                            </div>
+                        )}
+
                         <button 
                             type="submit" 
                             disabled={isLoading}
-                            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-medium flex items-center justify-center gap-2"
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50 shadow-sm"
                         >
                             {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                            Ajouter
+                            Enregistrer
                         </button>
                     </form>
                 </div>
 
-                {/* Liste existante */}
-                <div className="md:col-span-2 bg-white rounded-xl shadow border border-slate-200 overflow-hidden flex flex-col">
-                    <div className="p-4 border-b border-slate-200 bg-slate-50">
-                        <h3 className="font-semibold text-slate-800">Liste des Compétences ({skills.length})</h3>
+                {/* Liste */}
+                <div className="lg:col-span-2 flex flex-col max-h-[500px]">
+                    <div className="p-4 border-b border-slate-100 bg-white flex justify-between items-center sticky top-0 z-10">
+                        <span className="text-sm font-semibold text-slate-700">Liste existante ({skills.length})</span>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-0 max-h-[500px]">
+                    <div className="flex-1 overflow-y-auto">
                         {skills.length === 0 ? (
-                            <div className="p-8 text-center text-slate-500 italic">Aucune compétence définie.</div>
+                            <div className="p-10 text-center text-slate-400 italic flex flex-col items-center">
+                                <Tag className="w-12 h-12 mb-2 text-slate-200" />
+                                Aucune compétence enregistrée.
+                            </div>
                         ) : (
                             <table className="w-full text-sm text-left">
-                                <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
+                                <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0">
                                     <tr>
-                                        <th className="px-6 py-3">Code</th>
-                                        <th className="px-6 py-3">Libellé</th>
-                                        <th className="px-6 py-3 text-right">Actions</th>
+                                        <th className="px-6 py-3 font-medium">Code</th>
+                                        <th className="px-6 py-3 font-medium">Libellé</th>
+                                        <th className="px-6 py-3 text-right">Action</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody className="divide-y divide-slate-100">
                                     {skills.map((skill) => (
-                                        <tr key={skill.id} className="bg-white border-b hover:bg-slate-50">
+                                        <tr key={skill.id} className="bg-white hover:bg-slate-50 transition-colors group">
                                             <td className="px-6 py-3 font-medium text-slate-900">
-                                                <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-mono">
+                                                <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded border border-blue-100 font-mono text-xs">
                                                     {skill.code}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-3 text-slate-600">{skill.label}</td>
                                             <td className="px-6 py-3 text-right">
                                                 <button 
-                                                    onClick={() => handleDelete(skill.id)}
-                                                    className="text-slate-400 hover:text-red-600 transition-colors p-1 rounded"
+                                                    onClick={() => handleDelete(skill.id, skill.code)}
+                                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
                                                     title="Supprimer"
                                                 >
                                                     <Trash2 className="w-4 h-4" />

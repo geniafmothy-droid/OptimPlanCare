@@ -29,6 +29,42 @@ export const updateServiceConfig = async (id: string, config: any) => {
     }
 };
 
+export const createService = async (name: string, config: any = { openDays: [1,2,3,4,5,6] }) => {
+    const { error } = await supabase
+        .from('services')
+        .insert([{ name, config }]);
+
+    if (error) {
+        console.error('Error creating service:', JSON.stringify(error, null, 2));
+        throw new Error(error.message);
+    }
+};
+
+export const deleteService = async (id: string) => {
+    const { error } = await supabase
+        .from('services')
+        .delete()
+        .eq('id', id);
+
+    if (error) {
+        console.error('Error deleting service:', JSON.stringify(error, null, 2));
+        throw new Error(error.message);
+    }
+};
+
+export const updateService = async (id: string, name: string) => {
+    const { error } = await supabase
+        .from('services')
+        .update({ name })
+        .eq('id', id);
+
+    if (error) {
+        console.error('Error updating service:', JSON.stringify(error, null, 2));
+        throw new Error(error.message);
+    }
+};
+
+
 // --- Skills Management ---
 
 export const fetchSkills = async (): Promise<Skill[]> => {
@@ -315,6 +351,21 @@ export const bulkSaveSchedule = async (employees: Employee[]) => {
         throw new Error(error.message);
     }
   }
+};
+
+export const bulkUpsertShifts = async (shifts: {employee_id: string, date: string, shift_code: string}[]) => {
+    const BATCH_SIZE = 1000;
+    for (let i = 0; i < shifts.length; i += BATCH_SIZE) {
+        const batch = shifts.slice(i, i + BATCH_SIZE);
+        const { error } = await supabase
+            .from('shifts')
+            .upsert(batch, { onConflict: 'employee_id,date' });
+        
+        if (error) {
+            console.error('Error bulk upserting shifts:', JSON.stringify(error, null, 2));
+            throw new Error(error.message);
+        }
+    }
 };
 
 export const clearShiftsInRange = async (year: number, month: number) => {

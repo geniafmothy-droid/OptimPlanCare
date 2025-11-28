@@ -14,10 +14,41 @@ interface ScheduleGridProps {
 export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate, days, viewMode, onCellClick }) => {
   const [showDetails, setShowDetails] = useState(false);
 
+  // Generate date headers (MOVED UP: Hooks must be executed unconditionally)
+  const dates = useMemo(() => {
+    const result = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date(startDate);
+      d.setDate(d.getDate() + i);
+      
+      // FIX: Use local date construction instead of toISOString() to avoid timezone shifts
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+
+      result.push({
+        obj: d,
+        str: dateStr, // Key used to lookup shifts
+        dayName: d.toLocaleDateString('fr-FR', { weekday: 'short' }),
+        dayNameFull: d.toLocaleDateString('fr-FR', { weekday: 'long' }),
+        dayNum: d.getDate(),
+        month: d.toLocaleDateString('fr-FR', { month: 'short' })
+      });
+    }
+    return result;
+  }, [startDate, days]);
+
   // --- MODE HORAIRE (HOURLY) ---
   if (viewMode === 'hourly') {
     // Dans ce mode, on affiche une grille 05h-24h pour une seule journée
-    const currentDateStr = startDate.toISOString().split('T')[0];
+    
+    // FIX: Use local date construction for hourly view as well
+    const year = startDate.getFullYear();
+    const month = String(startDate.getMonth() + 1).padStart(2, '0');
+    const day = String(startDate.getDate()).padStart(2, '0');
+    const currentDateStr = `${year}-${month}-${day}`;
+
     const startDisplayHour = 5;
     const endDisplayHour = 24;
     const hours = Array.from({ length: endDisplayHour - startDisplayHour }, (_, i) => i + startDisplayHour);
@@ -121,31 +152,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
   }
 
   // --- MODE DATE STANDARD (Mois, Semaine, 5 Jours) ---
-  
-  // Generate date headers
-  const dates = useMemo(() => {
-    const result = [];
-    for (let i = 0; i < days; i++) {
-      const d = new Date(startDate);
-      d.setDate(d.getDate() + i);
-      
-      // FIX: Use local date construction instead of toISOString() to avoid timezone shifts
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      const dateStr = `${year}-${month}-${day}`;
-
-      result.push({
-        obj: d,
-        str: dateStr, // Key used to lookup shifts
-        dayName: d.toLocaleDateString('fr-FR', { weekday: 'short' }),
-        dayNameFull: d.toLocaleDateString('fr-FR', { weekday: 'long' }),
-        dayNum: d.getDate(),
-        month: d.toLocaleDateString('fr-FR', { month: 'short' })
-      });
-    }
-    return result;
-  }, [startDate, days]);
 
   const isWeekend = (date: Date) => {
     const day = date.getDay();

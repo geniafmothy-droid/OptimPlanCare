@@ -1,6 +1,8 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, ShieldCheck, ChevronDown, ChevronUp } from 'lucide-react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
+import { StaffingSummary } from './components/StaffingSummary';
 import { StatsPanel } from './components/StatsPanel';
 import { ConstraintChecker } from './components/ConstraintChecker';
 import { LeaveManager } from './components/LeaveManager';
@@ -257,6 +259,59 @@ function App() {
     } catch (error: any) {
       console.error(error);
       setToast({ message: "Erreur lors de l'exportation", type: "error" });
+    }
+  };
+
+  // Copy schedule from current month to next month
+  const handleCopyToNextMonth = async () => {
+    if (!confirm("Copier le planning du mois affiché vers le mois suivant ?\nCela écrasera les données existantes du mois cible.")) return;
+    
+    setIsLoading(true);
+    try {
+      // 1. Determine Target Month
+      const nextDate = new Date(currentDate);
+      nextDate.setMonth(nextDate.getMonth() + 1);
+      const targetYear = nextDate.getFullYear();
+      const targetMonth = nextDate.getMonth();
+
+      // 2. Prepare Data
+      const shiftsToCopy: {employee_id: string, date: string, shift_code: string}[] = [];
+      const daysInCurrent = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+      const daysInTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
+      const limitDays = Math.min(daysInCurrent, daysInTarget);
+
+      for (let day = 1; day <= limitDays; day++) {
+        // Source Key
+        const srcDateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        // Target Key
+        const targetDateStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+        employees.forEach(emp => {
+          const code = emp.shifts[srcDateStr];
+          if (code && code !== 'OFF') {
+            shiftsToCopy.push({
+              employee_id: emp.id,
+              date: targetDateStr,
+              shift_code: code
+            });
+          }
+        });
+      }
+
+      // 3. Save to DB
+      if (shiftsToCopy.length > 0) {
+        await db.bulkUpsertShifts(shiftsToCopy);
+        await loadData(); // Reload to reflect changes if we navigate
+        setToast({ message: "Planning copié vers le mois suivant avec succès.", type: "success" });
+      } else {
+        setToast({ message: "Aucun poste à copier dans le mois courant.", type: "warning" });
+      }
+
+    } catch (error: any) {
+      console.error(error);
+      setToast({ message: `Erreur copie: ${error.message}`, type: "error" });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -543,7 +598,11 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
           </div>
           <div>
              <h1 className="text-lg font-bold text-slate-800 leading-tight">OptiPlan</h1>
-             <p className="text-xs text-slate-500">Service Dialyse • Connecté Supabase</p>
+             <p className="text-xs text-slate-500 flex items-center gap-1">
+                {activeService ? activeService.name : 'Aucun service'} 
+                <span className="text-slate-300">•</span> 
+                Supabase
+             </p>
           </div>
           <button onClick={downloadSqlSchema} className="ml-2 p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Télécharger Schéma SQL">
              <Download className="w-4 h-4" />
@@ -650,6 +709,14 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
              </label>
 
              <button 
+               onClick={handleCopyToNextMonth}
+               className="p-2 bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 rounded-lg transition-colors shadow-sm"
+               title="Copier vers M+1"
+             >
+                <Copy className="w-4 h-4" />
+             </button>
+
+             <button 
                onClick={() => openDateModal('reset')}
                className="p-2 bg-white hover:bg-red-50 text-red-600 border border-red-200 rounded-lg transition-colors shadow-sm"
                title="Réinitialiser"
@@ -672,7 +739,7 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
       <div className="flex-1 flex overflow-hidden">
         
         {/* Sidebar */}
-        <aside className="w-16 md:w-64 bg-white border-r border-slate-200 flex-shrink-0 flex flex-col overflow-y-auto">
+        <aside className="w-16 md:w-64 bg-white border-r border-slate-200 flex-shrink-0 flex flex-col overflow-y-auto no-print">
           <nav className="p-4 space-y-2">
             <button onClick={() => setActiveTab('planning')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'planning' ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100' : 'text-slate-600 hover:bg-slate-50'}`}>
               <Calendar className="w-5 h-5" />
@@ -705,17 +772,33 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
             <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
               <div className="flex items-center gap-2 mb-3 text-slate-500">
                 <Filter className="w-4 h-4" />
-                <h3 className="text-xs font-semibold uppercase">Filtres</h3>
+                <h3 className="text-xs font-semibold uppercase">Filtres & Contexte</h3>
               </div>
-              <div className="space-y-3">
+              <div className="space-y-4">
+                {/* Service Filter */}
                 <div>
-                   <label className="text-xs text-slate-600 font-medium mb-1.5 block">Service</label>
-                   <select value={activeServiceId} onChange={(e) => setActiveServiceId(e.target.value)} className="w-full text-xs border-slate-200 rounded-md p-1.5 bg-white text-slate-700 focus:ring-1 focus:ring-blue-500 outline-none">
-                       {servicesList.map(s => (
-                           <option key={s.id} value={s.id}>{s.name}</option>
-                       ))}
-                   </select>
+                   <label className="text-xs text-slate-600 font-bold mb-1.5 block flex items-center justify-between">
+                      Service
+                      <span className="text-[10px] font-normal text-blue-600">Actif</span>
+                   </label>
+                   <div className="relative">
+                       <Store className="absolute left-2 top-2 w-4 h-4 text-slate-400" />
+                       <select value={activeServiceId} onChange={(e) => setActiveServiceId(e.target.value)} className="w-full text-xs border-slate-200 rounded-md py-1.5 pl-8 pr-2 bg-white text-slate-700 focus:ring-1 focus:ring-blue-500 outline-none">
+                           {servicesList.map(s => (
+                               <option key={s.id} value={s.id}>{s.name}</option>
+                           ))}
+                           {servicesList.length === 0 && <option value="">Aucun service</option>}
+                       </select>
+                   </div>
+                   {activeService && (
+                       <p className="text-[10px] text-slate-400 mt-1 pl-1">
+                           {activeService.config.openDays.includes(0) ? "Ouvert 7j/7" : "Fermé le Dimanche"}
+                       </p>
+                   )}
                 </div>
+
+                <div className="h-px bg-slate-200 my-2"></div>
+
                 <div>
                   <label className="text-xs text-slate-600 font-medium mb-1.5 block">Rôle</label>
                   <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="w-full text-xs border-slate-200 rounded-md p-1.5 bg-white text-slate-700 focus:ring-1 focus:ring-blue-500 outline-none">
@@ -762,23 +845,31 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
              <>
                 {/* Main Grid View */}
                 {activeTab === 'planning' && (
-                    <div className="print-container flex-1 p-4 flex gap-4 overflow-hidden h-full">
-                        <div className="flex-1 flex flex-col h-full min-w-0">
-                        <ScheduleGrid 
-                            employees={filteredEmployees} 
-                            startDate={gridStartDate} 
-                            days={gridDuration} 
-                            viewMode={viewMode}
-                            onCellClick={handleCellClick}
-                        />
-                        </div>
-                        <div className="w-80 flex-shrink-0 hidden xl:flex flex-col h-full no-print">
-                           <ConstraintChecker 
-                              employees={filteredEmployees} 
-                              startDate={gridStartDate} 
-                              days={gridDuration} 
-                              serviceConfig={activeService?.config}
-                           />
+                    <div className="print-container flex-1 p-4 flex flex-col gap-4 overflow-hidden h-full">
+                        <div className="flex-1 flex gap-4 min-h-0 overflow-hidden">
+                          <div className="flex-1 flex flex-col h-full min-w-0">
+                            <ScheduleGrid 
+                                employees={filteredEmployees} 
+                                startDate={gridStartDate} 
+                                days={gridDuration} 
+                                viewMode={viewMode}
+                                onCellClick={handleCellClick}
+                            />
+                            {/* Staffing Summary Below Grid */}
+                            <StaffingSummary 
+                                employees={filteredEmployees}
+                                startDate={gridStartDate}
+                                days={gridDuration}
+                            />
+                          </div>
+                          <div className="w-80 flex-shrink-0 hidden xl:flex flex-col h-full no-print overflow-hidden">
+                             <ConstraintChecker 
+                                employees={filteredEmployees} 
+                                startDate={gridStartDate} 
+                                days={gridDuration} 
+                                serviceConfig={activeService?.config}
+                             />
+                          </div>
                         </div>
                     </div>
                 )}
@@ -786,7 +877,11 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                 {/* Dashboard View (New) */}
                 {activeTab === 'dashboard' && (
                     <div className="flex-1 overflow-y-auto h-full">
-                        <Dashboard employees={employees} startDate={gridStartDate} days={gridDuration} />
+                        <Dashboard 
+                            employees={employees} 
+                            currentDate={currentDate} 
+                            serviceConfig={activeService?.config}
+                        />
                     </div>
                 )}
 
@@ -883,7 +978,7 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                                                 <div className="mb-2 font-semibold text-slate-600">Sur la période affichée :</div>
                                                 {empViolations.length === 0 ? (
                                                     <div className="flex items-center gap-2 text-green-600">
-                                                        <CheckCircle className="w-4 h-4" />
+                                                        <CheckCircle2 className="w-4 h-4" />
                                                         <span>Aucune anomalie détectée.</span>
                                                     </div>
                                                 ) : (
