@@ -59,23 +59,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, startDate, days
         .slice(0, 5);
   }, [violations]);
 
-  // 4. Absences à venir (sur la période affichée)
-  const absentees = useMemo(() => {
-      let count = 0;
-      employees.forEach(emp => {
-          for(let i=0; i<days; i++) {
-              const d = new Date(startDate);
-              d.setDate(d.getDate() + i);
-              const dateStr = d.toISOString().split('T')[0];
-              const code = emp.shifts[dateStr];
-              if (code === 'CA' || code === 'NT' || code === 'RH' || code === 'RC') {
-                  count++;
-              }
-          }
-      });
-      return count;
-  }, [employees, startDate, days]);
-
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
         <div>

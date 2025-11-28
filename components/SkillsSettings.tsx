@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Skill } from '../types';
-import { Plus, Trash2, Tag, Save, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Tag, Save, Loader2, CheckCircle2 } from 'lucide-react';
 import * as db from '../services/db';
 
 interface SkillsSettingsProps {
@@ -14,6 +14,7 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
     const [newLabel, setNewLabel] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
     const handleAdd = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -21,28 +22,35 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
         
         setIsLoading(true);
         setError(null);
+        setSuccessMsg(null);
         try {
             await db.createSkill(newCode.trim(), newLabel.trim());
             setNewCode('');
             setNewLabel('');
+            setSuccessMsg("Compétence ajoutée.");
             onReload();
         } catch (err: any) {
             setError(err.message);
         } finally {
             setIsLoading(false);
+            setTimeout(() => setSuccessMsg(null), 3000);
         }
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm("Supprimer cette compétence ?")) return;
+        if (!confirm("Êtes-vous sûr de vouloir supprimer cette compétence ? Cette action est irréversible.")) return;
+        
         setIsLoading(true);
+        setSuccessMsg(null);
         try {
             await db.deleteSkill(id);
+            setSuccessMsg("Suppression réussie.");
             onReload();
         } catch (err: any) {
             alert(err.message);
         } finally {
             setIsLoading(false);
+            setTimeout(() => setSuccessMsg(null), 3000);
         }
     };
 
@@ -52,6 +60,12 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                 <Tag className="w-6 h-6 text-blue-600" />
                 Paramétrage des Compétences
             </h2>
+
+            {successMsg && (
+                <div className="mb-6 p-4 bg-green-50 text-green-700 rounded-lg flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5" /> {successMsg}
+                </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Formulaire d'ajout */}
@@ -100,7 +114,7 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                     <div className="p-4 border-b border-slate-200 bg-slate-50">
                         <h3 className="font-semibold text-slate-800">Liste des Compétences ({skills.length})</h3>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-0">
+                    <div className="flex-1 overflow-y-auto p-0 max-h-[500px]">
                         {skills.length === 0 ? (
                             <div className="p-8 text-center text-slate-500 italic">Aucune compétence définie.</div>
                         ) : (
@@ -124,7 +138,7 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                                             <td className="px-6 py-3 text-right">
                                                 <button 
                                                     onClick={() => handleDelete(skill.id)}
-                                                    className="text-slate-400 hover:text-red-600 transition-colors"
+                                                    className="text-slate-400 hover:text-red-600 transition-colors p-1 rounded"
                                                     title="Supprimer"
                                                 >
                                                     <Trash2 className="w-4 h-4" />

@@ -1,7 +1,13 @@
-import { Employee, ConstraintViolation } from '../types';
+
+import { Employee, ConstraintViolation, ServiceConfig } from '../types';
 import { SHIFT_TYPES, SHIFT_HOURS } from '../constants';
 
-export const checkConstraints = (employees: Employee[], startDate: Date, days: number): ConstraintViolation[] => {
+export const checkConstraints = (
+    employees: Employee[], 
+    startDate: Date, 
+    days: number,
+    serviceConfig?: ServiceConfig
+): ConstraintViolation[] => {
     const list: ConstraintViolation[] = [];
     
     // Helper to get day of week (0 = Sunday, 1 = Monday, ...)
@@ -13,39 +19,36 @@ export const checkConstraints = (employees: Employee[], startDate: Date, days: n
     for (let i = 0; i < days; i++) {
         const d = new Date(startDate);
         d.setDate(d.getDate() + i);
-        const dateStr = d.toISOString().split('T')[0];
-        const dayOfWeek = getDayOfWeek(d); // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+        // FORCE LOCAL DATE STRING
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const dayOfWeek = getDayOfWeek(d); // 0=Sun, 1=Mon...
 
-        // Rule: Service Dialyse FERMÉ le dimanche
-        // STRICT: Le code DOIT être RH
-        if (dayOfWeek === 0) {
+        // Check if service is open
+        // Default to [1,2,3,4,5,6] (Closed Sunday) if no config provided for backward compat, 
+        // OR rely on passed config. If config exists, use it.
+        const isOpen = serviceConfig ? serviceConfig.openDays.includes(dayOfWeek) : dayOfWeek !== 0;
+
+        // Si le service est FERMÉ ce jour-là
+        if (!isOpen) {
             employees.forEach(emp => {
                 const code = emp.shifts[dateStr];
-                // Si le code n'est pas RH (on tolère éventuellement CA s'il est en congés, mais la consigne dit "par défaut RH")
-                // On va être strict : Si c'est du travail OU si ce n'est pas RH/CA
+                // Si travail alors que fermé => Erreur
                 if (code && SHIFT_TYPES[code]?.isWork) {
                     list.push({
                         employeeId: emp.id,
                         date: dateStr,
                         type: 'INVALID_ROTATION',
-                        message: `${emp.name} : Service fermé le dimanche (Travail interdit)`,
+                        message: `${emp.name} : Service fermé ce jour (Travail interdit)`,
                         severity: 'error'
                     });
-                } else if (code && code !== 'RH' && code !== 'CA' && code !== 'OFF' && code !== 'RC') {
-                    // Added RC as acceptable for Sunday (as per nurse matrix)
-                     list.push({
-                        employeeId: emp.id,
-                        date: dateStr,
-                        type: 'INVALID_ROTATION',
-                        message: `${emp.name} : Dimanche doit être marqué 'RH'`,
-                        severity: 'warning'
-                    });
-                }
+                } 
+                // Optionnel : Warning si pas de code de repos explicite ?
             });
-            // Skip staffing checks for Sunday as the service is closed
+            // On saute les vérifications d'effectif minimum
             continue;
         }
 
+        // Si ouvert, vérifications d'effectifs
         let countIT = 0;
         let countT5 = 0;
         let countT6 = 0;
@@ -113,11 +116,12 @@ export const checkConstraints = (employees: Employee[], startDate: Date, days: n
       for (let i = 0; i < days - 1; i++) {
         const d = new Date(startDate);
         d.setDate(d.getDate() + i);
-        const dateStr = d.toISOString().split('T')[0];
+        // FORCE LOCAL DATE STRING
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         
         const nextD = new Date(d);
         nextD.setDate(d.getDate() + 1);
-        const nextDateStr = nextD.toISOString().split('T')[0];
+        const nextDateStr = `${nextD.getFullYear()}-${String(nextD.getMonth() + 1).padStart(2, '0')}-${String(nextD.getDate()).padStart(2, '0')}`;
 
         if (emp.shifts[dateStr] === 'S') {
             const nextCode = emp.shifts[nextDateStr];
@@ -141,7 +145,7 @@ export const checkConstraints = (employees: Employee[], startDate: Date, days: n
           for (let j = 0; j < 7; j++) {
               const d = new Date(startDate);
               d.setDate(d.getDate() + i + j);
-              const dateStr = d.toISOString().split('T')[0];
+              const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
               
               const code = emp.shifts[dateStr];
               if (code === 'RH' || code === 'RC' || code === 'NT' || code === 'CA') rhCount++;
@@ -152,13 +156,12 @@ export const checkConstraints = (employees: Employee[], startDate: Date, days: n
 
           const startWindow = new Date(startDate);
           startWindow.setDate(startWindow.getDate() + i);
-          const endWindow = new Date(startWindow);
-          endWindow.setDate(endWindow.getDate() + 6);
+          const dateLabel = `${startWindow.getFullYear()}-${String(startWindow.getMonth() + 1).padStart(2, '0')}-${String(startWindow.getDate()).padStart(2, '0')}`;
 
           if (rhCount < 2) {
               list.push({
                   employeeId: emp.id,
-                  date: startWindow.toISOString().split('T')[0],
+                  date: dateLabel,
                   type: 'CONSECUTIVE_DAYS',
                   message: `${emp.name}: Moins de 2 jours de repos sur 7 jours`,
                   severity: 'warning'
@@ -169,7 +172,7 @@ export const checkConstraints = (employees: Employee[], startDate: Date, days: n
           if (emp.role === 'Infirmier' && totalHours > 48) {
              list.push({
                   employeeId: emp.id,
-                  date: startWindow.toISOString().split('T')[0],
+                  date: dateLabel,
                   type: 'CONSECUTIVE_DAYS',
                   message: `${emp.name}: > 48h sur 7 jours glissants (${totalHours}h)`,
                   severity: 'error'
@@ -185,14 +188,14 @@ export const checkConstraints = (employees: Employee[], startDate: Date, days: n
             const dayOfWeek = getDayOfWeek(d);
 
             if (dayOfWeek === 6) { // Saturday
-               const dateStr = d.toISOString().split('T')[0];
+               const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
                const currentCode = emp.shifts[dateStr];
                
                if (currentCode && SHIFT_TYPES[currentCode]?.isWork) {
                   // Check previous Saturday
                   const prevSat = new Date(d);
                   prevSat.setDate(d.getDate() - 7);
-                  const prevSatStr = prevSat.toISOString().split('T')[0];
+                  const prevSatStr = `${prevSat.getFullYear()}-${String(prevSat.getMonth() + 1).padStart(2, '0')}-${String(prevSat.getDate()).padStart(2, '0')}`;
                   const prevCode = emp.shifts[prevSatStr];
 
                   // Only check if previous Saturday is within our known data (shifts object)

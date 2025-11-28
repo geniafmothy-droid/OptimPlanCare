@@ -1,7 +1,33 @@
 
 import { supabase } from '../lib/supabase';
-import { Employee, ShiftCode, Skill } from '../types';
+import { Employee, ShiftCode, Skill, Service } from '../types';
 import { MOCK_EMPLOYEES } from '../constants';
+
+// --- Services Management ---
+export const fetchServices = async (): Promise<Service[]> => {
+    const { data, error } = await supabase
+        .from('services')
+        .select('*');
+    
+    if (error) {
+        console.error('Error fetching services:', JSON.stringify(error, null, 2));
+        if (error.code === '42P01') return []; 
+        throw new Error(error.message);
+    }
+    return data || [];
+};
+
+export const updateServiceConfig = async (id: string, config: any) => {
+    const { error } = await supabase
+        .from('services')
+        .update({ config })
+        .eq('id', id);
+    
+    if (error) {
+        console.error('Error updating service config:', JSON.stringify(error, null, 2));
+        throw new Error(error.message);
+    }
+};
 
 // --- Skills Management ---
 
@@ -130,6 +156,7 @@ export const saveLeaveRange = async (employeeId: string, startDate: string, endD
         const dateStr = d.toISOString().split('T')[0];
         
         // Specific Rule: Dialyse Service closes on Sunday -> RH
+        // Ideally fetch this from service config, but kept simple here for bulk op
         const isSunday = d.getDay() === 0;
         const codeToApply = isSunday ? 'RH' : type;
 

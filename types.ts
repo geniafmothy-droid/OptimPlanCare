@@ -66,3 +66,13 @@ export interface ConstraintViolation {
 }
 
 export type ViewMode = 'month' | 'week' | 'workweek' | 'day' | 'hourly';
+
+export interface ServiceConfig {
+    openDays: number[]; // 0=Sun, 1=Mon...
+}
+
+export interface Service {
+    id: string;
+    name: string;
+    config: ServiceConfig;
+}

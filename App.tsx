@@ -1,14 +1,14 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard } from 'lucide-react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, ShieldCheck, ChevronDown, ChevronUp } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
 import { StatsPanel } from './components/StatsPanel';
 import { ConstraintChecker } from './components/ConstraintChecker';
 import { LeaveManager } from './components/LeaveManager';
 import { SkillsSettings } from './components/SkillsSettings';
+import { ServiceSettings } from './components/ServiceSettings';
 import { Dashboard } from './components/Dashboard';
 import { SHIFT_TYPES } from './constants';
-import { Employee, ShiftCode, ViewMode, Skill } from './types';
+import { Employee, ShiftCode, ViewMode, Skill, Service } from './types';
 import { generateMonthlySchedule } from './utils/scheduler';
 import { parseScheduleCSV } from './utils/csvImport';
 import { exportScheduleToCSV } from './utils/csvExport';
@@ -18,11 +18,14 @@ import * as db from './services/db';
 
 function App() {
   const [activeTab, setActiveTab] = useState<'planning' | 'stats' | 'team' | 'leaves' | 'settings' | 'dashboard'>('planning');
-  const [currentDate, setCurrentDate] = useState(new Date('2024-12-01'));
+  const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [skillsList, setSkillsList] = useState<Skill[]>([]);
+  const [servicesList, setServicesList] = useState<Service[]>([]);
+  const [activeServiceId, setActiveServiceId] = useState<string>('');
+  
   const [selectedCell, setSelectedCell] = useState<{empId: string, date: string} | null>(null);
 
   // Loading States
@@ -38,12 +41,18 @@ function App() {
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null); 
   const [newSkillInput, setNewSkillInput] = useState(''); 
   
+  // Team View Expansion State
+  const [expandedEmpId, setExpandedEmpId] = useState<string | null>(null);
+
   // Date Selection Modal State
   const [dateModalMode, setDateModalMode] = useState<'none' | 'generate' | 'reset'>('none');
   const [targetConfig, setTargetConfig] = useState({ 
     month: new Date().getMonth(), 
     year: new Date().getFullYear() 
   });
+
+  // Date Picker Toggle
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   // Toast State
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
@@ -61,12 +70,19 @@ function App() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [empData, skillsData] = await Promise.all([
+      const [empData, skillsData, servicesData] = await Promise.all([
           db.fetchEmployeesWithShifts(),
-          db.fetchSkills()
+          db.fetchSkills(),
+          db.fetchServices()
       ]);
       setEmployees(empData);
       setSkillsList(skillsData);
+      setServicesList(servicesData);
+      
+      // Default service select
+      if (servicesData.length > 0 && !activeServiceId) {
+          setActiveServiceId(servicesData[0].id);
+      }
     } catch (error: any) {
       console.error(error);
       setToast({ message: `Erreur: ${error.message || "Problème de connexion"}`, type: "error" });
@@ -74,6 +90,8 @@ function App() {
       setIsLoading(false);
     }
   };
+
+  const activeService = servicesList.find(s => s.id === activeServiceId) || null;
 
   const handleSeedDatabase = async () => {
     setIsLoading(true);
@@ -109,6 +127,17 @@ function App() {
       newDate.setDate(newDate.getDate() + (direction === 'next' ? 1 : -1));
     }
     setCurrentDate(newDate);
+  };
+
+  const handleToday = () => {
+      setCurrentDate(new Date());
+  };
+
+  const handleDateSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.value) {
+          setCurrentDate(new Date(e.target.value));
+          setShowDatePicker(false);
+      }
   };
 
   // --- View Calculation Helpers ---
@@ -171,9 +200,15 @@ function App() {
     // Validation
     const emp = updatedEmployees.find(e => e.id === selectedCell.empId);
     if (emp) {
-        const violations = checkConstraints([emp], new Date(selectedCell.date), 1);
+        // FIX: Construct local date explicitly to avoid timezone offset issues with new Date("YYYY-MM-DD")
+        const [y, m, d] = selectedCell.date.split('-').map(Number);
+        const localDate = new Date(y, m - 1, d);
+        
+        const violations = checkConstraints([emp], localDate, 1, activeService?.config);
         if (violations.length > 0) {
             setToast({ message: violations[0].message, type: violations[0].severity });
+        } else {
+            setToast({ message: "Enregistré", type: 'success' });
         }
     }
 
@@ -237,8 +272,14 @@ function App() {
     setIsLoading(true);
     try {
         if (dateModalMode === 'generate') {
-          // Generate locally first
-          const newSchedule = generateMonthlySchedule(employees, targetConfig.year, targetConfig.month);
+          // Generate locally first with smart logic, passing the Service Config
+          const newSchedule = generateMonthlySchedule(
+              employees, 
+              targetConfig.year, 
+              targetConfig.month, 
+              activeService?.config
+          );
+          
           // Bulk save
           await db.bulkSaveSchedule(newSchedule);
           setEmployees(newSchedule);
@@ -255,7 +296,8 @@ function App() {
 
             updated.forEach(emp => {
               for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-                const dateStr = d.toISOString().split('T')[0];
+                // Force local date string
+                const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
                 delete emp.shifts[dateStr];
               }
             });
@@ -326,7 +368,6 @@ function App() {
     }
 
     // 2. Vérification unicité Matricule (optimiste local)
-    // On ignore l'employé lui-même lors de la vérification (si édition)
     const duplicate = employees.find(e => 
         e.matricule.toLowerCase() === editingEmployee.matricule.toLowerCase() && 
         e.id !== editingEmployee.id
@@ -340,7 +381,6 @@ function App() {
     setIsSaving(true);
     try {
         await db.upsertEmployee(editingEmployee);
-        // Recharger les données pour avoir les bons IDs et s'assurer de la synchro
         await loadData();
         setToast({ message: "Fiche équipier enregistrée avec succès", type: "success" });
         setEditingEmployee(null);
@@ -377,32 +417,6 @@ function App() {
     const sqlContent = `
 -- Script SQL pour Supabase
 
--- 1. Migration : Ajout des colonnes pour la gestion des congés et compétences
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'leave_balance') THEN
-        ALTER TABLE public.employees ADD COLUMN leave_balance NUMERIC DEFAULT 0;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'skills') THEN
-        ALTER TABLE public.employees ADD COLUMN skills TEXT[] DEFAULT '{}'::TEXT[];
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'fte') THEN
-        ALTER TABLE public.employees ADD COLUMN fte NUMERIC DEFAULT 1.0;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'leave_data') THEN
-        ALTER TABLE public.employees ADD COLUMN leave_data JSONB DEFAULT '{
-            "year": 2024,
-            "counters": {
-                "CA": { "allowed": 25, "taken": 0, "reliquat": 0 },
-                "RTT": { "allowed": 0, "taken": 0, "reliquat": 0 },
-                "RC": { "allowed": 0, "taken": 0, "reliquat": 0 }
-            },
-            "history": []
-        }'::jsonb;
-    END IF;
-END $$;
-
--- 2. Structure complète (si les tables n'existent pas)
 CREATE TABLE IF NOT EXISTS public.skills (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -410,7 +424,19 @@ CREATE TABLE IF NOT EXISTS public.skills (
     label TEXT NOT NULL
 );
 ALTER TABLE public.skills ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Enable all access for skills" ON public.skills;
 CREATE POLICY "Enable all access for skills" ON public.skills FOR ALL USING (true) WITH CHECK (true);
+
+CREATE TABLE IF NOT EXISTS public.services (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    name TEXT NOT NULL UNIQUE,
+    config JSONB DEFAULT '{"openDays": [1, 2, 3, 4, 5, 6]}'::jsonb
+);
+ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Enable all access for services" ON public.services;
+CREATE POLICY "Enable all access for services" ON public.services FOR ALL USING (true) WITH CHECK (true);
+INSERT INTO public.services (name, config) VALUES ('Dialyse', '{"openDays": [1, 2, 3, 4, 5, 6]}') ON CONFLICT (name) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS public.employees (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -425,6 +451,7 @@ CREATE TABLE IF NOT EXISTS public.employees (
 );
 
 ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Enable all access for employees" ON public.employees;
 CREATE POLICY "Enable all access for employees" ON public.employees FOR ALL USING (true) WITH CHECK (true);
 
 CREATE TABLE IF NOT EXISTS public.shifts (
@@ -437,9 +464,9 @@ CREATE TABLE IF NOT EXISTS public.shifts (
 );
 
 ALTER TABLE public.shifts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Enable all access for shifts" ON public.shifts;
 CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (true) WITH CHECK (true);
 
--- 3. Insertion des compétences par défaut (Modèle Horaire Dialyse)
 INSERT INTO public.skills (code, label) SELECT 'Senior', 'Infirmier Senior' WHERE NOT EXISTS (SELECT 1 FROM public.skills WHERE code = 'Senior');
 INSERT INTO public.skills (code, label) SELECT 'Tutorat', 'Habilité Tutorat' WHERE NOT EXISTS (SELECT 1 FROM public.skills WHERE code = 'Tutorat');
 INSERT INTO public.skills (code, label) SELECT 'Dialyse', 'Spécialisation Dialyse' WHERE NOT EXISTS (SELECT 1 FROM public.skills WHERE code = 'Dialyse');
@@ -525,15 +552,37 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
 
         <div className="flex items-center gap-4">
            {/* Date Navigation */}
-           <div className="flex items-center bg-slate-50 rounded-lg p-1 border border-slate-200">
+           <div className="flex items-center bg-slate-50 rounded-lg p-1 border border-slate-200 relative">
              <button className="p-1 hover:bg-slate-200 rounded" onClick={() => handleDateNavigate('prev')}>
                <ChevronLeft className="w-4 h-4 text-slate-600" />
              </button>
-             <span className="px-3 text-sm font-medium text-slate-700 min-w-[200px] text-center capitalize">
+             
+             <button 
+                className="px-3 text-sm font-medium text-slate-700 min-w-[200px] text-center capitalize hover:bg-slate-100 rounded"
+                onClick={() => setShowDatePicker(!showDatePicker)}
+             >
                 {getDateLabel()}
-             </span>
+             </button>
+
+             {showDatePicker && (
+                <div className="absolute top-full left-0 mt-2 bg-white shadow-xl rounded-lg border border-slate-200 p-2 z-50">
+                    <input 
+                        type="date" 
+                        onChange={handleDateSelect}
+                        className="p-2 border border-slate-300 rounded outline-none"
+                    />
+                </div>
+             )}
+
              <button className="p-1 hover:bg-slate-200 rounded" onClick={() => handleDateNavigate('next')}>
                <ChevronRight className="w-4 h-4 text-slate-600" />
+             </button>
+
+             <button 
+                onClick={handleToday}
+                className="ml-1 px-2 py-1 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-100"
+             >
+                Aujourd'hui
              </button>
            </div>
            
@@ -660,6 +709,14 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
               </div>
               <div className="space-y-3">
                 <div>
+                   <label className="text-xs text-slate-600 font-medium mb-1.5 block">Service</label>
+                   <select value={activeServiceId} onChange={(e) => setActiveServiceId(e.target.value)} className="w-full text-xs border-slate-200 rounded-md p-1.5 bg-white text-slate-700 focus:ring-1 focus:ring-blue-500 outline-none">
+                       {servicesList.map(s => (
+                           <option key={s.id} value={s.id}>{s.name}</option>
+                       ))}
+                   </select>
+                </div>
+                <div>
                   <label className="text-xs text-slate-600 font-medium mb-1.5 block">Rôle</label>
                   <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="w-full text-xs border-slate-200 rounded-md p-1.5 bg-white text-slate-700 focus:ring-1 focus:ring-blue-500 outline-none">
                     <option value="all">Tous les rôles</option>
@@ -675,7 +732,7 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                     <option value="all">Toutes</option>
                     {skillsList.map(skill => (
                         <option key={skill.code} value={skill.code}>
-                            {skill.label} ({skill.code})
+                            {skill.code}
                         </option>
                     ))}
                   </select>
@@ -716,7 +773,12 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                         />
                         </div>
                         <div className="w-80 flex-shrink-0 hidden xl:flex flex-col h-full no-print">
-                           <ConstraintChecker employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />
+                           <ConstraintChecker 
+                              employees={filteredEmployees} 
+                              startDate={gridStartDate} 
+                              days={gridDuration} 
+                              serviceConfig={activeService?.config}
+                           />
                         </div>
                     </div>
                 )}
@@ -742,10 +804,13 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                     </div>
                 )}
                 
-                {/* Skills Settings View */}
+                {/* Settings View (Skills & Service) */}
                 {activeTab === 'settings' && (
-                    <div className="flex-1 overflow-y-auto h-full">
-                        <SkillsSettings skills={skillsList} onReload={loadData} />
+                    <div className="flex-1 overflow-y-auto h-full p-8 space-y-8">
+                        <div className="max-w-4xl mx-auto space-y-8">
+                            <ServiceSettings service={activeService} onReload={loadData} />
+                            <SkillsSettings skills={skillsList} onReload={loadData} />
+                        </div>
                     </div>
                 )}
 
@@ -754,7 +819,13 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                     <div className="p-8 overflow-y-auto">
                         <h2 className="text-2xl font-bold mb-6 text-slate-800">Gestion de l'équipe</h2>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {filteredEmployees.map(emp => (
+                            {filteredEmployees.map(emp => {
+                                // Calculate violations ONLY if expanded to avoid perf hit on all cards
+                                const empViolations = expandedEmpId === emp.id 
+                                    ? checkConstraints([emp], gridStartDate, gridDuration, activeService?.config).filter(v => v.employeeId === emp.id)
+                                    : [];
+
+                                return (
                                 <div key={emp.id} className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 flex flex-col gap-4 relative group hover:border-blue-300 transition-all">
                                     <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button onClick={() => handleEditEmployee(emp)} className="p-1.5 bg-slate-100 hover:bg-blue-100 text-slate-500 hover:text-blue-600 rounded-lg transition-colors" title="Modifier">
@@ -796,8 +867,43 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                                             )}
                                         </div>
                                     </div>
+
+                                    {/* Section Violations Dépliable */}
+                                    <div className="mt-2 border-t border-slate-100 pt-2">
+                                        <button 
+                                            onClick={() => setExpandedEmpId(expandedEmpId === emp.id ? null : emp.id)}
+                                            className="w-full flex items-center justify-center gap-2 py-1.5 text-xs font-medium text-slate-500 hover:text-blue-600 hover:bg-slate-50 rounded transition-colors"
+                                        >
+                                            {expandedEmpId === emp.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                            {expandedEmpId === emp.id ? 'Masquer Conformité' : 'Vérifier Conformité'}
+                                        </button>
+                                        
+                                        {expandedEmpId === emp.id && (
+                                            <div className="mt-2 bg-slate-50 rounded p-3 text-xs animate-in slide-in-from-top-2 duration-200">
+                                                <div className="mb-2 font-semibold text-slate-600">Sur la période affichée :</div>
+                                                {empViolations.length === 0 ? (
+                                                    <div className="flex items-center gap-2 text-green-600">
+                                                        <CheckCircle className="w-4 h-4" />
+                                                        <span>Aucune anomalie détectée.</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-2">
+                                                        {empViolations.map((v, idx) => (
+                                                            <div key={idx} className="flex items-start gap-2 text-red-600 bg-white p-2 rounded border border-red-100 shadow-sm">
+                                                                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                                                                <div>
+                                                                    <div className="font-semibold">{v.date}</div>
+                                                                    <div>{v.message}</div>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                            ))}
+                            )})}
                             <button 
                                 onClick={handleCreateNewEmployee}
                                 className="border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 hover:border-blue-400 hover:text-blue-500 transition-colors min-h-[160px]"

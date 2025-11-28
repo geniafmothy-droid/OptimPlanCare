@@ -1,8 +1,7 @@
-
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Employee, ShiftCode, ViewMode } from '../types';
 import { SHIFT_TYPES } from '../constants';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 interface ScheduleGridProps {
   employees: Employee[];
@@ -13,7 +12,8 @@ interface ScheduleGridProps {
 }
 
 export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate, days, viewMode, onCellClick }) => {
-  
+  const [showDetails, setShowDetails] = useState(false);
+
   // --- MODE HORAIRE (HOURLY) ---
   if (viewMode === 'hourly') {
     // Dans ce mode, on affiche une grille 05h-24h pour une seule journée
@@ -85,14 +85,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                                    }
 
                                    // Cas de la dernière heure (ex: end=18.5, h=18)
-                                   // Note: si on est à la fois start et end dans la même heure (ex: 1h de durée 12.0-13.0),
-                                   // la logique width se cumule correctement (100 - 0 = 100).
-                                   // Si 12.5 - 12.75 (peu probable ici mais pour robustesse)
                                    if (h === Math.floor(end)) {
-                                       const endFraction = (end % 1) || 1; // si 18.0, c'est fini avant, donc pas ici (h < end check above handles 18 < 18.0 false). 
-                                       // Si 18.5, end%1 = 0.5. On veut afficher jusqu'à 50%.
-                                       // Mais widthPct a déjà été réduit par leftPct si c'est aussi le start.
-                                       // La largeur totale dispo est (endFraction * 100) - leftPct.
                                        const endPct = (end % 1) === 0 ? 100 : (end % 1) * 100;
                                        widthPct = endPct - leftPct;
                                    }
@@ -135,9 +128,16 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
     for (let i = 0; i < days; i++) {
       const d = new Date(startDate);
       d.setDate(d.getDate() + i);
+      
+      // FIX: Use local date construction instead of toISOString() to avoid timezone shifts
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+
       result.push({
         obj: d,
-        str: d.toISOString().split('T')[0],
+        str: dateStr, // Key used to lookup shifts
         dayName: d.toLocaleDateString('fr-FR', { weekday: 'short' }),
         dayNameFull: d.toLocaleDateString('fr-FR', { weekday: 'long' }),
         dayNum: d.getDate(),
@@ -159,10 +159,12 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
       return "min-w-[40px]";
   };
 
+  const codesToCount: ShiftCode[] = ['IT', 'T5', 'T6', 'S', 'RH'];
+
   return (
     <div className="flex-1 overflow-hidden flex flex-col border rounded-lg bg-white shadow-sm h-full">
       {/* Scrollable Container */}
-      <div className="overflow-auto relative h-full">
+      <div className="overflow-auto relative h-full flex flex-col">
         <table className="border-collapse w-max">
           <thead className="sticky top-0 z-20 bg-white shadow-sm">
             <tr>
@@ -252,34 +254,66 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                 })}
               </tr>
             ))}
-            
-            {/* Totals Row (Sticky Bottom attempt, but rendering normally for simplicity in table) */}
-            <tr className="bg-slate-100 font-semibold border-t-2 border-slate-300">
-               <td className="sticky left-0 z-10 bg-slate-100 border-r border-slate-300 p-2 text-xs text-right">
-                 Total Présents
+          </tbody>
+          
+          {/* Footer with Totals */}
+          <tfoot className="bg-slate-50 border-t-2 border-slate-300 shadow-[0_-2px_4px_rgba(0,0,0,0.05)] sticky bottom-0 z-20">
+             {/* Main Total Row */}
+             <tr>
+               <td className="sticky left-0 z-30 bg-slate-50 border-b border-r border-slate-300 p-2">
+                 <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 uppercase">Total Présents</span>
+                    <button 
+                        onClick={() => setShowDetails(!showDetails)}
+                        className="p-1 hover:bg-slate-200 rounded text-slate-500"
+                        title={showDetails ? "Masquer détails" : "Voir détails par code"}
+                    >
+                        {showDetails ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                    </button>
+                 </div>
                </td>
                {dates.map(d => {
                  const count = employees.reduce((acc, emp) => {
                    const code = emp.shifts[d.str];
                    return (code && SHIFT_TYPES[code].isWork) ? acc + 1 : acc;
                  }, 0);
-                 // Simple validation visual
-                 const isUnderstaffed = count < 5; // Arbitrary rule
+                 const isUnderstaffed = count < 5; 
                  return (
-                    <td key={`total-${d.str}`} className={`text-center text-xs p-1 border-r border-slate-300 ${isUnderstaffed ? 'bg-red-100 text-red-700' : ''}`}>
+                    <td key={`total-${d.str}`} className={`text-center text-xs font-bold p-1 border-b border-r border-slate-300 ${isUnderstaffed ? 'bg-red-50 text-red-700' : 'text-slate-700'}`}>
                       {count}
                     </td>
                  )
                })}
             </tr>
-          </tbody>
+
+            {/* Detailed Rows (Collapsible) */}
+            {showDetails && codesToCount.map(code => (
+                <tr key={code} className="bg-white hover:bg-slate-50 transition-colors">
+                    <td className="sticky left-0 z-30 bg-white border-b border-r border-slate-200 p-2 text-xs text-right font-medium text-slate-500 border-l-4"
+                        style={{ borderLeftColor: SHIFT_TYPES[code].color.replace('bg-', '').replace('-200', '-400').replace('-300', '-500') }}
+                    >
+                        {code}
+                    </td>
+                    {dates.map(d => {
+                        const count = employees.reduce((acc, emp) => {
+                            return emp.shifts[d.str] === code ? acc + 1 : acc;
+                        }, 0);
+                        return (
+                            <td key={`detail-${code}-${d.str}`} className="text-center text-[10px] p-1 border-b border-r border-slate-200 text-slate-600">
+                                {count > 0 ? count : '-'}
+                            </td>
+                        )
+                    })}
+                </tr>
+            ))}
+          </tfoot>
         </table>
       </div>
       
-      {/* Footer Legend / Totals Detail (Collapsible could be added here) */}
-      <div className="border-t border-slate-200 bg-slate-50 p-2 text-xs text-slate-500 flex justify-between items-center no-print">
+      {/* Footer Legend */}
+      <div className="bg-white p-2 text-[10px] text-slate-500 flex justify-between items-center no-print border-t border-slate-200">
           <div>
-              Détails & Totaux journaliers disponibles par survol ou dans l'onglet Statistiques.
+              Utilisez la flèche dans le total pour voir le détail par poste (IT, T5, etc.)
           </div>
           <div className="flex gap-2">
              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-200"></span> IT</span>

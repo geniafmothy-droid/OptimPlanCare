@@ -1,5 +1,6 @@
+
 import React from 'react';
-import { Employee, ConstraintViolation } from '../types';
+import { Employee, ConstraintViolation, ServiceConfig } from '../types';
 import { AlertTriangle, CheckCircle, XCircle, Info } from 'lucide-react';
 import { checkConstraints } from '../utils/validation';
 
@@ -7,12 +8,13 @@ interface ConstraintCheckerProps {
   employees: Employee[];
   startDate: Date;
   days: number;
+  serviceConfig?: ServiceConfig;
 }
 
-export const ConstraintChecker: React.FC<ConstraintCheckerProps> = ({ employees, startDate, days }) => {
+export const ConstraintChecker: React.FC<ConstraintCheckerProps> = ({ employees, startDate, days, serviceConfig }) => {
   const violations: ConstraintViolation[] = React.useMemo(() => {
-    return checkConstraints(employees, startDate, days);
-  }, [employees, startDate, days]);
+    return checkConstraints(employees, startDate, days, serviceConfig);
+  }, [employees, startDate, days, serviceConfig]);
 
   return (
     <div className="bg-white rounded-lg shadow h-full flex flex-col">
@@ -31,7 +33,7 @@ export const ConstraintChecker: React.FC<ConstraintCheckerProps> = ({ employees,
         <div>
           <p className="font-semibold">Règles actives :</p>
           <ul className="list-disc pl-3 mt-1 space-y-0.5">
-            <li>Dimanche = RH obligatoire</li>
+            <li>Dimanche = RH (si service fermé)</li>
             <li>48h max / 7 jours glissants</li>
             <li>Max 1 samedi travaillé sur 2</li>
             <li>Poste S suivi impérativement de NT/Repos</li>
@@ -58,7 +60,7 @@ export const ConstraintChecker: React.FC<ConstraintCheckerProps> = ({ employees,
                 </div>
                 <div className="text-slate-600">{v.message}</div>
                 {v.employeeId === 'ALL' && (
-                    <div className="text-xs text-slate-400 mt-1">{new Date(v.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+                    <div className="text-xs text-slate-400 mt-1">{v.date}</div>
                 )}
               </div>
             </div>

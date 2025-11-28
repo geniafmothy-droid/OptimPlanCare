@@ -1,6 +1,5 @@
 
 import { ShiftDefinition, Employee, ShiftCode } from './types';
-import { generateMonthlySchedule } from './utils/scheduler';
 
 // Parsing the colors and codes from the image and user rules
 // Added startHour and endHour for Hourly View rendering
@@ -98,10 +97,6 @@ const BASE_EMPLOYEES: Employee[] = NAMES.map((name, index) => ({
   id: `emp-${index}`,
   matricule: `M${(index + 1).toString().padStart(3, '0')}`, // Génération d'un matricule
   name,
-  // Adjusted logic to ensure we have enough Infirmiers (at least 8 needed for the rotation)
-  // Index 0: Cadre
-  // Index 1,2: Infirmier
-  // Index 3: AS
   role: index % 4 === 0 ? 'Cadre' : (index % 3 === 0 ? 'Aide-Soignant' : 'Infirmier'),
   fte: 1.0, // Default quotité 100%
   leaveBalance: 0,
@@ -109,8 +104,4 @@ const BASE_EMPLOYEES: Employee[] = NAMES.map((name, index) => ({
   shifts: {}
 }));
 
-// Apply generator for Dec 2024 and Jan 2025 to have populated initial data
-let initializedEmployees = generateMonthlySchedule(BASE_EMPLOYEES, 2024, 11); // Dec 2024
-initializedEmployees = generateMonthlySchedule(initializedEmployees, 2025, 0); // Jan 2025
-
-export const MOCK_EMPLOYEES = initializedEmployees;
+export const MOCK_EMPLOYEES = BASE_EMPLOYEES;
