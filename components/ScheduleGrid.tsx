@@ -18,7 +18,9 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
   if (viewMode === 'hourly') {
     // Dans ce mode, on affiche une grille 05h-24h pour une seule journée
     const currentDateStr = startDate.toISOString().split('T')[0];
-    const hours = Array.from({ length: 19 }, (_, i) => i + 5); // 5h à 23h (affichage 24h)
+    const startDisplayHour = 5;
+    const endDisplayHour = 24;
+    const hours = Array.from({ length: endDisplayHour - startDisplayHour }, (_, i) => i + startDisplayHour);
 
     return (
       <div className="flex-1 overflow-hidden flex flex-col border rounded-lg bg-white shadow-sm h-full">
@@ -46,7 +48,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                        <tr key={emp.id} className="hover:bg-slate-50">
                           <td 
                              className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 p-2 cursor-pointer border-l-4"
-                             style={{ borderLeftColor: shiftDef?.isWork ? shiftDef.color.replace('bg-', '') : 'transparent' }} // Petit indicateur visuel
+                             style={{ borderLeftColor: shiftDef?.isWork ? undefined : 'transparent' }} 
                              onClick={() => onCellClick(emp.id, currentDateStr)}
                           >
                              <div className="font-medium text-sm text-slate-900">{emp.name}</div>
@@ -62,32 +64,56 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                           
                           {/* Cellules horaires */}
                           {hours.map(h => {
-                             let bgClass = '';
-                             let isStart = false;
-                             let isEnd = false;
+                             let content = null;
 
                              if (isWorking && shiftDef?.startHour !== undefined && shiftDef?.endHour !== undefined) {
-                                // Logique simple: si l'heure est dans la plage [start, end[
-                                if (h >= Math.floor(shiftDef.startHour) && h < shiftDef.endHour) {
-                                   // On utilise la couleur du shift, mais légèrement modifiée si besoin
-                                   // Pour simplifier, on applique une classe de background générique ou style inline
-                                   // Comme on ne peut pas interpoler facilement les classes tailwind dynamiques complètes, on utilise le style pour la couleur précise si besoin
-                                   // Mais ici on a les classes dans shiftDef.color (ex: bg-blue-200)
-                                   bgClass = shiftDef.color;
-                                }
+                                const start = shiftDef.startHour;
+                                const end = shiftDef.endHour;
 
-                                // Marqueurs visuels de début/fin pour les demi-heures (ex: 6.5)
-                                if (Math.floor(shiftDef.startHour) === h && shiftDef.startHour % 1 !== 0) {
-                                   bgClass = `${bgClass} bg-gradient-to-r from-transparent from-50% to-${shiftDef.color.replace('bg-', '')} to-50%`;
-                                   // Fallback simple si gradient complexe: on colorie tout pour l'instant ou on gère via style
+                                // Vérifier si l'heure 'h' est dans la plage [start, end[
+                                if (h >= Math.floor(start) && h < end) {
+                                   
+                                   // Calcul de la position et largeur pour gérer les demi-heures
+                                   // Par défaut occupe toute la cellule (0% left, 100% width)
+                                   let leftPct = 0;
+                                   let widthPct = 100;
+
+                                   // Cas de la première heure (ex: start=6.5, h=6)
+                                   if (h === Math.floor(start)) {
+                                       leftPct = (start % 1) * 100;
+                                       widthPct -= leftPct;
+                                   }
+
+                                   // Cas de la dernière heure (ex: end=18.5, h=18)
+                                   // Note: si on est à la fois start et end dans la même heure (ex: 1h de durée 12.0-13.0),
+                                   // la logique width se cumule correctement (100 - 0 = 100).
+                                   // Si 12.5 - 12.75 (peu probable ici mais pour robustesse)
+                                   if (h === Math.floor(end)) {
+                                       const endFraction = (end % 1) || 1; // si 18.0, c'est fini avant, donc pas ici (h < end check above handles 18 < 18.0 false). 
+                                       // Si 18.5, end%1 = 0.5. On veut afficher jusqu'à 50%.
+                                       // Mais widthPct a déjà été réduit par leftPct si c'est aussi le start.
+                                       // La largeur totale dispo est (endFraction * 100) - leftPct.
+                                       const endPct = (end % 1) === 0 ? 100 : (end % 1) * 100;
+                                       widthPct = endPct - leftPct;
+                                   }
+
+                                   content = (
+                                      <div 
+                                        className={`absolute inset-y-1 rounded-sm ${shiftDef.color} opacity-90 shadow-sm`}
+                                        style={{ 
+                                            left: `${leftPct}%`, 
+                                            width: `${widthPct}%`,
+                                            margin: '0 1px' // petite marge pour distinguer les blocs si collés
+                                        }}
+                                        title={`${shiftDef.label} (${start}h - ${end}h)`}
+                                      ></div>
+                                   );
                                 }
                              }
 
                              return (
-                                <td key={h} className="border-b border-r border-slate-100 p-0 relative h-10">
-                                   {bgClass && (
-                                      <div className={`absolute inset-y-1 inset-x-0 mx-0.5 rounded-sm ${bgClass} opacity-80`}></div>
-                                   )}
+                                <td key={h} className="border-b border-r border-slate-100 p-0 relative h-10 min-w-[40px]">
+                                   {content}
                                 </td>
                              );
                           })}
@@ -248,6 +274,19 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
             </tr>
           </tbody>
         </table>
+      </div>
+      
+      {/* Footer Legend / Totals Detail (Collapsible could be added here) */}
+      <div className="border-t border-slate-200 bg-slate-50 p-2 text-xs text-slate-500 flex justify-between items-center no-print">
+          <div>
+              Détails & Totaux journaliers disponibles par survol ou dans l'onglet Statistiques.
+          </div>
+          <div className="flex gap-2">
+             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-200"></span> IT</span>
+             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-300"></span> T5</span>
+             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400"></span> T6</span>
+             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-200"></span> S</span>
+          </div>
       </div>
     </div>
   );

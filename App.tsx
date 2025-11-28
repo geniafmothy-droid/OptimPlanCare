@@ -1,10 +1,12 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag } from 'lucide-react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
 import { StatsPanel } from './components/StatsPanel';
 import { ConstraintChecker } from './components/ConstraintChecker';
 import { LeaveManager } from './components/LeaveManager';
 import { SkillsSettings } from './components/SkillsSettings';
+import { Dashboard } from './components/Dashboard';
 import { SHIFT_TYPES } from './constants';
 import { Employee, ShiftCode, ViewMode, Skill } from './types';
 import { generateMonthlySchedule } from './utils/scheduler';
@@ -15,7 +17,7 @@ import { checkConstraints } from './utils/validation';
 import * as db from './services/db';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'planning' | 'stats' | 'team' | 'leaves' | 'settings'>('planning');
+  const [activeTab, setActiveTab] = useState<'planning' | 'stats' | 'team' | 'leaves' | 'settings' | 'dashboard'>('planning');
   const [currentDate, setCurrentDate] = useState(new Date('2024-12-01'));
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   
@@ -436,6 +438,15 @@ CREATE TABLE IF NOT EXISTS public.shifts (
 
 ALTER TABLE public.shifts ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (true) WITH CHECK (true);
+
+-- 3. Insertion des compétences par défaut (Modèle Horaire Dialyse)
+INSERT INTO public.skills (code, label) SELECT 'Senior', 'Infirmier Senior' WHERE NOT EXISTS (SELECT 1 FROM public.skills WHERE code = 'Senior');
+INSERT INTO public.skills (code, label) SELECT 'Tutorat', 'Habilité Tutorat' WHERE NOT EXISTS (SELECT 1 FROM public.skills WHERE code = 'Tutorat');
+INSERT INTO public.skills (code, label) SELECT 'Dialyse', 'Spécialisation Dialyse' WHERE NOT EXISTS (SELECT 1 FROM public.skills WHERE code = 'Dialyse');
+INSERT INTO public.skills (code, label) SELECT 'IT', 'Jour 06h30-18h30' WHERE NOT EXISTS (SELECT 1 FROM public.skills WHERE code = 'IT');
+INSERT INTO public.skills (code, label) SELECT 'T5', 'Matin Long 07h00-17h30' WHERE NOT EXISTS (SELECT 1 FROM public.skills WHERE code = 'T5');
+INSERT INTO public.skills (code, label) SELECT 'T6', 'Journée 07h30-18h00' WHERE NOT EXISTS (SELECT 1 FROM public.skills WHERE code = 'T6');
+INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT EXISTS (SELECT 1 FROM public.skills WHERE code = 'S');
     `;
     
     const blob = new Blob([sqlContent], { type: 'text/plain' });
@@ -618,6 +629,10 @@ CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (tru
               <Calendar className="w-5 h-5" />
               <span className="hidden md:block">Planning</span>
             </button>
+            <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <LayoutDashboard className="w-5 h-5" />
+              <span className="hidden md:block">Carnet de bord</span>
+            </button>
             <button onClick={() => setActiveTab('stats')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'stats' ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100' : 'text-slate-600 hover:bg-slate-50'}`}>
               <BarChart3 className="w-5 h-5" />
               <span className="hidden md:block">Statistiques</span>
@@ -703,6 +718,13 @@ CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (tru
                         <div className="w-80 flex-shrink-0 hidden xl:flex flex-col h-full no-print">
                            <ConstraintChecker employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />
                         </div>
+                    </div>
+                )}
+                
+                {/* Dashboard View (New) */}
+                {activeTab === 'dashboard' && (
+                    <div className="flex-1 overflow-y-auto h-full">
+                        <Dashboard employees={employees} startDate={gridStartDate} days={gridDuration} />
                     </div>
                 )}
 
