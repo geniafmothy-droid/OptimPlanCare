@@ -1,12 +1,12 @@
-
-import React, { useState, useEffect } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
 import { StatsPanel } from './components/StatsPanel';
 import { ConstraintChecker } from './components/ConstraintChecker';
 import { LeaveManager } from './components/LeaveManager';
+import { SkillsSettings } from './components/SkillsSettings';
 import { SHIFT_TYPES } from './constants';
-import { Employee, ShiftCode, ViewMode } from './types';
+import { Employee, ShiftCode, ViewMode, Skill } from './types';
 import { generateMonthlySchedule } from './utils/scheduler';
 import { parseScheduleCSV } from './utils/csvImport';
 import { exportScheduleToCSV } from './utils/csvExport';
@@ -15,11 +15,12 @@ import { checkConstraints } from './utils/validation';
 import * as db from './services/db';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'planning' | 'stats' | 'team' | 'leaves'>('planning');
+  const [activeTab, setActiveTab] = useState<'planning' | 'stats' | 'team' | 'leaves' | 'settings'>('planning');
   const [currentDate, setCurrentDate] = useState(new Date('2024-12-01'));
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [skillsList, setSkillsList] = useState<Skill[]>([]);
   const [selectedCell, setSelectedCell] = useState<{empId: string, date: string} | null>(null);
 
   // Loading States
@@ -45,6 +46,11 @@ function App() {
   // Toast State
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
 
+  // Print Handler (Native)
+  const handlePrint = () => {
+      window.print();
+  };
+
   // --- Initial Data Load ---
   useEffect(() => {
     loadData();
@@ -53,8 +59,12 @@ function App() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const data = await db.fetchEmployeesWithShifts();
-      setEmployees(data);
+      const [empData, skillsData] = await Promise.all([
+          db.fetchEmployeesWithShifts(),
+          db.fetchSkills()
+      ]);
+      setEmployees(empData);
+      setSkillsList(skillsData);
     } catch (error: any) {
       console.error(error);
       setToast({ message: `Erreur: ${error.message || "Problème de connexion"}`, type: "error" });
@@ -377,9 +387,29 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'fte') THEN
         ALTER TABLE public.employees ADD COLUMN fte NUMERIC DEFAULT 1.0;
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'employees' AND column_name = 'leave_data') THEN
+        ALTER TABLE public.employees ADD COLUMN leave_data JSONB DEFAULT '{
+            "year": 2024,
+            "counters": {
+                "CA": { "allowed": 25, "taken": 0, "reliquat": 0 },
+                "RTT": { "allowed": 0, "taken": 0, "reliquat": 0 },
+                "RC": { "allowed": 0, "taken": 0, "reliquat": 0 }
+            },
+            "history": []
+        }'::jsonb;
+    END IF;
 END $$;
 
 -- 2. Structure complète (si les tables n'existent pas)
+CREATE TABLE IF NOT EXISTS public.skills (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    code TEXT NOT NULL UNIQUE, 
+    label TEXT NOT NULL
+);
+ALTER TABLE public.skills ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Enable all access for skills" ON public.skills FOR ALL USING (true) WITH CHECK (true);
+
 CREATE TABLE IF NOT EXISTS public.employees (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -388,6 +418,7 @@ CREATE TABLE IF NOT EXISTS public.employees (
     role TEXT NOT NULL,
     fte NUMERIC DEFAULT 1.0,
     leave_balance NUMERIC DEFAULT 0,
+    leave_data JSONB,
     skills TEXT[] DEFAULT '{}'::TEXT[]
 );
 
@@ -448,6 +479,16 @@ CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (tru
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-100">
+      <style>{`
+        @media print {
+            @page { size: landscape; margin: 5mm; }
+            body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            aside, header, .no-print { display: none !important; }
+            .print-container { overflow: visible !important; height: auto !important; }
+            table { width: 100% !important; border-collapse: collapse; }
+        }
+      `}</style>
+
       {toast && (
           <Toast 
             message={toast.message} 
@@ -528,6 +569,14 @@ CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (tru
 
            <div className="flex items-center gap-2">
              <button 
+                onClick={handlePrint}
+                className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg transition-colors shadow-sm"
+                title="Imprimer / PDF"
+             >
+                <Printer className="w-4 h-4" />
+             </button>
+
+             <button 
                 onClick={handleExport}
                 className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg transition-colors shadow-sm"
                 title="Exporter en CSV"
@@ -581,6 +630,10 @@ CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (tru
               <BriefcaseBusiness className="w-5 h-5" />
               <span className="hidden md:block">Congés</span>
             </button>
+            <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'settings' ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <Tag className="w-5 h-5" />
+              <span className="hidden md:block">Paramètres</span>
+            </button>
           </nav>
 
           {/* Filters */}
@@ -605,8 +658,11 @@ CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (tru
                   <label className="text-xs text-slate-600 font-medium mb-1.5 block">Compétence</label>
                   <select value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} className="w-full text-xs border-slate-200 rounded-md p-1.5 bg-white text-slate-700 focus:ring-1 focus:ring-blue-500 outline-none">
                     <option value="all">Toutes</option>
-                    <option value="Senior">Senior</option>
-                    <option value="Junior">Junior</option>
+                    {skillsList.map(skill => (
+                        <option key={skill.code} value={skill.code}>
+                            {skill.label} ({skill.code})
+                        </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -634,7 +690,7 @@ CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (tru
              <>
                 {/* Main Grid View */}
                 {activeTab === 'planning' && (
-                    <div className="flex-1 p-4 flex gap-4 overflow-hidden">
+                    <div className="print-container flex-1 p-4 flex gap-4 overflow-hidden h-full">
                         <div className="flex-1 flex flex-col h-full min-w-0">
                         <ScheduleGrid 
                             employees={filteredEmployees} 
@@ -644,7 +700,7 @@ CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (tru
                             onCellClick={handleCellClick}
                         />
                         </div>
-                        <div className="w-80 flex-shrink-0 hidden xl:flex flex-col h-full">
+                        <div className="w-80 flex-shrink-0 hidden xl:flex flex-col h-full no-print">
                            <ConstraintChecker employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />
                         </div>
                     </div>
@@ -661,6 +717,13 @@ CREATE POLICY "Enable all access for shifts" ON public.shifts FOR ALL USING (tru
                 {activeTab === 'leaves' && (
                     <div className="flex-1 overflow-y-auto h-full">
                         <LeaveManager employees={employees} onReload={loadData} />
+                    </div>
+                )}
+                
+                {/* Skills Settings View */}
+                {activeTab === 'settings' && (
+                    <div className="flex-1 overflow-y-auto h-full">
+                        <SkillsSettings skills={skillsList} onReload={loadData} />
                     </div>
                 )}
 

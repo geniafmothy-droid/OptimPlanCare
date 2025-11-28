@@ -1,9 +1,49 @@
 
 import { supabase } from '../lib/supabase';
-import { Employee, ShiftCode } from '../types';
+import { Employee, ShiftCode, Skill } from '../types';
 import { MOCK_EMPLOYEES } from '../constants';
 
-// --- Types mapping to DB ---
+// --- Skills Management ---
+
+export const fetchSkills = async (): Promise<Skill[]> => {
+    const { data, error } = await supabase
+        .from('skills')
+        .select('*')
+        .order('code');
+    
+    if (error) {
+        console.error('Error fetching skills:', JSON.stringify(error, null, 2));
+        // Return empty if table doesn't exist yet to avoid crashing app before migration
+        if (error.code === '42P01') return []; 
+        throw new Error(error.message);
+    }
+    return data || [];
+};
+
+export const createSkill = async (code: string, label: string) => {
+    const { error } = await supabase
+        .from('skills')
+        .insert([{ code, label }]);
+    
+    if (error) {
+        console.error('Error creating skill:', JSON.stringify(error, null, 2));
+        throw new Error(error.message);
+    }
+};
+
+export const deleteSkill = async (id: string) => {
+    const { error } = await supabase
+        .from('skills')
+        .delete()
+        .eq('id', id);
+    
+    if (error) {
+        console.error('Error deleting skill:', JSON.stringify(error, null, 2));
+        throw new Error(error.message);
+    }
+};
+
+// --- Employees Management ---
 
 export const fetchEmployeesWithShifts = async (): Promise<Employee[]> => {
   const { data: employeesData, error: empError } = await supabase
@@ -15,6 +55,7 @@ export const fetchEmployeesWithShifts = async (): Promise<Employee[]> => {
       role,
       fte,
       leave_balance,
+      leave_data,
       skills,
       shifts (
         date,
@@ -46,6 +87,7 @@ export const fetchEmployeesWithShifts = async (): Promise<Employee[]> => {
       role: emp.role,
       fte: emp.fte,
       leaveBalance: emp.leave_balance || 0,
+      leaveData: emp.leave_data,
       skills: emp.skills || [],
       shifts: shiftsRecord
     };
@@ -88,9 +130,6 @@ export const saveLeaveRange = async (employeeId: string, startDate: string, endD
         const dateStr = d.toISOString().split('T')[0];
         
         // Specific Rule: Dialyse Service closes on Sunday -> RH
-        // Even during holidays, it's better to verify Sunday rule or keep it CA?
-        // Usually systems mark CA on worked days. 
-        // For simplicity and consistency with ConstraintChecker: Sunday = RH.
         const isSunday = d.getDay() === 0;
         const codeToApply = isSunday ? 'RH' : type;
 
@@ -125,6 +164,18 @@ export const updateEmployeeBalance = async (employeeId: string, newBalance: numb
     }
 };
 
+export const updateEmployeeLeaveData = async (employeeId: string, leaveData: any) => {
+    const { error } = await supabase
+        .from('employees')
+        .update({ leave_data: leaveData })
+        .eq('id', employeeId);
+
+    if (error) {
+        console.error('Error updating leave data:', JSON.stringify(error, null, 2));
+        throw new Error(error.message);
+    }
+};
+
 export const upsertEmployee = async (employee: Employee) => {
   const payload: any = {
       matricule: employee.matricule,
@@ -132,6 +183,7 @@ export const upsertEmployee = async (employee: Employee) => {
       role: employee.role,
       fte: employee.fte,
       leave_balance: employee.leaveBalance,
+      leave_data: employee.leaveData,
       skills: employee.skills
   };
 
@@ -266,6 +318,7 @@ export const bulkImportEmployees = async (employees: Employee[]) => {
                  role: emp.role,
                  fte: emp.fte,
                  leave_balance: emp.leaveBalance,
+                 leave_data: emp.leaveData,
                  skills: emp.skills
              }, { onConflict: 'matricule' })
              .select()

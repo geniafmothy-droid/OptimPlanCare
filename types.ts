@@ -13,13 +13,38 @@ export interface ShiftDefinition {
   endHour?: number;   // Heure de fin (ex: 18.5 pour 18h30)
 }
 
+export interface Skill {
+  id: string;
+  code: string;
+  label: string;
+}
+
+export interface LeaveCounter {
+    allowed: number;
+    taken: number;
+    reliquat: number;
+}
+
+export interface LeaveHistory {
+    date: string;
+    action: string;
+    details: string;
+}
+
+export interface LeaveData {
+    year: number;
+    counters: Record<string, LeaveCounter>; // keys: CA, RTT, RC...
+    history: LeaveHistory[];
+}
+
 export interface Employee {
   id: string;
   matricule: string;
   name: string;
   role: 'Infirmier' | 'Aide-Soignant' | 'Cadre' | 'Manager';
   fte: number; // Quotité : 1.0 = 100%, 0.8 = 80%, etc.
-  leaveBalance: number; // Solde de congés
+  leaveBalance: number; // Solde de congés (Legacy simple)
+  leaveData?: LeaveData; // Structure avancée
   skills: string[]; // Compétences de l'équipier (ex: 'Senior', 'Dialyse')
   shifts: Record<string, ShiftCode>; // Date string (YYYY-MM-DD) -> ShiftCode
 }
