@@ -1,4 +1,5 @@
 
+
 export type ShiftCode = 
   | 'M' | 'T5' | 'T6' | 'S' | 'IT' | 'NT' | 'CA' | 'RH' | 'FO' | 'ETP' | 'DP' | 'OFF' | 'RC';
 
@@ -28,6 +29,7 @@ export interface LeaveCounter {
 export interface LeaveHistory {
     date: string;
     action: string;
+    type?: string; // Code du congé (CA, RTT...) ou 'RESET'
     details: string;
 }
 
@@ -69,6 +71,7 @@ export type ViewMode = 'month' | 'week' | 'workweek' | 'day' | 'hourly';
 
 export interface ServiceConfig {
     openDays: number[]; // 0=Sun, 1=Mon...
+    requiredSkills: string[]; // List of skill codes (e.g., ['IT', 'Dialyse'])
 }
 
 export interface Service {
