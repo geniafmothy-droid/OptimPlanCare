@@ -34,8 +34,8 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
     return result;
   }, [startDate, days]);
 
-  // Codes to track
-  const codes: ShiftCode[] = ['IT', 'T5', 'T6', 'S', 'NT', 'RH', 'CA', 'RC'];
+  // Codes to track - Added HS
+  const codes: ShiftCode[] = ['IT', 'T5', 'T6', 'S', 'NT', 'RH', 'CA', 'RC', 'HS'];
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg shadow-sm mt-2 flex flex-col no-print">
@@ -55,7 +55,7 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
           <table className="w-full text-xs border-collapse">
              <thead>
                 <tr>
-                   <th className="p-2 border-r border-b border-slate-200 bg-white min-w-[150px] text-left text-slate-500 font-medium">
+                   <th className="p-2 border-r border-b border-slate-200 bg-white min-w-[150px] text-left text-slate-500 font-medium sticky left-0 z-10">
                       Compétence / Poste
                    </th>
                    {dates.map(d => (
@@ -71,7 +71,7 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
                    const def = SHIFT_TYPES[code];
                    return (
                       <tr key={code} className="hover:bg-slate-50">
-                         <td className="p-2 border-r border-b border-slate-200 font-medium flex items-center gap-2">
+                         <td className="p-2 border-r border-b border-slate-200 font-medium flex items-center gap-2 sticky left-0 bg-white z-10">
                             <span className={`w-2 h-2 rounded-full ${def.color}`}></span>
                             <span className="text-slate-700">{code}</span>
                             <span className="text-[10px] text-slate-400 font-normal ml-auto hidden sm:inline">{def.description.split('(')[0]}</span>
@@ -98,14 +98,14 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
                 })}
                 {/* Total Row */}
                 <tr className="bg-slate-50 font-bold">
-                    <td className="p-2 border-r border-slate-200 text-slate-700 text-right">TOTAL PRÉSENTS</td>
+                    <td className="p-2 border-r border-slate-200 text-slate-700 text-right sticky left-0 bg-slate-50 z-10">TOTAL PRÉSENTS</td>
                     {dates.map(d => {
                         const total = employees.reduce((acc, emp) => {
                             const c = emp.shifts[d.dateStr];
                             return (c && SHIFT_TYPES[c]?.isWork) ? acc + 1 : acc;
                         }, 0);
                         return (
-                            <td key={`total-${d.dateStr}`} className="p-1 border-r border-slate-200 text-center text-blue-700">
+                            <td key={`total-${d.dateStr}`} className="p-1 border-r border-slate-200 text-center text-blue-700 bg-slate-50">
                                 {total}
                             </td>
                         )
@@ -118,4 +118,3 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
     </div>
   );
 };
-    

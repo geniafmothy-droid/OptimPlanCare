@@ -1,6 +1,7 @@
 
+// ... imports are the same as provided App.tsx ...
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store } from 'lucide-react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
 import { StaffingSummary } from './components/StaffingSummary';
 import { StatsPanel } from './components/StatsPanel';
@@ -10,7 +11,7 @@ import { SkillsSettings } from './components/SkillsSettings';
 import { ServiceSettings } from './components/ServiceSettings';
 import { Dashboard } from './components/Dashboard';
 import { SHIFT_TYPES } from './constants';
-import { Employee, ShiftCode, ViewMode, Skill, Service } from './types';
+import { Employee, ShiftCode, ViewMode, Skill, Service, LeaveData } from './types';
 import { generateMonthlySchedule } from './utils/scheduler';
 import { parseScheduleCSV } from './utils/csvImport';
 import { exportScheduleToCSV } from './utils/csvExport';
@@ -37,6 +38,7 @@ function App() {
   // Filter States
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [skillFilter, setSkillFilter] = useState<string>('all');
+  const [showQualifiedOnly, setShowQualifiedOnly] = useState(false);
 
   // Modal States
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -112,7 +114,16 @@ function App() {
   const filteredEmployees = employees.filter(emp => {
     const roleMatch = roleFilter === 'all' || emp.role === roleFilter;
     const skillMatch = skillFilter === 'all' || emp.skills.includes(skillFilter);
-    return roleMatch && skillMatch;
+    
+    // Service Qualification Filter
+    let qualificationMatch = true;
+    if (showQualifiedOnly && activeService?.config?.requiredSkills?.length > 0) {
+        const reqSkills = activeService.config.requiredSkills;
+        const hasSkill = emp.skills.some(s => reqSkills.includes(s));
+        qualificationMatch = hasSkill;
+    }
+
+    return roleMatch && skillMatch && qualificationMatch;
   });
 
   // --- Date Navigation Helper ---
@@ -176,6 +187,59 @@ function App() {
 
   // --- Handlers ---
 
+  const handleTeamResetLeave = async (empId: string) => {
+      if (!confirm("Réinitialiser les compteurs de congés pour l'année suivante ? (Ceci basculera les reliquats)")) return;
+      const emp = employees.find(e => e.id === empId);
+      if (!emp) return;
+
+      const currentData: LeaveData = emp.leaveData || { year: new Date().getFullYear(), counters: {}, history: [] };
+      const nextYear = currentData.year + 1;
+
+      const newData: LeaveData = {
+          year: nextYear,
+          counters: {},
+          history: [...(currentData.history || [])]
+      };
+      
+      // Init or Carry over counters
+      const keys = currentData.counters ? Object.keys(currentData.counters) : ['CA', 'RTT', 'RC', 'HS'];
+      if (!keys.includes('HS')) keys.push('HS');
+
+      keys.forEach(k => {
+          const old = currentData.counters?.[k] || { allowed: 0, taken: 0, reliquat: 0 };
+          const remaining = Math.max(0, old.allowed - old.taken);
+          newData.counters[k] = {
+              allowed: old.allowed,
+              taken: 0,
+              reliquat: old.reliquat + remaining
+          };
+      });
+
+      if (keys.length === 0) {
+          newData.counters = {
+              "CA": { allowed: 25, taken: 0, reliquat: 0 },
+              "RTT": { allowed: 0, taken: 0, reliquat: 0 },
+              "RC": { allowed: 0, taken: 0, reliquat: 0 },
+              "HS": { allowed: 0, taken: 0, reliquat: 0 }
+          };
+      }
+
+      newData.history.unshift({
+          date: new Date().toISOString().split('T')[0],
+          action: 'RESET',
+          type: 'SYSTEM',
+          details: `Réinitialisation depuis Vue Équipe pour ${nextYear}`
+      });
+
+      try {
+          await db.updateEmployeeLeaveData(empId, newData);
+          await loadData();
+          setToast({ message: "Compteurs réinitialisés", type: "success" });
+      } catch (err: any) {
+          setToast({ message: `Erreur: ${err.message}`, type: "error" });
+      }
+  };
+
   const handleCellClick = (empId: string, date: string) => {
     setSelectedCell({ empId, date });
     setIsEditorOpen(true);
@@ -184,7 +248,6 @@ function App() {
   const handleShiftChange = async (code: ShiftCode) => {
     if (!selectedCell) return;
     
-    // Optimistic Update
     const oldEmployees = [...employees];
     const updatedEmployees = employees.map(emp => {
       if (emp.id === selectedCell.empId) {
@@ -202,7 +265,6 @@ function App() {
     // Validation
     const emp = updatedEmployees.find(e => e.id === selectedCell.empId);
     if (emp) {
-        // FIX: Construct local date explicitly to avoid timezone offset issues with new Date("YYYY-MM-DD")
         const [y, m, d] = selectedCell.date.split('-').map(Number);
         const localDate = new Date(y, m - 1, d);
         
@@ -214,13 +276,12 @@ function App() {
         }
     }
 
-    // Persist to DB
     try {
       await db.upsertShift(selectedCell.empId, selectedCell.date, code);
     } catch (error: any) {
       console.error(error);
       setToast({ message: `Erreur de sauvegarde: ${error.message}`, type: "error" });
-      setEmployees(oldEmployees); // Revert on error
+      setEmployees(oldEmployees);
     }
   };
 
@@ -234,11 +295,8 @@ function App() {
       const content = e.target?.result as string;
       if (content) {
         try {
-            // First parse locally to see what we get
             const updatedEmployees = parseScheduleCSV(content, employees);
-            // Now save to DB
             await db.bulkImportEmployees(updatedEmployees);
-            // Reload from DB to get fresh IDs and clean state
             await loadData();
             setToast({ message: "Import CSV réussi", type: "success" });
         } catch (error: any) {
@@ -262,28 +320,23 @@ function App() {
     }
   };
 
-  // Copy schedule from current month to next month
   const handleCopyToNextMonth = async () => {
     if (!confirm("Copier le planning du mois affiché vers le mois suivant ?\nCela écrasera les données existantes du mois cible.")) return;
     
     setIsLoading(true);
     try {
-      // 1. Determine Target Month
       const nextDate = new Date(currentDate);
       nextDate.setMonth(nextDate.getMonth() + 1);
       const targetYear = nextDate.getFullYear();
       const targetMonth = nextDate.getMonth();
 
-      // 2. Prepare Data
       const shiftsToCopy: {employee_id: string, date: string, shift_code: string}[] = [];
       const daysInCurrent = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
       const daysInTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
       const limitDays = Math.min(daysInCurrent, daysInTarget);
 
       for (let day = 1; day <= limitDays; day++) {
-        // Source Key
         const srcDateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        // Target Key
         const targetDateStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
         employees.forEach(emp => {
@@ -298,10 +351,9 @@ function App() {
         });
       }
 
-      // 3. Save to DB
       if (shiftsToCopy.length > 0) {
         await db.bulkUpsertShifts(shiftsToCopy);
-        await loadData(); // Reload to reflect changes if we navigate
+        await loadData();
         setToast({ message: "Planning copié vers le mois suivant avec succès.", type: "success" });
       } else {
         setToast({ message: "Aucun poste à copier dans le mois courant.", type: "warning" });
@@ -327,7 +379,6 @@ function App() {
     setIsLoading(true);
     try {
         if (dateModalMode === 'generate') {
-          // Generate locally first with smart logic, passing the Service Config
           const newSchedule = generateMonthlySchedule(
               employees, 
               targetConfig.year, 
@@ -335,7 +386,6 @@ function App() {
               activeService?.config
           );
           
-          // Bulk save
           await db.bulkSaveSchedule(newSchedule);
           setEmployees(newSchedule);
           setToast({ message: "Planning généré et sauvegardé", type: "success" });
@@ -343,7 +393,6 @@ function App() {
           setViewMode('month');
         } else if (dateModalMode === 'reset') {
           await db.clearShiftsInRange(targetConfig.year, targetConfig.month);
-          // Update local state
           setEmployees(prev => {
             const updated = JSON.parse(JSON.stringify(prev)) as Employee[];
             const start = new Date(targetConfig.year, targetConfig.month, 1);
@@ -351,7 +400,6 @@ function App() {
 
             updated.forEach(emp => {
               for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-                // Force local date string
                 const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
                 delete emp.shifts[dateStr];
               }
@@ -371,10 +419,9 @@ function App() {
     }
   };
 
-  // Employee Editor Handlers
   const handleCreateNewEmployee = () => {
       const newEmp: Employee = {
-          id: '', // Will be generated by DB if empty, or we can generate temp one
+          id: '',
           matricule: `M${Math.floor(Math.random() * 10000)}`,
           name: '',
           role: 'Infirmier',
@@ -388,7 +435,7 @@ function App() {
   };
 
   const handleDeleteEmployee = async (empId: string) => {
-      if (!confirm("Êtes-vous sûr de vouloir supprimer cet équipier ? Cette action est irréversible.")) return;
+      if (!confirm("Are you sure you want to delete this employee? This action cannot be undone.")) return;
       
       setIsLoading(true);
       try {
@@ -404,7 +451,6 @@ function App() {
   };
 
   const handleEditEmployee = (emp: Employee) => {
-    // Deep copy of skills array to avoid mutating the main list immediately
     setEditingEmployee({ ...emp, skills: [...emp.skills] });
     setNewSkillInput('');
   };
@@ -412,7 +458,6 @@ function App() {
   const saveEmployeeChanges = async () => {
     if (!editingEmployee) return;
 
-    // 1. Validation de base
     if (!editingEmployee.name.trim()) {
         setToast({ message: "Le nom de l'équipier est obligatoire.", type: "warning" });
         return;
@@ -422,7 +467,6 @@ function App() {
         return;
     }
 
-    // 2. Vérification unicité Matricule (optimiste local)
     const duplicate = employees.find(e => 
         e.matricule.toLowerCase() === editingEmployee.matricule.toLowerCase() && 
         e.id !== editingEmployee.id
@@ -467,7 +511,6 @@ function App() {
     });
   };
 
-  // SQL Download Handler
   const downloadSqlSchema = () => {
     const sqlContent = `
 -- Script SQL pour Supabase
@@ -791,9 +834,19 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                        </select>
                    </div>
                    {activeService && (
-                       <p className="text-[10px] text-slate-400 mt-1 pl-1">
-                           {activeService.config.openDays.includes(0) ? "Ouvert 7j/7" : "Fermé le Dimanche"}
-                       </p>
+                       <div className="mt-2 space-y-1">
+                           <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                               <Clock className="w-3 h-3" />
+                               {activeService.config.openDays.includes(0) ? "Ouvert 7j/7" : "Fermé le Dimanche"}
+                           </p>
+                           {/* Show Required Skills indicator if any */}
+                           {activeService.config.requiredSkills && activeService.config.requiredSkills.length > 0 && (
+                                <div className="text-[10px] text-purple-600 flex items-center gap-1 font-medium bg-purple-50 p-1 rounded">
+                                    <ShieldCheck className="w-3 h-3" />
+                                    {activeService.config.requiredSkills.length} Compétence(s) Requise(s)
+                                </div>
+                           )}
+                       </div>
                    )}
                 </div>
 
@@ -820,6 +873,30 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                     ))}
                   </select>
                 </div>
+
+                {/* Qualified Only Toggle - Visible only if Service has requirements */}
+                {activeService?.config?.requiredSkills && activeService.config.requiredSkills.length > 0 && (
+                    <div className="pt-2">
+                        <label className="flex items-center gap-2 cursor-pointer group">
+                            <div className="relative">
+                                <input 
+                                    type="checkbox" 
+                                    className="sr-only peer"
+                                    checked={showQualifiedOnly}
+                                    onChange={(e) => setShowQualifiedOnly(e.target.checked)}
+                                />
+                                <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+                            </div>
+                            <span className="text-xs font-medium text-slate-600 group-hover:text-purple-700 transition-colors">
+                                Qualifiés uniquement
+                            </span>
+                        </label>
+                        <p className="text-[10px] text-slate-400 mt-1 pl-1">
+                            Masque les employés sans les compétences requises par le service.
+                        </p>
+                    </div>
+                )}
+
               </div>
             </div>
           </div>
@@ -919,6 +996,8 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                                 const empViolations = expandedEmpId === emp.id 
                                     ? checkConstraints([emp], gridStartDate, gridDuration, activeService?.config).filter(v => v.employeeId === emp.id)
                                     : [];
+                                
+                                const leaveData = emp.leaveData || { year: new Date().getFullYear(), counters: {}, history: [] };
 
                                 return (
                                 <div key={emp.id} className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 flex flex-col gap-4 relative group hover:border-blue-300 transition-all">
@@ -963,37 +1042,82 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                                         </div>
                                     </div>
 
-                                    {/* Section Violations Dépliable */}
+                                    {/* Section Dépliable : Conformité & Congés */}
                                     <div className="mt-2 border-t border-slate-100 pt-2">
                                         <button 
                                             onClick={() => setExpandedEmpId(expandedEmpId === emp.id ? null : emp.id)}
                                             className="w-full flex items-center justify-center gap-2 py-1.5 text-xs font-medium text-slate-500 hover:text-blue-600 hover:bg-slate-50 rounded transition-colors"
                                         >
                                             {expandedEmpId === emp.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                                            {expandedEmpId === emp.id ? 'Masquer Conformité' : 'Vérifier Conformité'}
+                                            {expandedEmpId === emp.id ? 'Masquer Détails' : 'Voir Détails & Congés'}
                                         </button>
                                         
                                         {expandedEmpId === emp.id && (
-                                            <div className="mt-2 bg-slate-50 rounded p-3 text-xs animate-in slide-in-from-top-2 duration-200">
-                                                <div className="mb-2 font-semibold text-slate-600">Sur la période affichée :</div>
-                                                {empViolations.length === 0 ? (
-                                                    <div className="flex items-center gap-2 text-green-600">
-                                                        <CheckCircle2 className="w-4 h-4" />
-                                                        <span>Aucune anomalie détectée.</span>
+                                            <div className="mt-2 text-xs animate-in slide-in-from-top-2 duration-200 space-y-3">
+                                                {/* Conformité */}
+                                                <div className="bg-slate-50 rounded p-3">
+                                                    <div className="mb-2 font-semibold text-slate-600 flex items-center gap-1">
+                                                        <ShieldCheck className="w-3 h-3" /> Conformité (Période affichée)
                                                     </div>
-                                                ) : (
-                                                    <div className="space-y-2">
-                                                        {empViolations.map((v, idx) => (
-                                                            <div key={idx} className="flex items-start gap-2 text-red-600 bg-white p-2 rounded border border-red-100 shadow-sm">
-                                                                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                                                                <div>
-                                                                    <div className="font-semibold">{v.date}</div>
-                                                                    <div>{v.message}</div>
+                                                    {empViolations.length === 0 ? (
+                                                        <div className="flex items-center gap-2 text-green-600">
+                                                            <CheckCircle2 className="w-4 h-4" />
+                                                            <span>Aucune anomalie.</span>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="space-y-2">
+                                                            {empViolations.map((v, idx) => (
+                                                                <div key={idx} className="flex items-start gap-2 text-red-600 bg-white p-2 rounded border border-red-100 shadow-sm">
+                                                                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                                                                    <div>
+                                                                        <div className="font-semibold">{v.date}</div>
+                                                                        <div>{v.message}</div>
+                                                                    </div>
                                                                 </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Congés & Historique */}
+                                                <div className="bg-blue-50 rounded p-3 border border-blue-100">
+                                                    <div className="mb-2 font-semibold text-blue-700 flex items-center justify-between">
+                                                        <span className="flex items-center gap-1"><History className="w-3 h-3" /> Congés {leaveData.year}</span>
+                                                        <button 
+                                                            onClick={() => handleTeamResetLeave(emp.id)}
+                                                            className="px-2 py-1 bg-white text-blue-600 border border-blue-200 rounded hover:bg-blue-100 text-[10px]"
+                                                        >
+                                                            Reset Annuel
+                                                        </button>
+                                                    </div>
+                                                    
+                                                    {/* Compteurs Rapides */}
+                                                    <div className="grid grid-cols-3 gap-2 mb-3">
+                                                        {Object.entries(leaveData.counters || {}).map(([key, val]) => (
+                                                            <div key={key} className="bg-white p-1.5 rounded text-center border border-blue-100">
+                                                                <div className="text-[10px] font-bold text-slate-500">{key}</div>
+                                                                <div className="text-sm font-bold text-blue-600">{val.allowed + val.reliquat - val.taken}</div>
                                                             </div>
                                                         ))}
+                                                        {(!leaveData.counters || Object.keys(leaveData.counters).length === 0) && (
+                                                            <div className="col-span-3 text-center text-slate-400 italic">Aucun compteur</div>
+                                                        )}
                                                     </div>
-                                                )}
+
+                                                    {/* Derniers Historiques */}
+                                                    <div className="space-y-1">
+                                                        {leaveData.history && leaveData.history.length > 0 ? (
+                                                            leaveData.history.slice(0, 3).map((h, i) => (
+                                                                <div key={i} className="flex gap-2 text-[10px] text-slate-600 bg-white p-1 rounded border border-slate-100">
+                                                                    <span className="font-mono text-slate-400">{h.date}</span>
+                                                                    <span className={`font-bold ${h.action === 'PRIS' ? 'text-orange-500' : 'text-blue-500'}`}>{h.type || h.action}</span>
+                                                                </div>
+                                                            ))
+                                                        ) : (
+                                                            <div className="text-[10px] text-center text-slate-400">Aucun historique récent</div>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
                                         )}
                                     </div>

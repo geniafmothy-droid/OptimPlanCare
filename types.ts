@@ -1,7 +1,7 @@
 
 
 export type ShiftCode = 
-  | 'M' | 'T5' | 'T6' | 'S' | 'IT' | 'NT' | 'CA' | 'RH' | 'FO' | 'ETP' | 'DP' | 'OFF' | 'RC';
+  | 'M' | 'T5' | 'T6' | 'S' | 'IT' | 'NT' | 'CA' | 'RH' | 'FO' | 'ETP' | 'DP' | 'OFF' | 'RC' | 'HS';
 
 export interface ShiftDefinition {
   code: ShiftCode;

@@ -1,4 +1,5 @@
 
+
 import { ShiftDefinition, Employee, ShiftCode } from './types';
 
 // Parsing the colors and codes from the image and user rules
@@ -48,6 +49,7 @@ export const SHIFT_TYPES: Record<ShiftCode, ShiftDefinition> = {
   'RC': { code: 'RC', label: 'RC', color: 'bg-gray-100', textColor: 'text-gray-500', description: 'Repos Cycle', isWork: false },
   'CA': { code: 'CA', label: 'CA', color: 'bg-blue-400', textColor: 'text-white', description: 'Congés Annuels', isWork: false },
   'RH': { code: 'RH', label: 'RH', color: 'bg-green-200', textColor: 'text-green-900', description: 'Repos Hebdo', isWork: false },
+  'HS': { code: 'HS', label: 'HS', color: 'bg-purple-200', textColor: 'text-purple-900', description: 'Hors Saison', isWork: false },
   'FO': { code: 'FO', label: 'FO', color: 'bg-gray-300', textColor: 'text-gray-800', description: 'Formation', isWork: true, startHour: 9.0, endHour: 17.0 },
   'ETP': { code: 'ETP', label: 'ETP', color: 'bg-yellow-100', textColor: 'text-yellow-800', description: 'Temps Partiel', isWork: false },
   'DP': { code: 'DP', label: 'DP', color: 'bg-pink-200', textColor: 'text-pink-900', description: 'Déplacement', isWork: true, startHour: 8.0, endHour: 16.0 },
@@ -66,6 +68,7 @@ export const SHIFT_HOURS: Record<string, number> = {
   'RH': 0,
   'CA': 0,
   'RC': 0,
+  'HS': 0,
   'M': 7,     // Estimation pour Matin standard si utilisé
   'DP': 7,
   'ETP': 0,

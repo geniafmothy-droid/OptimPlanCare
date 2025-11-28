@@ -215,6 +215,20 @@ export const saveLeaveRange = async (employeeId: string, startDate: string, endD
     }
 };
 
+export const deleteLeaveRange = async (employeeId: string, startDate: string, endDate: string) => {
+    const { error } = await supabase
+        .from('shifts')
+        .delete()
+        .eq('employee_id', employeeId)
+        .gte('date', startDate)
+        .lte('date', endDate);
+    
+    if (error) {
+        console.error('Error deleting leave range:', JSON.stringify(error, null, 2));
+        throw new Error(error.message);
+    }
+};
+
 export const updateEmployeeBalance = async (employeeId: string, newBalance: number) => {
     const { error } = await supabase
         .from('employees')

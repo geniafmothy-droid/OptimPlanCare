@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
-import { Employee, ShiftCode, LeaveData } from '../types';
-import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter } from 'lucide-react';
+import { Employee, ShiftCode, LeaveData, ViewMode } from '../types';
+import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, CalendarDays, LayoutList, Trash2, Save } from 'lucide-react';
 import * as db from '../services/db';
 import { parseLeaveCSV } from '../utils/csvImport';
 import { LeaveCalendar } from './LeaveCalendar';
@@ -17,6 +17,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
     const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
 
     // Manual Form State
+    const [actionType, setActionType] = useState<'add' | 'delete'>('add');
     const [selectedEmpId, setSelectedEmpId] = useState('');
     const [leaveType, setLeaveType] = useState<string>('CA'); 
     const [startDate, setStartDate] = useState('');
@@ -27,6 +28,10 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
     const [resetYear, setResetYear] = useState(new Date().getFullYear() + 1);
     const [historyFilter, setHistoryFilter] = useState<string>('ALL');
 
+    // Calendar Filter State
+    const [calViewMode, setCalViewMode] = useState<ViewMode>('month');
+    const [calDate, setCalDate] = useState(new Date());
+
     // Calculate duration in days
     const durationDays = useMemo(() => {
         if (!startDate || !endDate) return 0;
@@ -34,8 +39,23 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
         const end = new Date(endDate);
         if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
         if (end < start) return 0;
-        return Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-    }, [startDate, endDate]);
+        
+        let days = 0;
+        // Logic specific to non-nurses (Mon-Fri) vs Nurses (Mon-Sat)
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            const day = d.getDay();
+            const emp = employees.find(e => e.id === selectedEmpId);
+            const isInfirmier = emp?.role === 'Infirmier';
+            
+            // Jours ouvrés (Lun-Ven) pour non-infirmiers, Ouvrables (Lun-Sam) pour infirmiers
+            if (isInfirmier) {
+                if (day !== 0) days++; // Skip Dimanche
+            } else {
+                if (day !== 0 && day !== 6) days++; // Skip Samedi Dimanche
+            }
+        }
+        return days;
+    }, [startDate, endDate, selectedEmpId, employees]);
 
     const getLeaveDataOrDefault = (emp: Employee): LeaveData => {
         if (emp.leaveData && emp.leaveData.counters) return emp.leaveData;
@@ -43,6 +63,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
             year: new Date().getFullYear(),
             counters: {
                 "CA": { allowed: 25, taken: 0, reliquat: 0 },
+                "HS": { allowed: 0, taken: 0, reliquat: 0 },
                 "RTT": { allowed: 0, taken: 0, reliquat: 0 },
                 "RC": { allowed: 0, taken: 0, reliquat: 0 }
             },
@@ -57,12 +78,14 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
         setIsLoading(true);
         setMessage(null);
         try {
-            const codeForSchedule = ['CA', 'RH', 'NT', 'FO'].includes(leaveType) ? leaveType as ShiftCode : 'CA';
-            await db.saveLeaveRange(selectedEmpId, startDate, endDate, codeForSchedule);
-            
-            if (deductFromBalance && durationDays > 0) {
-                const emp = employees.find(e => e.id === selectedEmpId);
-                if (emp) {
+            const emp = employees.find(e => e.id === selectedEmpId);
+            if (!emp) throw new Error("Employé introuvable");
+
+            if (actionType === 'add') {
+                const codeForSchedule = ['CA', 'RH', 'NT', 'FO', 'HS', 'RC'].includes(leaveType) ? leaveType as ShiftCode : 'CA';
+                await db.saveLeaveRange(selectedEmpId, startDate, endDate, codeForSchedule);
+                
+                if (deductFromBalance && durationDays > 0) {
                     const currentBalance = Number(emp.leaveBalance) || 0;
                     const newBalance = currentBalance - durationDays;
                     await db.updateEmployeeBalance(emp.id, newBalance);
@@ -82,12 +105,37 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                     
                     await db.updateEmployeeLeaveData(emp.id, leaveData);
                 }
+                setMessage({ text: deductFromBalance ? `Congés enregistrés et déduits.` : 'Congés enregistrés.', type: 'success' });
+            } else {
+                // DELETE MODE
+                if (!window.confirm(`Êtes-vous sûr de vouloir supprimer les congés de ${emp.name} du ${new Date(startDate).toLocaleDateString()} au ${new Date(endDate).toLocaleDateString()} ?\nCette action libérera les jours dans le planning.`)) {
+                    setIsLoading(false);
+                    return;
+                }
+
+                await db.deleteLeaveRange(selectedEmpId, startDate, endDate);
+
+                // Option to re-credit
+                if (deductFromBalance && durationDays > 0) {
+                    const leaveData = getLeaveDataOrDefault(emp);
+                    if (leaveData.counters[leaveType]) {
+                        leaveData.counters[leaveType].taken = Math.max(0, leaveData.counters[leaveType].taken - durationDays);
+                    }
+                    // Legacy balance
+                    const currentBalance = Number(emp.leaveBalance) || 0;
+                    await db.updateEmployeeBalance(emp.id, currentBalance + durationDays);
+
+                    leaveData.history.unshift({
+                        date: new Date().toISOString().split('T')[0],
+                        action: 'ANNUL',
+                        type: leaveType,
+                        details: `Annulation de ${durationDays} jours du ${new Date(startDate).toLocaleDateString()} au ${new Date(endDate).toLocaleDateString()}`
+                    });
+                    await db.updateEmployeeLeaveData(emp.id, leaveData);
+                }
+                setMessage({ text: deductFromBalance ? `Congés supprimés et recrédités.` : 'Congés supprimés du planning.', type: 'success' });
             }
 
-            setMessage({ 
-                text: deductFromBalance ? `Congés enregistrés et déduits.` : 'Congés enregistrés.', 
-                type: 'success' 
-            });
             setStartDate('');
             setEndDate('');
             setDeductFromBalance(false);
@@ -184,6 +232,32 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
         return selectedEmployeeData.history.filter(h => h.type === historyFilter || (!h.type && historyFilter === 'ALL'));
     }, [selectedEmployeeData, historyFilter]);
 
+    // Calendar Calculations
+    const { calStartDate, calDays, calLabel } = useMemo(() => {
+        const d = new Date(calDate);
+        if (calViewMode === 'day') {
+            return { calStartDate: d, calDays: 1, calLabel: d.toLocaleDateString() };
+        }
+        if (calViewMode === 'week') {
+            const day = d.getDay();
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+            const monday = new Date(d);
+            monday.setDate(diff);
+            return { calStartDate: monday, calDays: 7, calLabel: `Semaine du ${monday.getDate()}` };
+        }
+        const start = new Date(d.getFullYear(), d.getMonth(), 1);
+        const days = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        return { calStartDate: start, calDays: days, calLabel: start.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) };
+    }, [calDate, calViewMode]);
+
+    const handleCalNavigate = (dir: 'prev' | 'next') => {
+        const newD = new Date(calDate);
+        if (calViewMode === 'month') newD.setMonth(newD.getMonth() + (dir === 'next' ? 1 : -1));
+        else if (calViewMode === 'week') newD.setDate(newD.getDate() + (dir === 'next' ? 7 : -7));
+        else newD.setDate(newD.getDate() + (dir === 'next' ? 1 : -1));
+        setCalDate(newD);
+    };
+
     return (
         <div className="p-8 max-w-6xl mx-auto h-full flex flex-col">
             <h2 className="text-2xl font-bold mb-6 text-slate-800 flex items-center gap-2">
@@ -193,7 +267,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
 
             <div className="flex gap-4 mb-6 border-b border-slate-200">
                 <button onClick={() => setMode('manual')} className={`pb-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${mode === 'manual' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-                    <Settings className="w-4 h-4" /> Saisie
+                    <Settings className="w-4 h-4" /> Saisie / Suppression
                 </button>
                 <button onClick={() => setMode('counters')} className={`pb-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${mode === 'counters' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
                     <History className="w-4 h-4" /> Compteurs
@@ -214,10 +288,35 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                     </div>
                 )}
 
-                {mode === 'calendar' && <LeaveCalendar employees={employees} />}
+                {mode === 'calendar' && (
+                    <div className="h-full flex flex-col">
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="flex bg-slate-100 p-1 rounded-lg">
+                                <button onClick={() => setCalViewMode('month')} className={`px-3 py-1 text-xs rounded font-medium ${calViewMode === 'month' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}>Mois</button>
+                                <button onClick={() => setCalViewMode('week')} className={`px-3 py-1 text-xs rounded font-medium ${calViewMode === 'week' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}>Semaine</button>
+                                <button onClick={() => setCalViewMode('day')} className={`px-3 py-1 text-xs rounded font-medium ${calViewMode === 'day' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}>Jour</button>
+                            </div>
+                            <div className="flex items-center gap-2 bg-slate-50 p-1 rounded border">
+                                <button onClick={() => handleCalNavigate('prev')}><ChevronLeft className="w-4 h-4" /></button>
+                                <span className="text-sm font-semibold min-w-[150px] text-center capitalize">{calLabel}</span>
+                                <button onClick={() => handleCalNavigate('next')}><ChevronRight className="w-4 h-4" /></button>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                            <LeaveCalendar employees={employees} startDate={calStartDate} days={calDays} />
+                        </div>
+                    </div>
+                )}
 
                 {mode === 'manual' && (
                     <form onSubmit={handleSubmitManual} className="space-y-6 max-w-2xl mx-auto">
+                        <div className="flex justify-center mb-4">
+                            <div className="flex bg-slate-100 p-1 rounded-lg">
+                                <button type="button" onClick={() => setActionType('add')} className={`flex items-center gap-2 px-6 py-2 rounded-md font-medium text-sm transition-all ${actionType === 'add' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}><Save className="w-4 h-4" /> Poser</button>
+                                <button type="button" onClick={() => setActionType('delete')} className={`flex items-center gap-2 px-6 py-2 rounded-md font-medium text-sm transition-all ${actionType === 'delete' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500'}`}><Trash2 className="w-4 h-4" /> Supprimer</button>
+                            </div>
+                        </div>
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Employé</label>
@@ -227,10 +326,12 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Type de congé</label>
                                 <select value={leaveType} onChange={(e) => setLeaveType(e.target.value)} className="w-full p-2 border border-slate-300 rounded">
                                     <option value="CA">Congés Annuels (CA)</option>
+                                    <option value="HS">Hors Saison (HS)</option>
                                     <option value="RTT">RTT</option>
+                                    <option value="RC">Repos Cycle (RC)</option>
                                     <option value="RH">Repos Compensateur</option>
                                     <option value="NT">Maladie</option>
                                 </select>
@@ -238,11 +339,11 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                             <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full p-2 border border-slate-300 rounded" required />
                             <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full p-2 border border-slate-300 rounded" required />
                         </div>
-                        <label className="flex items-center gap-2 cursor-pointer">
+                        <label className="flex items-center gap-2 cursor-pointer bg-slate-50 p-3 rounded border">
                             <input type="checkbox" checked={deductFromBalance} onChange={(e) => setDeductFromBalance(e.target.checked)} />
-                            <span>Déduire du compteur</span>
+                            <span>{actionType === 'add' ? 'Déduire du compteur' : 'Recréditer le compteur'}</span>
                         </label>
-                        <button type="submit" disabled={isLoading} className="bg-blue-600 text-white px-6 py-2 rounded">Enregistrer</button>
+                        <button type="submit" disabled={isLoading} className={`w-full py-2.5 rounded text-white font-medium shadow-sm ${actionType === 'add' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'}`}>{actionType === 'add' ? 'Enregistrer' : 'Supprimer'}</button>
                     </form>
                 )}
 
@@ -322,6 +423,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                                                                 <span className={`px-2 py-0.5 rounded text-xs font-bold ${
                                                                     h.action === 'RESET' ? 'bg-purple-100 text-purple-700' :
                                                                     h.action === 'PRIS' ? 'bg-orange-100 text-orange-700' :
+                                                                    h.action === 'ANNUL' ? 'bg-red-100 text-red-700' :
                                                                     'bg-slate-100 text-slate-700'
                                                                 }`}>
                                                                     {h.type || h.action}
