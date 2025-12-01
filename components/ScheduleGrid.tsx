@@ -22,7 +22,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
       const d = new Date(startDate);
       d.setDate(d.getDate() + i);
       
-      // FIX: Use local date construction instead of toISOString() to avoid timezone shifts
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
@@ -30,7 +29,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
 
       result.push({
         obj: d,
-        str: dateStr, // Key used to lookup shifts
+        str: dateStr,
         dayName: d.toLocaleDateString('fr-FR', { weekday: 'short' }),
         dayNameFull: d.toLocaleDateString('fr-FR', { weekday: 'long' }),
         dayNum: d.getDate(),
@@ -114,7 +113,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                              </div>
                           </td>
                           
-                          {/* Cellules horaires */}
                           {hours.map(h => {
                              let content = null;
 
@@ -122,19 +120,15 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                                 const start = shiftDef.startHour;
                                 const end = shiftDef.endHour;
 
-                                // Vérifier si l'heure 'h' est dans la plage [start, end[
                                 if (h >= Math.floor(start) && h < end) {
-                                   
                                    let leftPct = 0;
                                    let widthPct = 100;
 
-                                   // Cas de la première heure (ex: start=6.5, h=6)
                                    if (h === Math.floor(start)) {
                                        leftPct = (start % 1) * 100;
                                        widthPct -= leftPct;
                                    }
 
-                                   // Cas de la dernière heure (ex: end=18.5, h=18)
                                    if (h === Math.floor(end)) {
                                        const endPct = (end % 1) === 0 ? 100 : (end % 1) * 100;
                                        widthPct = endPct - leftPct;
@@ -170,7 +164,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
     );
   }
 
-  // --- MODE DATE STANDARD (Mois, Semaine, 5 Jours) ---
+  // --- MODE DATE STANDARD ---
 
   const isWeekend = (date: Date) => {
     const day = date.getDay();
@@ -188,7 +182,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
   return (
     <div className="flex-1 overflow-hidden flex flex-col border rounded-lg bg-white shadow-sm h-full relative group">
       
-      {/* Floating Scroll Controls */}
       {days > 7 && (
           <>
             <button 
@@ -208,19 +201,16 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
           </>
       )}
 
-      {/* Scrollable Container */}
       <div className="overflow-auto relative h-full flex flex-col scroll-smooth" ref={scrollContainerRef}>
         <table className="border-collapse w-max">
           <thead className="sticky top-0 z-20 bg-white shadow-sm">
             <tr>
-              {/* Sticky Corner */}
               <th className="sticky left-0 z-30 bg-slate-50 border-b border-r border-slate-200 p-2 min-w-[220px] text-left">
                 <div className="flex flex-col">
                   <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Collaborateur</span>
                   <span className="text-[10px] text-slate-400 font-normal">Matricule / Quotité / Comp.</span>
                 </div>
               </th>
-              {/* Date Headers */}
               {dates.map((d) => (
                 <th 
                   key={d.str} 
@@ -242,7 +232,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
           <tbody>
             {employees.map((emp) => (
               <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
-                {/* Employee Name (Sticky Left) */}
                 <td className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 p-2 group cursor-pointer">
                   <div className="flex items-center justify-between">
                     <div>
@@ -260,11 +249,10 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                         )}
                       </div>
                     </div>
-                    <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                    <div className="w-2 h-2 rounded-full bg-green-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                   </div>
                 </td>
 
-                {/* Shift Cells */}
                 {dates.map((d) => {
                   const shiftCode = emp.shifts[d.str] || 'OFF';
                   const shiftDef = SHIFT_TYPES[shiftCode];
@@ -276,6 +264,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                         isWeekend(d.obj) ? 'bg-slate-50/50' : ''
                       }`}
                       onClick={() => onCellClick(emp.id, d.str)}
+                      title={shiftCode !== 'OFF' ? `${d.dayName} ${d.dayNum}: ${shiftDef.label} - ${shiftDef.description}` : undefined}
                     >
                       <div 
                         className={`
@@ -286,10 +275,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                         `}
                       >
                         {shiftCode !== 'OFF' ? shiftCode : '+'}
-                      </div>
-                      
-                      <div className="absolute hidden group-hover:block z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 p-2 bg-slate-800 text-white text-xs rounded shadow-lg whitespace-nowrap">
-                         {d.dayName} {d.dayNum}: {shiftDef.label} - {shiftDef.description}
                       </div>
                     </td>
                   );
