@@ -4,7 +4,7 @@ import { Settings, Save, Loader2, CheckCircle2, ShieldCheck, Users, Plus, Trash2
 import * as db from '../services/db';
 
 interface ServiceSettingsProps {
-    service: Service | null; // Currently active service (from global state), mostly for initial selection if needed
+    service: Service | null; // Currently active service (from global state)
     onReload: () => void;
 }
 

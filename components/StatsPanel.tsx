@@ -12,7 +12,17 @@ interface StatsPanelProps {
   days: number;
 }
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#9ca3af'];
+// Updated vivid color palette for better distinction
+const COLORS = [
+    '#3B82F6', // Blue-500 (IT/Standard)
+    '#F59E0B', // Amber-500 (Soir)
+    '#10B981', // Emerald-500 (Matin/T5)
+    '#8B5CF6', // Violet-500 (T6)
+    '#EF4444', // Red-500 (Absence/Alert)
+    '#6366F1', // Indigo-500
+    '#EC4899', // Pink-500
+    '#64748B'  // Slate-500 (Other)
+];
 
 export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, days }) => {
   
@@ -34,29 +44,30 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
     })).sort((a, b) => b.value - a.value);
   }, [employees]);
 
-  // Calculate daily coverage
+  // Calculate daily coverage (Modified: Removed Senior logic)
   const dailyCoverage = React.useMemo(() => {
     const data = [];
     for (let i = 0; i < days; i++) {
       const d = new Date(startDate);
       d.setDate(d.getDate() + i);
-      const dateStr = d.toISOString().split('T')[0];
+      // Force local string format to match keys
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
       
       let present = 0;
-      let senior = 0;
       
       employees.forEach(emp => {
         const code = emp.shifts[dateStr];
         if (code && SHIFT_TYPES[code]?.isWork) {
           present++;
-          if (emp.skills.includes('Senior')) senior++;
         }
       });
 
       data.push({
-        date: `${d.getDate()}/${d.getMonth() + 1}`,
+        date: `${day}/${month}`, // Short date for XAxis
         Présents: present,
-        Seniors: senior,
       });
     }
     return data;
@@ -95,7 +106,7 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                label={({ name, percent }) => percent > 0.05 ? `${name} ${(percent * 100).toFixed(0)}%` : ''}
                 outerRadius={80}
                 fill="#8884d8"
                 dataKey="value"
@@ -105,6 +116,7 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
                 ))}
               </Pie>
               <Tooltip />
+              <Legend />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -119,13 +131,22 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
               data={dailyCoverage}
               margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
             >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" fontSize={10} />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="date" fontSize={10} tickLine={false} axisLine={false} />
               <YAxis />
-              <Tooltip />
+              <Tooltip 
+                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                cursor={{ fill: '#f1f5f9' }}
+              />
               <Legend />
-              <Bar dataKey="Présents" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="Seniors" fill="#10b981" radius={[4, 4, 0, 0]} />
+              {/* Removed Senior Bar */}
+              <Bar 
+                dataKey="Présents" 
+                fill="#3B82F6" 
+                radius={[4, 4, 0, 0]} 
+                barSize={20}
+                name="Effectif Présent"
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -133,30 +154,30 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
 
       {/* KPI Cards */}
       <div className="md:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-blue-50 p-4 rounded border border-blue-100">
+        <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
           <div className="text-sm text-blue-600 font-medium">Effectif Total</div>
           <div className="text-2xl font-bold text-blue-900">{employees.length}</div>
         </div>
-        <div className="bg-orange-50 p-4 rounded border-orange-100">
+        <div className="bg-orange-50 p-4 rounded-xl border-orange-100">
           <div className="text-sm text-orange-600 font-medium">Total Heures Travaillées</div>
           <div className="text-2xl font-bold text-orange-900">
             {totalEstimatedHours.toLocaleString()}h
           </div>
           <div className="text-xs text-orange-400 mt-1">Pauses déduites</div>
         </div>
-        <div className="bg-purple-50 p-4 rounded border-purple-100">
+        <div className="bg-purple-50 p-4 rounded-xl border-purple-100">
           <div className="text-sm text-purple-600 font-medium">Postes de Nuit/Repos</div>
           <div className="text-2xl font-bold text-purple-900">
              {(shiftDistribution.find(x => x.name === 'NT')?.value || 0) + (shiftDistribution.find(x => x.name === 'RC')?.value || 0)}
           </div>
           <div className="text-xs text-purple-400 mt-1">NT + RC</div>
         </div>
-        <div className="bg-green-50 p-4 rounded border-green-100">
+        <div className="bg-green-50 p-4 rounded-xl border-green-100">
            <div className="text-sm text-green-600 font-medium">Taux Repos Total</div>
            <div className="text-2xl font-bold text-green-900">
              {(() => {
                const total = shiftDistribution.reduce((a, b) => a + b.value, 0);
-               const off = shiftDistribution.filter(x => ['CA', 'RH', 'NT', 'RC', 'OFF'].includes(x.name)).reduce((a, b) => a + b.value, 0);
+               const off = shiftDistribution.filter(x => ['CA', 'RH', 'NT', 'RC', 'OFF', 'HS'].includes(x.name)).reduce((a, b) => a + b.value, 0);
                return total ? Math.round((off / total) * 100) : 0;
              })()}%
            </div>
@@ -168,19 +189,23 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
           <h3 className="text-lg font-semibold mb-4 text-slate-800">Heures par collaborateur</h3>
           <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-50 text-slate-500 uppercase font-medium">
+                  <thead className="bg-slate-50 text-slate-500 uppercase font-medium text-xs">
                       <tr>
-                          <th className="p-3">Nom</th>
+                          <th className="p-3 rounded-tl-lg">Nom</th>
                           <th className="p-3">Quotité</th>
-                          <th className="p-3">Heures Planifiées</th>
+                          <th className="p-3 rounded-tr-lg text-right">Heures Planifiées</th>
                       </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                       {personHours.map(p => (
-                          <tr key={p.name} className="hover:bg-slate-50">
+                          <tr key={p.name} className="hover:bg-slate-50 transition-colors">
                               <td className="p-3 font-medium text-slate-700">{p.name}</td>
-                              <td className="p-3 text-slate-500">{Math.round(p.fte * 100)}%</td>
-                              <td className="p-3 font-bold text-blue-600">{p.hours}h</td>
+                              <td className="p-3 text-slate-500">
+                                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${p.fte < 1 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                                    {Math.round(p.fte * 100)}%
+                                </span>
+                              </td>
+                              <td className="p-3 font-bold text-blue-600 text-right">{p.hours}h</td>
                           </tr>
                       ))}
                   </tbody>
