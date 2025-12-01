@@ -1,5 +1,3 @@
-
-
 import React, { useMemo } from 'react';
 import { Employee } from '../types';
 import { SHIFT_TYPES } from '../constants';
@@ -32,13 +30,8 @@ export const LeaveCalendar: React.FC<LeaveCalendarProps> = ({ employees, startDa
       return arr;
   }, [startDate, days]);
 
-  const headerLabel = startDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-
   return (
     <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col h-full">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-slate-700 capitalize">
-            Planning des Absences - {days > 7 ? headerLabel : `Semaine du ${startDate.toLocaleDateString('fr-FR')}`}
-        </div>
         <div className="overflow-auto flex-1">
             <table className="w-max min-w-full text-xs border-collapse">
                 <thead className="sticky top-0 z-20 shadow-sm">

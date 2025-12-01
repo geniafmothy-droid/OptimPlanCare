@@ -1,13 +1,13 @@
-
 import { supabase } from '../lib/supabase';
-import { Employee, ShiftCode, Skill, Service } from '../types';
+import { Employee, ShiftCode, Skill, Service, ServiceAssignment } from '../types';
 import { MOCK_EMPLOYEES } from '../constants';
 
 // --- Services Management ---
 export const fetchServices = async (): Promise<Service[]> => {
     const { data, error } = await supabase
         .from('services')
-        .select('*');
+        .select('*')
+        .order('name');
     
     if (error) {
         console.error('Error fetching services:', JSON.stringify(error, null, 2));
@@ -64,6 +64,57 @@ export const updateService = async (id: string, name: string) => {
     }
 };
 
+// --- Service Assignments Management ---
+
+export const fetchServiceAssignments = async (): Promise<ServiceAssignment[]> => {
+    const { data, error } = await supabase
+        .from('service_assignments')
+        .select('*');
+    
+    if (error) {
+        // Silent fail if table doesn't exist yet (migration)
+        if (error.code === '42P01') return [];
+        console.error('Error fetching assignments:', JSON.stringify(error, null, 2));
+        throw new Error(error.message);
+    }
+    
+    return data?.map((d: any) => ({
+        id: d.id,
+        employeeId: d.employee_id,
+        serviceId: d.service_id,
+        startDate: d.start_date,
+        endDate: d.end_date
+    })) || [];
+};
+
+export const createServiceAssignment = async (employeeId: string, serviceId: string, startDate: string, endDate?: string) => {
+    const { error } = await supabase
+        .from('service_assignments')
+        .insert([{ 
+            employee_id: employeeId, 
+            service_id: serviceId, 
+            start_date: startDate, 
+            end_date: endDate || null 
+        }]);
+
+    if (error) {
+        console.error('Error creating assignment:', JSON.stringify(error, null, 2));
+        throw new Error(error.message);
+    }
+};
+
+export const deleteServiceAssignment = async (id: string) => {
+    const { error } = await supabase
+        .from('service_assignments')
+        .delete()
+        .eq('id', id);
+
+    if (error) {
+        console.error('Error deleting assignment:', JSON.stringify(error, null, 2));
+        throw new Error(error.message);
+    }
+};
+
 
 // --- Skills Management ---
 
@@ -75,7 +126,6 @@ export const fetchSkills = async (): Promise<Skill[]> => {
     
     if (error) {
         console.error('Error fetching skills:', JSON.stringify(error, null, 2));
-        // Return empty if table doesn't exist yet to avoid crashing app before migration
         if (error.code === '42P01') return []; 
         throw new Error(error.message);
     }
@@ -190,9 +240,6 @@ export const saveLeaveRange = async (employeeId: string, startDate: string, endD
     // Iterate through dates
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         const dateStr = d.toISOString().split('T')[0];
-        
-        // Specific Rule: Dialyse Service closes on Sunday -> RH
-        // Ideally fetch this from service config, but kept simple here for bulk op
         const isSunday = d.getDay() === 0;
         const codeToApply = isSunday ? 'RH' : type;
 

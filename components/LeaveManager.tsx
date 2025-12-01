@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo } from 'react';
-import { Employee, ShiftCode, LeaveData, ViewMode } from '../types';
+import { Employee, ShiftCode, LeaveData, ViewMode, LeaveCounter } from '../types';
 import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, CalendarDays, LayoutList, Trash2, Save } from 'lucide-react';
 import * as db from '../services/db';
 import { parseLeaveCSV } from '../utils/csvImport';
@@ -373,13 +372,14 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                                     </thead>
                                     <tbody>
                                         {Object.entries(selectedEmployeeData.counters).map(([key, val]) => {
-                                            const balance = val.allowed + val.reliquat - val.taken;
+                                            const v = val as LeaveCounter;
+                                            const balance = v.allowed + v.reliquat - v.taken;
                                             return (
                                                 <tr key={key} className="border-t">
                                                     <td className="p-2 font-medium">{key}</td>
-                                                    <td className="p-2 text-center">{val.allowed}</td>
-                                                    <td className="p-2 text-center">{val.taken}</td>
-                                                    <td className="p-2 text-center">{val.reliquat}</td>
+                                                    <td className="p-2 text-center">{v.allowed}</td>
+                                                    <td className="p-2 text-center">{v.taken}</td>
+                                                    <td className="p-2 text-center">{v.reliquat}</td>
                                                     <td className="p-2 text-right font-bold text-blue-600">{balance}</td>
                                                 </tr>
                                             );

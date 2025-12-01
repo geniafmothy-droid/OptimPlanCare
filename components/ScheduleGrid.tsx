@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import { Employee, ShiftCode, ViewMode } from '../types';
 import { SHIFT_TYPES } from '../constants';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface ScheduleGridProps {
   employees: Employee[];
@@ -13,8 +13,9 @@ interface ScheduleGridProps {
 
 export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate, days, viewMode, onCellClick }) => {
   const [showDetails, setShowDetails] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Generate date headers (MOVED UP: Hooks must be executed unconditionally)
+  // Generate date headers
   const dates = useMemo(() => {
     const result = [];
     for (let i = 0; i < days; i++) {
@@ -39,11 +40,18 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
     return result;
   }, [startDate, days]);
 
+  const handleScroll = (direction: 'left' | 'right') => {
+      if (scrollContainerRef.current) {
+          const scrollAmount = 300;
+          scrollContainerRef.current.scrollBy({
+              left: direction === 'left' ? -scrollAmount : scrollAmount,
+              behavior: 'smooth'
+          });
+      }
+  };
+
   // --- MODE HORAIRE (HOURLY) ---
   if (viewMode === 'hourly') {
-    // Dans ce mode, on affiche une grille 05h-24h pour une seule journée
-    
-    // FIX: Use local date construction for hourly view as well
     const year = startDate.getFullYear();
     const month = String(startDate.getMonth() + 1).padStart(2, '0');
     const day = String(startDate.getDate()).padStart(2, '0');
@@ -54,8 +62,21 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
     const hours = Array.from({ length: endDisplayHour - startDisplayHour }, (_, i) => i + startDisplayHour);
 
     return (
-      <div className="flex-1 overflow-hidden flex flex-col border rounded-lg bg-white shadow-sm h-full">
-         <div className="overflow-auto relative h-full">
+      <div className="flex-1 overflow-hidden flex flex-col border rounded-lg bg-white shadow-sm h-full relative group">
+         <button 
+            onClick={() => handleScroll('left')}
+            className="absolute left-2 top-1/2 -translate-y-1/2 z-40 p-2 bg-white/80 hover:bg-white text-slate-600 rounded-full shadow-md border border-slate-200 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-0"
+         >
+            <ChevronLeft className="w-5 h-5" />
+         </button>
+         <button 
+            onClick={() => handleScroll('right')}
+            className="absolute right-2 top-1/2 -translate-y-1/2 z-40 p-2 bg-white/80 hover:bg-white text-slate-600 rounded-full shadow-md border border-slate-200 opacity-0 group-hover:opacity-100 transition-opacity"
+         >
+            <ChevronRight className="w-5 h-5" />
+         </button>
+
+         <div className="overflow-auto relative h-full" ref={scrollContainerRef}>
             <table className="border-collapse w-max min-w-full">
               <thead className="sticky top-0 z-20 bg-white shadow-sm">
                  <tr>
@@ -104,8 +125,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                                 // Vérifier si l'heure 'h' est dans la plage [start, end[
                                 if (h >= Math.floor(start) && h < end) {
                                    
-                                   // Calcul de la position et largeur pour gérer les demi-heures
-                                   // Par défaut occupe toute la cellule (0% left, 100% width)
                                    let leftPct = 0;
                                    let widthPct = 100;
 
@@ -127,7 +146,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                                         style={{ 
                                             left: `${leftPct}%`, 
                                             width: `${widthPct}%`,
-                                            margin: '0 1px' // petite marge pour distinguer les blocs si collés
+                                            margin: '0 1px'
                                         }}
                                         title={`${shiftDef.label} (${start}h - ${end}h)`}
                                       ></div>
@@ -158,7 +177,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
     return day === 0 || day === 6;
   };
 
-  // Adjust cell width based on number of days (Week/Day view vs Month view)
   const getCellWidthClass = () => {
       if (days === 1) return "min-w-[150px]";
       if (days <= 7) return "min-w-[100px]";
@@ -168,9 +186,30 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
   const codesToCount: ShiftCode[] = ['IT', 'T5', 'T6', 'S', 'RH'];
 
   return (
-    <div className="flex-1 overflow-hidden flex flex-col border rounded-lg bg-white shadow-sm h-full">
+    <div className="flex-1 overflow-hidden flex flex-col border rounded-lg bg-white shadow-sm h-full relative group">
+      
+      {/* Floating Scroll Controls */}
+      {days > 7 && (
+          <>
+            <button 
+                onClick={() => handleScroll('left')}
+                className="absolute left-2 top-1/2 -translate-y-1/2 z-40 p-2 bg-white/90 hover:bg-white text-slate-700 hover:text-blue-600 rounded-full shadow-[0_2px_8px_rgba(0,0,0,0.15)] border border-slate-200 opacity-0 group-hover:opacity-100 transition-all duration-200 transform hover:scale-110 active:scale-95"
+                title="Défiler à gauche"
+            >
+                <ChevronLeft className="w-6 h-6" />
+            </button>
+            <button 
+                onClick={() => handleScroll('right')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 z-40 p-2 bg-white/90 hover:bg-white text-slate-700 hover:text-blue-600 rounded-full shadow-[0_2px_8px_rgba(0,0,0,0.15)] border border-slate-200 opacity-0 group-hover:opacity-100 transition-all duration-200 transform hover:scale-110 active:scale-95"
+                title="Défiler à droite"
+            >
+                <ChevronRight className="w-6 h-6" />
+            </button>
+          </>
+      )}
+
       {/* Scrollable Container */}
-      <div className="overflow-auto relative h-full flex flex-col">
+      <div className="overflow-auto relative h-full flex flex-col scroll-smooth" ref={scrollContainerRef}>
         <table className="border-collapse w-max">
           <thead className="sticky top-0 z-20 bg-white shadow-sm">
             <tr>
@@ -210,7 +249,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                       <div className="font-medium text-sm text-slate-900">{emp.name}</div>
                       <div className="text-[10px] text-slate-500 flex flex-wrap items-center gap-1 mt-0.5">
                         <span className="text-slate-400 font-mono text-[9px] mr-1">#{emp.matricule}</span>
-                        {/* Affichage de la Quotité */}
                         <span className={`px-1.5 py-0.5 rounded-full font-semibold ${
                             emp.fte < 1.0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
                         }`}>
@@ -222,7 +260,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                         )}
                       </div>
                     </div>
-                    {/* Status Indicator */}
                     <div className="w-2 h-2 rounded-full bg-green-500"></div>
                   </div>
                 </td>
@@ -251,7 +288,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                         {shiftCode !== 'OFF' ? shiftCode : '+'}
                       </div>
                       
-                      {/* Tooltip on hover */}
                       <div className="absolute hidden group-hover:block z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 p-2 bg-slate-800 text-white text-xs rounded shadow-lg whitespace-nowrap">
                          {d.dayName} {d.dayNum}: {shiftDef.label} - {shiftDef.description}
                       </div>
@@ -262,9 +298,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
             ))}
           </tbody>
           
-          {/* Footer with Totals */}
           <tfoot className="bg-slate-50 border-t-2 border-slate-300 shadow-[0_-2px_4px_rgba(0,0,0,0.05)] sticky bottom-0 z-20">
-             {/* Main Total Row */}
              <tr>
                <td className="sticky left-0 z-30 bg-slate-50 border-b border-r border-slate-300 p-2">
                  <div className="flex items-center justify-between">
@@ -292,7 +326,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                })}
             </tr>
 
-            {/* Detailed Rows (Collapsible) */}
             {showDetails && codesToCount.map(code => (
                 <tr key={code} className="bg-white hover:bg-slate-50 transition-colors">
                     <td className="sticky left-0 z-30 bg-white border-b border-r border-slate-200 p-2 text-xs text-right font-medium text-slate-500 border-l-4"
@@ -316,7 +349,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
         </table>
       </div>
       
-      {/* Footer Legend */}
       <div className="bg-white p-2 text-[10px] text-slate-500 flex justify-between items-center no-print border-t border-slate-200">
           <div>
               Utilisez la flèche dans le total pour voir le détail par poste (IT, T5, etc.)

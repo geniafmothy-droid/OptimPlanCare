@@ -1,5 +1,3 @@
-
-
 export type ShiftCode = 
   | 'M' | 'T5' | 'T6' | 'S' | 'IT' | 'NT' | 'CA' | 'RH' | 'FO' | 'ETP' | 'DP' | 'OFF' | 'RC' | 'HS';
 
@@ -78,4 +76,12 @@ export interface Service {
     id: string;
     name: string;
     config: ServiceConfig;
+}
+
+export interface ServiceAssignment {
+    id: string;
+    employeeId: string;
+    serviceId: string;
+    startDate: string; // YYYY-MM-DD
+    endDate?: string; // YYYY-MM-DD or null/undefined
 }

@@ -1,7 +1,5 @@
-
-// ... imports are the same as provided App.tsx ...
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History } from 'lucide-react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
 import { StaffingSummary } from './components/StaffingSummary';
 import { StatsPanel } from './components/StatsPanel';
@@ -11,7 +9,7 @@ import { SkillsSettings } from './components/SkillsSettings';
 import { ServiceSettings } from './components/ServiceSettings';
 import { Dashboard } from './components/Dashboard';
 import { SHIFT_TYPES } from './constants';
-import { Employee, ShiftCode, ViewMode, Skill, Service, LeaveData } from './types';
+import { Employee, ShiftCode, ViewMode, Skill, Service, LeaveData, ServiceAssignment, LeaveCounter } from './types';
 import { generateMonthlySchedule } from './utils/scheduler';
 import { parseScheduleCSV } from './utils/csvImport';
 import { exportScheduleToCSV } from './utils/csvExport';
@@ -27,6 +25,7 @@ function App() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [skillsList, setSkillsList] = useState<Skill[]>([]);
   const [servicesList, setServicesList] = useState<Service[]>([]);
+  const [assignmentsList, setAssignmentsList] = useState<ServiceAssignment[]>([]);
   const [activeServiceId, setActiveServiceId] = useState<string>('');
   
   const [selectedCell, setSelectedCell] = useState<{empId: string, date: string} | null>(null);
@@ -39,6 +38,8 @@ function App() {
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [skillFilter, setSkillFilter] = useState<string>('all');
   const [showQualifiedOnly, setShowQualifiedOnly] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'present' | 'absent'>('all');
+  const [absenceTypeFilter, setAbsenceTypeFilter] = useState<string>('all');
 
   // Modal States
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -74,14 +75,16 @@ function App() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [empData, skillsData, servicesData] = await Promise.all([
+      const [empData, skillsData, servicesData, assignData] = await Promise.all([
           db.fetchEmployeesWithShifts(),
           db.fetchSkills(),
-          db.fetchServices()
+          db.fetchServices(),
+          db.fetchServiceAssignments()
       ]);
       setEmployees(empData);
       setSkillsList(skillsData);
       setServicesList(servicesData);
+      setAssignmentsList(assignData);
       
       // Default service select
       if (servicesData.length > 0 && !activeServiceId) {
@@ -110,12 +113,42 @@ function App() {
     }
   };
 
-  // Filter Logic
+  // --- View Calculation Helpers ---
+  const getGridConfig = () => {
+    if (viewMode === 'day' || viewMode === 'hourly') {
+      return { start: currentDate, days: 1 };
+    }
+    
+    if (viewMode === 'week') {
+      const day = currentDate.getDay();
+      const diff = currentDate.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(currentDate);
+      monday.setDate(diff);
+      return { start: monday, days: 7 };
+    }
+
+    if (viewMode === 'workweek') {
+      const day = currentDate.getDay();
+      const diff = currentDate.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(currentDate);
+      monday.setDate(diff);
+      return { start: monday, days: 5 };
+    }
+
+    const start = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+    return { start, days: daysInMonth };
+  };
+
+  const { start: gridStartDate, days: gridDuration } = getGridConfig();
+
+  // --- Filter Logic ---
   const filteredEmployees = employees.filter(emp => {
+    // 1. Role & Skill Filter
     const roleMatch = roleFilter === 'all' || emp.role === roleFilter;
     const skillMatch = skillFilter === 'all' || emp.skills.includes(skillFilter);
     
-    // Service Qualification Filter
+    // 2. Service Qualification Filter
     let qualificationMatch = true;
     if (showQualifiedOnly && activeService?.config?.requiredSkills?.length > 0) {
         const reqSkills = activeService.config.requiredSkills;
@@ -123,7 +156,62 @@ function App() {
         qualificationMatch = hasSkill;
     }
 
-    return roleMatch && skillMatch && qualificationMatch;
+    // 3. Service Assignment Filter (Active Service Period)
+    let assignmentMatch = true;
+    if (activeServiceId && assignmentsList.length > 0) {
+        const viewEnd = new Date(gridStartDate);
+        viewEnd.setDate(viewEnd.getDate() + gridDuration);
+
+        // Find relevant assignments for this employee and this service
+        const empAssignments = assignmentsList.filter(a => 
+            a.employeeId === emp.id && 
+            a.serviceId === activeServiceId
+        );
+
+        if (empAssignments.length > 0) {
+            // Check overlap
+            const hasOverlap = empAssignments.some(a => {
+                const aStart = new Date(a.startDate);
+                const aEnd = a.endDate ? new Date(a.endDate) : new Date('2099-12-31');
+                return aStart < viewEnd && aEnd >= gridStartDate;
+            });
+            assignmentMatch = hasOverlap;
+        } else {
+            // If assignments exist globally for this service, but not for this employee, exclude them.
+            const serviceHasAnyAssignments = assignmentsList.some(a => a.serviceId === activeServiceId);
+            if (serviceHasAnyAssignments) {
+                assignmentMatch = false; 
+            }
+        }
+    }
+
+    // 4. Status & Absence Type Filter
+    let statusMatch = true;
+    let absenceTypeMatch = true;
+    
+    if (statusFilter !== 'all' || absenceTypeFilter !== 'all') {
+        let hasWork = false;
+        let hasSpecificAbsence = false;
+
+        for (let i = 0; i < gridDuration; i++) {
+            const d = new Date(gridStartDate);
+            d.setDate(d.getDate() + i);
+            const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            const code = emp.shifts[dateStr];
+            
+            if (code) {
+                if (SHIFT_TYPES[code]?.isWork) hasWork = true;
+                if (code === absenceTypeFilter) hasSpecificAbsence = true;
+            }
+        }
+
+        if (statusFilter === 'present') statusMatch = hasWork;
+        else if (statusFilter === 'absent') statusMatch = !hasWork;
+
+        if (absenceTypeFilter !== 'all') absenceTypeMatch = hasSpecificAbsence;
+    }
+
+    return roleMatch && skillMatch && qualificationMatch && assignmentMatch && statusMatch && absenceTypeMatch;
   });
 
   // --- Date Navigation Helper ---
@@ -152,38 +240,6 @@ function App() {
           setShowDatePicker(false);
       }
   };
-
-  // --- View Calculation Helpers ---
-  const getGridConfig = () => {
-    if (viewMode === 'day' || viewMode === 'hourly') {
-      return { start: currentDate, days: 1 };
-    }
-    
-    if (viewMode === 'week') {
-      // Calculate Monday of current week
-      const day = currentDate.getDay();
-      const diff = currentDate.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
-      const monday = new Date(currentDate);
-      monday.setDate(diff);
-      return { start: monday, days: 7 };
-    }
-
-    if (viewMode === 'workweek') {
-      // Calculate Monday of current week
-      const day = currentDate.getDay();
-      const diff = currentDate.getDate() - day + (day === 0 ? -6 : 1);
-      const monday = new Date(currentDate);
-      monday.setDate(diff);
-      return { start: monday, days: 5 }; // Only 5 days (Mon-Fri)
-    }
-
-    // Month Mode
-    const start = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-    const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
-    return { start, days: daysInMonth };
-  };
-
-  const { start: gridStartDate, days: gridDuration } = getGridConfig();
 
   // --- Handlers ---
 
@@ -529,12 +585,12 @@ CREATE TABLE IF NOT EXISTS public.services (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     name TEXT NOT NULL UNIQUE,
-    config JSONB DEFAULT '{"openDays": [1, 2, 3, 4, 5, 6]}'::jsonb
+    config JSONB DEFAULT '{"openDays": [1, 2, 3, 4, 5, 6], "requiredSkills": []}'::jsonb
 );
 ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Enable all access for services" ON public.services;
 CREATE POLICY "Enable all access for services" ON public.services FOR ALL USING (true) WITH CHECK (true);
-INSERT INTO public.services (name, config) VALUES ('Dialyse', '{"openDays": [1, 2, 3, 4, 5, 6]}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO public.services (name, config) VALUES ('Dialyse', '{"openDays": [1, 2, 3, 4, 5, 6], "requiredSkills": ["Dialyse"]}') ON CONFLICT (name) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS public.employees (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -551,6 +607,18 @@ CREATE TABLE IF NOT EXISTS public.employees (
 ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Enable all access for employees" ON public.employees;
 CREATE POLICY "Enable all access for employees" ON public.employees FOR ALL USING (true) WITH CHECK (true);
+
+CREATE TABLE IF NOT EXISTS public.service_assignments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    employee_id UUID NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
+    service_id UUID NOT NULL REFERENCES public.services(id) ON DELETE CASCADE,
+    start_date DATE NOT NULL,
+    end_date DATE
+);
+ALTER TABLE public.service_assignments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Enable all access for assignments" ON public.service_assignments;
+CREATE POLICY "Enable all access for assignments" ON public.service_assignments FOR ALL USING (true) WITH CHECK (true);
 
 CREATE TABLE IF NOT EXISTS public.shifts (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -846,6 +914,13 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                                     {activeService.config.requiredSkills.length} Compétence(s) Requise(s)
                                 </div>
                            )}
+                           {/* Assignments Count */}
+                           {assignmentsList.length > 0 && (
+                               <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                                   <Users className="w-3 h-3" />
+                                   {assignmentsList.filter(a => a.serviceId === activeServiceId).length} Affectations
+                               </p>
+                           )}
                        </div>
                    )}
                 </div>
@@ -896,6 +971,51 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                         </p>
                     </div>
                 )}
+
+                {/* Status Filter */}
+                <div className="pt-2">
+                    <label className="text-xs text-slate-600 font-medium mb-1.5 block">Statut (Période)</label>
+                    <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                        <button 
+                            onClick={() => setStatusFilter('all')}
+                            className={`flex-1 py-1 text-[10px] font-medium rounded transition-all ${statusFilter === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Tous
+                        </button>
+                        <button 
+                            onClick={() => setStatusFilter('present')}
+                            className={`flex-1 py-1 text-[10px] font-medium rounded transition-all flex items-center justify-center gap-1 ${statusFilter === 'present' ? 'bg-white text-green-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            title="Ayant au moins un poste travaillé"
+                        >
+                            <UserCheck className="w-3 h-3" /> Présents
+                        </button>
+                        <button 
+                            onClick={() => setStatusFilter('absent')}
+                            className={`flex-1 py-1 text-[10px] font-medium rounded transition-all flex items-center justify-center gap-1 ${statusFilter === 'absent' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            title="Aucun poste travaillé (100% Absence/Repos)"
+                        >
+                            <UserX className="w-3 h-3" /> Absents
+                        </button>
+                    </div>
+                </div>
+
+                {/* Absence Type Filter (New) */}
+                <div className="pt-2">
+                    <label className="text-xs text-slate-600 font-medium mb-1.5 block">Type d'absence</label>
+                    <div className="relative">
+                        <Coffee className="absolute left-2 top-2 w-3 h-3 text-slate-400" />
+                        <select 
+                            value={absenceTypeFilter} 
+                            onChange={(e) => setAbsenceTypeFilter(e.target.value)}
+                            className="w-full text-xs border-slate-200 rounded-md py-1.5 pl-7 pr-2 bg-white text-slate-700 focus:ring-1 focus:ring-blue-500 outline-none"
+                        >
+                            <option value="all">Toutes absences</option>
+                            <option value="CA">CA (Congés Annuels)</option>
+                            <option value="RH">RH (Repos Hebdo)</option>
+                            <option value="NT">NT (Non Travaillé)</option>
+                        </select>
+                    </div>
+                </div>
 
               </div>
             </div>
@@ -1062,7 +1182,7 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                                                     {empViolations.length === 0 ? (
                                                         <div className="flex items-center gap-2 text-green-600">
                                                             <CheckCircle2 className="w-4 h-4" />
-                                                            <span>Aucune anomalie.</span>
+                                                            <span>Aucune anomalie détectée.</span>
                                                         </div>
                                                     ) : (
                                                         <div className="space-y-2">
@@ -1096,7 +1216,7 @@ INSERT INTO public.skills (code, label) SELECT 'S', 'Soir 17h30-00h00' WHERE NOT
                                                         {Object.entries(leaveData.counters || {}).map(([key, val]) => (
                                                             <div key={key} className="bg-white p-1.5 rounded text-center border border-blue-100">
                                                                 <div className="text-[10px] font-bold text-slate-500">{key}</div>
-                                                                <div className="text-sm font-bold text-blue-600">{val.allowed + val.reliquat - val.taken}</div>
+                                                                <div className="text-sm font-bold text-blue-600">{(val as LeaveCounter).allowed + (val as LeaveCounter).reliquat - (val as LeaveCounter).taken}</div>
                                                             </div>
                                                         ))}
                                                         {(!leaveData.counters || Object.keys(leaveData.counters).length === 0) && (
