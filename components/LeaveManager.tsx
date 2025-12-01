@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Employee, ShiftCode, LeaveData, ViewMode, LeaveCounter } from '../types';
-import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, CalendarDays, LayoutList, Trash2, Save, Calculator } from 'lucide-react';
+import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, CalendarDays, LayoutList, Trash2, Save } from 'lucide-react';
 import * as db from '../services/db';
 import { parseLeaveCSV } from '../utils/csvImport';
 import { LeaveCalendar } from './LeaveCalendar';
@@ -148,7 +148,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
 
     const handleAnnualReset = async () => {
         if (!selectedEmpId) return;
-        if (!confirm(`Confirmer la réinitialisation pour ${resetYear} ?\nCela va basculer le solde non pris en reliquat et remettre les compteurs "Pris" à zéro.`)) return;
+        if (!confirm(`Confirmer la réinitialisation pour ${resetYear} ?`)) return;
 
         setIsLoading(true);
         try {
@@ -161,10 +161,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                 counters: {},
                 history: [...currentData.history]
             };
-            
-            // Logic: New Reliquat = Old Reliquat + (Allowed - Taken)
-            // Reset Taken to 0
-            // Keep Allowed same (or reset to default? Usually keeps same contract rights)
             
             Object.keys(currentData.counters).forEach(key => {
                 const oldCounter = currentData.counters[key];
@@ -184,7 +180,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
             });
 
             await db.updateEmployeeLeaveData(emp.id, newData);
-            setMessage({ text: "Compteurs réinitialisés avec succès.", type: "success" });
+            setMessage({ text: "Compteurs réinitialisés.", type: "success" });
             onReload();
         } catch (error: any) {
             setMessage({ text: `Erreur: ${error.message}`, type: 'error' });
@@ -273,7 +269,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                     <Settings className="w-4 h-4" /> Saisie / Suppression
                 </button>
                 <button onClick={() => setMode('counters')} className={`pb-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${mode === 'counters' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-                    <Calculator className="w-4 h-4" /> Compteurs
+                    <History className="w-4 h-4" /> Compteurs
                 </button>
                 <button onClick={() => setMode('import')} className={`pb-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${mode === 'import' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
                     <Upload className="w-4 h-4" /> Import CSV
@@ -291,7 +287,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                     </div>
                 )}
 
-                {/* --- MODE: PLANNING VISUEL (CALENDAR) --- */}
                 {mode === 'calendar' && (
                     <div className="h-full flex flex-col">
                         <div className="flex items-center justify-between mb-4">
@@ -312,7 +307,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                     </div>
                 )}
 
-                {/* --- MODE: SAISIE MANUELLE (MANUAL) --- */}
                 {mode === 'manual' && (
                     <form onSubmit={handleSubmitManual} className="space-y-6 max-w-2xl mx-auto">
                         <div className="flex justify-center mb-4">
@@ -346,84 +340,52 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                         </div>
                         <label className="flex items-center gap-2 cursor-pointer bg-slate-50 p-3 rounded border">
                             <input type="checkbox" checked={deductFromBalance} onChange={(e) => setDeductFromBalance(e.target.checked)} />
-                            <span>{actionType === 'add' ? 'Déduire du compteur (Créditer Jours Pris)' : 'Recréditer le compteur (Annuler Jours Pris)'}</span>
+                            <span>{actionType === 'add' ? 'Déduire du compteur' : 'Recréditer le compteur'}</span>
                         </label>
                         <button type="submit" disabled={isLoading} className={`w-full py-2.5 rounded text-white font-medium shadow-sm ${actionType === 'add' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'}`}>{actionType === 'add' ? 'Enregistrer' : 'Supprimer'}</button>
                     </form>
                 )}
 
-                {/* --- MODE: COMPTEURS (COUNTERS) --- */}
                 {mode === 'counters' && (
                     <div className="space-y-6">
-                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                            <label className="block text-sm font-semibold text-slate-700 mb-2">Sélectionner un collaborateur</label>
-                            <select value={selectedEmpId} onChange={(e) => setSelectedEmpId(e.target.value)} className="w-full p-2 border rounded bg-white">
-                                <option value="">-- Choisir --</option>
-                                {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
-                            </select>
-                        </div>
-
-                        {selectedEmployeeData ? (
-                            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                                {/* Header Année + Reset */}
-                                <div className="flex justify-between items-center bg-white p-4 rounded-lg border shadow-sm">
-                                    <div>
-                                        <h3 className="font-bold text-lg text-slate-800">Exercice {selectedEmployeeData.year}</h3>
-                                        <p className="text-xs text-slate-500">Gestion des droits et soldes</p>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <label className="text-xs text-slate-500 font-medium">Année cible:</label>
-                                        <input 
-                                            type="number" 
-                                            value={resetYear} 
-                                            onChange={(e) => setResetYear(parseInt(e.target.value))} 
-                                            className="w-20 p-1 border rounded text-sm text-center"
-                                        />
-                                        <button 
-                                            onClick={handleAnnualReset} 
-                                            className="text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1 transition-colors"
-                                            title="Remise à zéro des compteurs PRIS et calcul des RELIQUATS"
-                                        >
-                                            <History className="w-3 h-3" /> Réinitialiser
-                                        </button>
-                                    </div>
+                        <select value={selectedEmpId} onChange={(e) => setSelectedEmpId(e.target.value)} className="w-full p-2 border rounded">
+                            <option value="">-- Choisir un collaborateur --</option>
+                            {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+                        </select>
+                        {selectedEmployeeData && (
+                            <div className="space-y-6">
+                                <div className="flex justify-between items-center bg-slate-50 p-4 rounded">
+                                    <h3 className="font-bold">Année {selectedEmployeeData.year}</h3>
+                                    <button onClick={handleAnnualReset} className="text-red-600 border border-red-200 px-3 py-1 rounded bg-white hover:bg-red-50">Réinitialiser Annuelle</button>
                                 </div>
                                 
                                 {/* Table des compteurs */}
-                                <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-                                    <table className="w-full text-sm">
-                                        <thead className="bg-slate-50 border-b">
-                                            <tr>
-                                                <th className="p-3 text-left font-semibold text-slate-600">Type</th>
-                                                <th className="p-3 text-center font-semibold text-slate-600 bg-blue-50/50">Droits (N)</th>
-                                                <th className="p-3 text-center font-semibold text-slate-600 bg-orange-50/50">Pris</th>
-                                                <th className="p-3 text-center font-semibold text-slate-600 bg-purple-50/50">Reliquat (N-1)</th>
-                                                <th className="p-3 text-right font-bold text-slate-700">Solde Disponible</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {Object.entries(selectedEmployeeData.counters).map(([key, val]) => {
-                                                const balance = val.allowed + val.reliquat - val.taken;
-                                                return (
-                                                    <tr key={key} className="hover:bg-slate-50 transition-colors">
-                                                        <td className="p-3 font-medium text-slate-800 flex items-center gap-2">
-                                                            <span className={`w-2 h-2 rounded-full ${key === 'CA' ? 'bg-blue-400' : key === 'HS' ? 'bg-teal-400' : 'bg-slate-400'}`}></span>
-                                                            {key}
-                                                        </td>
-                                                        <td className="p-3 text-center text-slate-600 bg-blue-50/30">{val.allowed}</td>
-                                                        <td className="p-3 text-center font-medium text-orange-600 bg-orange-50/30">{val.taken}</td>
-                                                        <td className="p-3 text-center text-slate-500 bg-purple-50/30">{val.reliquat}</td>
-                                                        <td className="p-3 text-right">
-                                                            <span className={`px-2 py-1 rounded font-bold ${balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                                                {balance}
-                                                            </span>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
+                                <table className="w-full text-sm border rounded overflow-hidden">
+                                    <thead className="bg-slate-100">
+                                        <tr>
+                                            <th className="p-2 text-left">Type</th>
+                                            <th className="p-2 text-center">Droits</th>
+                                            <th className="p-2 text-center">Pris</th>
+                                            <th className="p-2 text-center">Reliquat</th>
+                                            <th className="p-2 text-right">Solde Dispo</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {Object.entries(selectedEmployeeData.counters).map(([key, val]) => {
+                                            const v = val as LeaveCounter;
+                                            const balance = v.allowed + v.reliquat - v.taken;
+                                            return (
+                                                <tr key={key} className="border-t">
+                                                    <td className="p-2 font-medium">{key}</td>
+                                                    <td className="p-2 text-center">{v.allowed}</td>
+                                                    <td className="p-2 text-center">{v.taken}</td>
+                                                    <td className="p-2 text-center">{v.reliquat}</td>
+                                                    <td className="p-2 text-right font-bold text-blue-600">{balance}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
 
                                 {/* Historique */}
                                 <div>
@@ -436,7 +398,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                                             <select 
                                                 value={historyFilter} 
                                                 onChange={(e) => setHistoryFilter(e.target.value)}
-                                                className="text-xs p-1.5 border rounded bg-white text-slate-600 outline-none focus:ring-1 focus:ring-blue-500"
+                                                className="text-sm p-1 border rounded bg-white"
                                             >
                                                 <option value="ALL">Tout voir</option>
                                                 {Object.keys(selectedEmployeeData.counters).map(k => (
@@ -446,28 +408,28 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                                             </select>
                                         </div>
                                     </div>
-                                    <div className="border border-slate-200 rounded-lg max-h-64 overflow-y-auto bg-slate-50 shadow-inner">
+                                    <div className="border border-slate-200 rounded-lg max-h-60 overflow-y-auto bg-slate-50">
                                         {filteredHistory.length === 0 ? (
-                                            <div className="p-8 text-center text-slate-400 text-sm italic">Aucun historique disponible pour ce filtre.</div>
+                                            <div className="p-4 text-center text-slate-400 text-sm italic">Aucun historique pour ce filtre.</div>
                                         ) : (
                                             <table className="w-full text-sm">
                                                 <tbody className="divide-y divide-slate-200 bg-white">
                                                     {filteredHistory.map((h, idx) => (
-                                                        <tr key={idx} className="hover:bg-slate-50">
-                                                            <td className="px-4 py-3 text-slate-500 w-32 font-mono text-xs whitespace-nowrap border-r border-slate-100">
+                                                        <tr key={idx}>
+                                                            <td className="px-4 py-2 text-slate-500 w-32 font-mono text-xs">
                                                                 {h.date}
                                                             </td>
-                                                            <td className="px-4 py-3 w-32 text-center">
-                                                                <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${
-                                                                    h.action === 'RESET' ? 'bg-purple-50 text-purple-700 border-purple-100' :
-                                                                    h.action === 'PRIS' ? 'bg-orange-50 text-orange-700 border-orange-100' :
-                                                                    h.action === 'ANNUL' ? 'bg-green-50 text-green-700 border-green-100' :
-                                                                    'bg-slate-100 text-slate-700 border-slate-200'
+                                                            <td className="px-4 py-2 w-24">
+                                                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                                                    h.action === 'RESET' ? 'bg-purple-100 text-purple-700' :
+                                                                    h.action === 'PRIS' ? 'bg-orange-100 text-orange-700' :
+                                                                    h.action === 'ANNUL' ? 'bg-red-100 text-red-700' :
+                                                                    'bg-slate-100 text-slate-700'
                                                                 }`}>
                                                                     {h.type || h.action}
                                                                 </span>
                                                             </td>
-                                                            <td className="px-4 py-3 text-slate-700 text-xs">
+                                                            <td className="px-4 py-2 text-slate-700">
                                                                 {h.details}
                                                             </td>
                                                         </tr>
@@ -478,27 +440,14 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload 
                                     </div>
                                 </div>
                             </div>
-                        ) : (
-                            <div className="p-12 text-center border-2 border-dashed border-slate-200 rounded-lg bg-slate-50">
-                                <History className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                                <p className="text-slate-500 font-medium">Veuillez sélectionner un employé pour voir ses compteurs.</p>
-                            </div>
                         )}
                     </div>
                 )}
                 
-                {/* --- MODE: IMPORT CSV --- */}
                 {mode === 'import' && (
-                     <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 rounded-xl p-10 bg-slate-50">
+                     <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 rounded-xl p-10">
                         <Upload className="w-12 h-12 text-slate-300 mb-4" />
-                        <label className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg cursor-pointer font-medium shadow-sm transition-colors">
-                            Sélectionner fichier CSV
-                            <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
-                        </label>
-                        <p className="mt-4 text-xs text-slate-400 text-center max-w-md">
-                            Format attendu : Nom;Matricule;Type;Solde;Début;Fin<br/>
-                            Supporte dates JJ/MM/AAAA ou AAAA-MM-JJ
-                        </p>
+                        <input type="file" accept=".csv" onChange={handleFileUpload} />
                      </div>
                 )}
             </div>

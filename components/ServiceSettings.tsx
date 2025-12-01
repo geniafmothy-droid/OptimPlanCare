@@ -376,11 +376,11 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) =>
                                                 </select>
                                             </div>
                                             <div>
-                                                <label className="block text-xs font-medium text-slate-500 mb-1">Début</label>
+                                                <label className="block text-xs font-medium text-slate-500 mb-1">Début (Inclus)</label>
                                                 <input type="date" value={assignStart} onChange={(e) => setAssignStart(e.target.value)} className="w-full p-2 border rounded text-sm" />
                                             </div>
                                             <div>
-                                                <label className="block text-xs font-medium text-slate-500 mb-1">Fin (Opt.)</label>
+                                                <label className="block text-xs font-medium text-slate-500 mb-1">Fin (Optionnel)</label>
                                                 <input type="date" value={assignEnd} onChange={(e) => setAssignEnd(e.target.value)} className="w-full p-2 border rounded text-sm" />
                                             </div>
                                         </div>
