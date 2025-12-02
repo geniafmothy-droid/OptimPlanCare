@@ -13,7 +13,6 @@ interface ScheduleGridProps {
 }
 
 export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate, days, viewMode, onCellClick }) => {
-  const [showDetails, setShowDetails] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Generate date headers
@@ -52,7 +51,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
 
   // --- MODE HORAIRE (HOURLY) ---
   if (viewMode === 'hourly') {
-     // ... (Keep existing hourly logic logic but ensure layout matches)
     const year = startDate.getFullYear();
     const month = String(startDate.getMonth() + 1).padStart(2, '0');
     const day = String(startDate.getDate()).padStart(2, '0');
@@ -63,7 +61,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
     const hours = Array.from({ length: endDisplayHour - startDisplayHour }, (_, i) => i + startDisplayHour);
 
     return (
-      <div className="flex-1 overflow-hidden flex flex-col h-full relative group">
+      <div className="flex-1 overflow-hidden flex flex-col h-full relative group bg-white">
          <div className="overflow-auto relative h-full" ref={scrollContainerRef}>
             <table className="border-collapse w-max min-w-full">
               <thead className="sticky top-0 z-20 bg-white shadow-sm">
@@ -113,6 +111,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                                       <div 
                                         className={`absolute inset-y-1 rounded-sm ${shiftDef.color} opacity-90 shadow-sm`}
                                         style={{ left: `${leftPct}%`, width: `${widthPct}%`, margin: '0 1px' }}
+                                        title={`${shiftDef.label} (${shiftDef.startHour}h - ${shiftDef.endHour}h)`}
                                       ></div>
                                    );
                                 }
@@ -149,13 +148,13 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
           <>
             <button 
                 onClick={() => handleScroll('left')}
-                className="absolute left-[225px] top-10 z-40 p-1.5 bg-white/90 hover:bg-white text-slate-700 border border-slate-300 rounded shadow-md opacity-0 group-hover:opacity-100 transition-all"
+                className="absolute left-[225px] top-10 z-40 p-1.5 bg-white/90 hover:bg-white text-slate-700 border border-slate-300 rounded shadow-md opacity-0 group-hover:opacity-100 transition-all no-print"
             >
                 <ChevronLeft className="w-5 h-5" />
             </button>
             <button 
                 onClick={() => handleScroll('right')}
-                className="absolute right-2 top-10 z-40 p-1.5 bg-white/90 hover:bg-white text-slate-700 border border-slate-300 rounded shadow-md opacity-0 group-hover:opacity-100 transition-all"
+                className="absolute right-2 top-10 z-40 p-1.5 bg-white/90 hover:bg-white text-slate-700 border border-slate-300 rounded shadow-md opacity-0 group-hover:opacity-100 transition-all no-print"
             >
                 <ChevronRight className="w-5 h-5" />
             </button>
@@ -163,7 +162,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
       )}
 
       <div className="overflow-auto relative flex-1 flex flex-col scroll-smooth" ref={scrollContainerRef}>
-        <table className="border-collapse w-max">
+        <table className="border-collapse w-max min-w-full">
           <thead className="sticky top-0 z-20 bg-white shadow-sm">
             <tr>
               <th className="sticky left-0 z-30 bg-slate-50 border-b border-r border-slate-200 p-2 min-w-[220px] text-left h-14">

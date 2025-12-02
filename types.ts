@@ -1,5 +1,9 @@
+
+
 export type ShiftCode = 
   | 'M' | 'T5' | 'T6' | 'S' | 'IT' | 'NT' | 'CA' | 'RH' | 'FO' | 'ETP' | 'DP' | 'OFF' | 'RC' | 'HS';
+
+export type UserRole = 'ADMIN' | 'DIRECTOR' | 'CADRE' | 'INFIRMIER' | 'AIDE_SOIGNANT' | 'MANAGER';
 
 export interface ShiftDefinition {
   code: ShiftCode;
@@ -18,10 +22,18 @@ export interface Skill {
   label: string;
 }
 
-export interface LeaveCounter {
-    allowed: number;
+export interface LeaveCounterComplex {
     taken: number;
+    allowed: number;
     reliquat: number;
+}
+
+export interface LeaveCounters {
+    CA: number | LeaveCounterComplex;
+    RTT: number | LeaveCounterComplex;
+    HS: number | LeaveCounterComplex; // Heures Sup
+    RC: number | LeaveCounterComplex; // Repos Compensateur
+    [key: string]: number | LeaveCounterComplex | any;
 }
 
 export interface LeaveHistory {
@@ -33,18 +45,45 @@ export interface LeaveHistory {
 
 export interface LeaveData {
     year: number;
-    counters: Record<string, LeaveCounter>; // keys: CA, RTT, RC...
+    counters: LeaveCounters; 
     history: LeaveHistory[];
+}
+
+export type LeaveRequestStatus = 'PENDING_CADRE' | 'PENDING_DIRECTOR' | 'PENDING_DG' | 'VALIDATED' | 'REFUSED';
+
+export interface LeaveRequestWorkflow {
+    id: string;
+    employeeId: string;
+    employeeName: string;
+    type: ShiftCode;
+    startDate: string;
+    endDate: string;
+    status: LeaveRequestStatus;
+    createdAt: string;
+    comments?: string; // Motif refus ou info
+}
+
+export interface AppNotification {
+    id: string;
+    date: string;
+    recipientRole: UserRole | 'ALL' | 'DG'; 
+    recipientId?: string; // If specific user
+    title: string;
+    message: string;
+    isRead: boolean;
+    type: 'info' | 'warning' | 'success' | 'error';
 }
 
 export interface Employee {
   id: string;
   matricule: string;
   name: string;
-  role: 'Infirmier' | 'Aide-Soignant' | 'Cadre' | 'Manager';
+  role: 'Infirmier' | 'Aide-Soignant' | 'Cadre' | 'Manager' | 'Directeur'; // Job Title
+  systemRole?: UserRole; // App Permission Role
   fte: number; // Quotité : 1.0 = 100%, 0.8 = 80%, etc.
-  leaveBalance: number; // Solde de congés (Legacy simple)
-  leaveData?: LeaveData; // Structure avancée
+  leaveBalance: number; // Legacy simple
+  leaveCounters: LeaveCounters; // Detailed counters
+  leaveData?: LeaveData; // Full leave history
   skills: string[]; // Compétences de l'équipier (ex: 'Senior', 'Dialyse')
   shifts: Record<string, ShiftCode>; // Date string (YYYY-MM-DD) -> ShiftCode
 }

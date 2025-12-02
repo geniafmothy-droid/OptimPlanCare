@@ -1,3 +1,4 @@
+
 import { ShiftDefinition, Employee, ShiftCode } from './types';
 
 // Parsing the colors and codes from the image and user rules
@@ -101,8 +102,22 @@ const BASE_EMPLOYEES: Employee[] = NAMES.map((name, index) => ({
   role: index % 4 === 0 ? 'Cadre' : (index % 3 === 0 ? 'Aide-Soignant' : 'Infirmier'),
   fte: 1.0, // Default quotité 100%
   leaveBalance: 0,
+  leaveCounters: { CA: 25, RTT: 0, HS: 0, RC: 0 },
   skills: index < 5 ? ['Senior', 'Tutorat'] : ['Junior'],
   shifts: {}
 }));
 
-export const MOCK_EMPLOYEES = BASE_EMPLOYEES;
+// Ajouter explicitement la Directrice
+const DIRECTOR: Employee = {
+    id: 'emp-dir-001',
+    matricule: 'DIR001',
+    name: 'Mme Durand (Directrice)',
+    role: 'Directeur',
+    fte: 1.0,
+    leaveBalance: 0,
+    leaveCounters: { CA: 30, RTT: 10, HS: 0, RC: 0 },
+    skills: ['Management', 'Administration'],
+    shifts: {}
+};
+
+export const MOCK_EMPLOYEES = [DIRECTOR, ...BASE_EMPLOYEES];

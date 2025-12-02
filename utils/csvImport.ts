@@ -144,6 +144,7 @@ export const parseScheduleCSV = (csvText: string, existingEmployees: Employee[])
           role: role,
           fte: fte,
           leaveBalance: 0,
+          leaveCounters: { CA: 0, RTT: 0, HS: 0, RC: 0 },
           skills: [], // Default empty skills
           shifts: {}
       };
@@ -156,16 +157,11 @@ export const parseScheduleCSV = (csvText: string, existingEmployees: Employee[])
         if (col.index < row.length) {
             const rawValue = row[col.index].toUpperCase();
             
-            // Rule: Service Dialyse -> Sunday is ALWAYS RH
-            if (col.isSunday) {
-                targetEmp.shifts[col.date] = 'RH';
-            } else {
-                // Validate shift code
-                if (Object.keys(SHIFT_TYPES).includes(rawValue)) {
-                    targetEmp.shifts[col.date] = rawValue as ShiftCode;
-                } else if (rawValue === '' || rawValue === '-') {
-                    // Optional: delete targetEmp.shifts[col.date];
-                }
+            // Validate shift code
+            if (Object.keys(SHIFT_TYPES).includes(rawValue)) {
+                targetEmp.shifts[col.date] = rawValue as ShiftCode;
+            } else if (rawValue === '' || rawValue === '-') {
+                // Optional: delete targetEmp.shifts[col.date];
             }
         }
     });
