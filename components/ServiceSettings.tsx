@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Service, Skill, Employee, ServiceAssignment } from '../types';
 import { Settings, Save, Loader2, CheckCircle2, ShieldCheck, Users, Plus, Trash2, Calendar, Store, Edit2 } from 'lucide-react';
@@ -141,6 +142,7 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) =>
             await loadAssignments(); // Reload assignments
             setMessage("Membre affecté au service.");
             setTimeout(() => setMessage(null), 3000);
+            onReload(); // Refresh Sidebar Counters
         } catch (e: any) {
             alert(e.message);
         } finally {
@@ -156,11 +158,17 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) =>
 
     const handleDeleteAssignment = async (id: string) => {
         if(!confirm("Retirer ce membre du service ?")) return;
+        setIsLoading(true); // Show loading state
         try {
             await db.deleteServiceAssignment(id);
-            await loadAssignments();
+            await loadAssignments(); // Refresh local list
+            onReload(); // Refresh global app counters
+            setMessage("Affectation retirée.");
+            setTimeout(() => setMessage(null), 3000);
         } catch (e: any) {
-            alert(e.message);
+            alert("Erreur suppression: " + e.message);
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -419,8 +427,12 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) =>
                                                                     {a.endDate ? new Date(a.endDate).toLocaleDateString() : 'Indéfini'}
                                                                 </td>
                                                                 <td className="px-4 py-3 text-right">
-                                                                    <button onClick={() => handleDeleteAssignment(a.id)} className="text-red-400 hover:text-red-600 p-1 hover:bg-red-50 rounded">
-                                                                        <Trash2 className="w-4 h-4" />
+                                                                    <button 
+                                                                        onClick={() => handleDeleteAssignment(a.id)} 
+                                                                        disabled={isLoading}
+                                                                        className="text-red-400 hover:text-red-600 p-1 hover:bg-red-50 rounded disabled:opacity-30"
+                                                                    >
+                                                                        {isLoading ? <Loader2 className="w-4 h-4 animate-spin"/> : <Trash2 className="w-4 h-4" />}
                                                                     </button>
                                                                 </td>
                                                             </tr>

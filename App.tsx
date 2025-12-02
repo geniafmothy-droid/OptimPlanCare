@@ -1,7 +1,6 @@
 
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Moon } from 'lucide-react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Moon, Server, Activity } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
 import { StaffingSummary } from './components/StaffingSummary';
 import { StatsPanel } from './components/StatsPanel';
@@ -70,6 +69,10 @@ function App() {
   const [rangeSelection, setRangeSelection] = useState<{empId: string, start: string, end: string} | null>(null);
   const [isRangeModalOpen, setIsRangeModalOpen] = useState(false);
 
+  // Diagnostics State
+  const [dbStatus, setDbStatus] = useState<{ success: boolean; latency: number; message?: string } | null>(null);
+  const [isCheckingDb, setIsCheckingDb] = useState(false);
+
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -121,9 +124,22 @@ function App() {
       setAppNotifications(myNotifs);
   };
 
+  const handleCheckDb = async () => {
+      setIsCheckingDb(true);
+      setDbStatus(null);
+      try {
+          const result = await db.checkConnection();
+          setDbStatus(result);
+      } catch (e: any) {
+          setDbStatus({ success: false, latency: 0, message: e.message });
+      } finally {
+          setIsCheckingDb(false);
+      }
+  };
+
   const handleLogin = (role: UserRole, employee?: Employee) => {
       let serviceToSelect = activeServiceId;
-      if (role === 'CADRE') {
+      if (role === 'CADRE' || role === 'CADRE_SUP') {
           const myAssignment = assignmentsList.find(a => a.employeeId === employee?.id);
           if (myAssignment) serviceToSelect = myAssignment.serviceId;
           else if (servicesList.length > 0) serviceToSelect = servicesList[0].id;
@@ -131,17 +147,22 @@ function App() {
       
       setActiveServiceId(serviceToSelect);
 
+      const roleLabel = role === 'DIRECTOR' ? 'Directeur / Directrice' : 
+                        role === 'CADRE_SUP' ? 'Cadre Supérieur' :
+                        role === 'CADRE' ? 'Cadre de Santé' :
+                        role === 'ADMIN' ? 'Administrateur' : role;
+
       setCurrentUser({
           role,
           employeeId: employee?.id,
-          name: employee ? employee.name : (role === 'ADMIN' ? 'Administrateur' : 'Directeur / Directrice')
+          name: employee ? employee.name : roleLabel
       });
       if (role === 'INFIRMIER' || role === 'AIDE_SOIGNANT') {
           setActiveTab('leaves');
       } else {
           setActiveTab('planning');
       }
-      setToast({ message: `Bienvenue, ${employee ? employee.name : role}`, type: "success" });
+      setToast({ message: `Bienvenue, ${employee ? employee.name : roleLabel}`, type: "success" });
   };
 
   const handleLogout = () => {
@@ -270,9 +291,11 @@ function App() {
         const skillMatch = skillFilter === 'all' || emp.skills.includes(skillFilter);
         
         let qualificationMatch = true;
-        if (showQualifiedOnly && activeService?.config?.requiredSkills?.length > 0) {
-            const reqSkills = activeService.config.requiredSkills;
-            qualificationMatch = emp.skills.some(s => reqSkills.includes(s));
+        if (showQualifiedOnly && activeService?.config) {
+            const reqSkills = activeService.config.requiredSkills || [];
+            if (reqSkills.length > 0) {
+                qualificationMatch = emp.skills.some(s => reqSkills.includes(s));
+            }
         }
 
         let assignmentMatch = true;
@@ -330,8 +353,16 @@ function App() {
       }
   };
 
+  // Safe date helper to avoid UTC offsets
+  const formatDateLocal = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+  };
+
   const handleRangeSelect = async (empId: string, start: string, end: string, forcedCode?: ShiftCode) => {
-     if (currentUser?.role !== 'ADMIN' && currentUser?.role !== 'CADRE' && currentUser?.role !== 'DIRECTOR') return;
+     if (currentUser?.role !== 'ADMIN' && currentUser?.role !== 'CADRE' && currentUser?.role !== 'CADRE_SUP' && currentUser?.role !== 'DIRECTOR') return;
      
      if (forcedCode) {
          // Smart Drag Extension (No Modal)
@@ -339,10 +370,12 @@ function App() {
              const startDate = new Date(start);
              const endDate = new Date(end);
              const shiftsToUpdate = [];
+             
+             // Loop safely using local date construction
              for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
                  shiftsToUpdate.push({
                      employee_id: empId,
-                     date: d.toISOString().split('T')[0],
+                     date: formatDateLocal(d),
                      shift_code: forcedCode
                  });
              }
@@ -360,7 +393,7 @@ function App() {
   };
 
   const handleCellClick = (empId: string, date: string) => {
-    if (currentUser?.role !== 'ADMIN' && currentUser?.role !== 'CADRE' && currentUser?.role !== 'DIRECTOR') {
+    if (currentUser?.role !== 'ADMIN' && currentUser?.role !== 'CADRE' && currentUser?.role !== 'CADRE_SUP' && currentUser?.role !== 'DIRECTOR') {
         setToast({ message: "Modification directe non autorisée.", type: "warning" });
         return;
     }
@@ -377,10 +410,9 @@ function App() {
          const shiftsToUpdate = [];
          
          for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            const dateStr = d.toISOString().split('T')[0];
             shiftsToUpdate.push({
                 employee_id: rangeSelection.empId,
-                date: dateStr,
+                date: formatDateLocal(d),
                 shift_code: code
             });
          }
@@ -526,7 +558,7 @@ function App() {
                  </div>
                  <div className="text-xs hidden sm:block text-left">
                      <div className="font-bold text-slate-800">{currentUser.name}</div>
-                     <div className="text-slate-500">{currentUser.role}</div>
+                     <div className="text-slate-500">{currentUser.role === 'DIRECTOR' ? 'Directeur' : currentUser.role}</div>
                  </div>
              </div>
              
@@ -549,7 +581,7 @@ function App() {
                 <Calendar className="w-5 h-5" /> {currentUser.role === 'INFIRMIER' || currentUser.role === 'AIDE_SOIGNANT' ? 'Mon Planning' : 'Planning Global'}
             </button>
             
-            {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE' || currentUser.role === 'MANAGER') && (
+            {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP' || currentUser.role === 'MANAGER') && (
                 <>
                 <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'dashboard' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}><LayoutDashboard className="w-5 h-5" /> Carnet de Bord</button>
                 <button onClick={() => setActiveTab('stats')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'stats' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}><BarChart3 className="w-5 h-5" /> Statistiques</button>
@@ -561,7 +593,7 @@ function App() {
                 <Coffee className="w-5 h-5" /> Gestion des Congés
             </button>
             
-            {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR') && (
+            {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP') && (
                 <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'settings' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}><Settings className="w-5 h-5" /> Paramètres</button>
             )}
           </nav>
@@ -604,7 +636,7 @@ function App() {
                       <BriefcaseBusiness className="w-3 h-3" /> Rôles
                   </h3>
                   <div className="space-y-1">
-                      {['Infirmier', 'Aide-Soignant', 'Cadre', 'Manager', 'Directeur'].map(role => (
+                      {['Infirmier', 'Aide-Soignant', 'Cadre', 'Cadre Supérieur', 'Manager', 'Directeur'].map(role => (
                           <label key={role} className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer hover:bg-slate-50 p-1.5 rounded">
                               <input 
                                   type="checkbox" 
@@ -634,7 +666,7 @@ function App() {
                   >
                       <option value="all">Toutes</option>
                       {activeServiceId 
-                         ? activeService?.config.requiredSkills.map(code => {
+                         ? (activeService?.config?.requiredSkills || []).map(code => {
                              const sk = skillsList.find(s => s.code === code);
                              return <option key={code} value={code}>{sk ? sk.label : code}</option>;
                          })
@@ -663,15 +695,17 @@ function App() {
                       </button>
                       <button 
                           onClick={() => setStatusFilter('present')} 
-                          className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${statusFilter === 'present' ? 'bg-white shadow text-green-600' : 'text-slate-500 hover:text-slate-700'}`}
+                          className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1 ${statusFilter === 'present' ? 'bg-white shadow text-green-600' : 'text-slate-500 hover:text-slate-700'}`}
                       >
-                          <UserCheck className="w-3 h-3 mx-auto" />
+                          <UserCheck className="w-3 h-3" />
+                          <span className="hidden sm:inline">Présents</span>
                       </button>
                       <button 
                           onClick={() => setStatusFilter('absent')} 
-                          className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${statusFilter === 'absent' ? 'bg-white shadow text-red-600' : 'text-slate-500 hover:text-slate-700'}`}
+                          className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1 ${statusFilter === 'absent' ? 'bg-white shadow text-red-600' : 'text-slate-500 hover:text-slate-700'}`}
                       >
-                          <UserX className="w-3 h-3 mx-auto" />
+                          <UserX className="w-3 h-3" />
+                          <span className="hidden sm:inline">Absents</span>
                       </button>
                   </div>
               </div>
@@ -733,7 +767,7 @@ function App() {
                            {!highlightNight ? 'Nuit' : 'Nuit Active'}
                        </button>
 
-                       {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE' || currentUser.role === 'DIRECTOR' || currentUser.role === 'MANAGER') && (
+                       {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP' || currentUser.role === 'DIRECTOR' || currentUser.role === 'MANAGER') && (
                         <>
                            <div className="h-6 w-px bg-slate-300 mx-1"></div>
                            
@@ -792,7 +826,48 @@ function App() {
            {activeTab === 'leaves' && <LeaveManager employees={employees} onReload={loadData} currentUser={currentUser} activeServiceId={activeServiceId} assignmentsList={assignmentsList} />}
            {activeTab === 'settings' && (
                <div className="p-6 max-w-6xl mx-auto space-y-6 w-full overflow-y-auto">
-                   <h2 className="text-2xl font-bold text-slate-800">Paramètres Généraux</h2>
+                   <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                       <Settings className="w-8 h-8 text-blue-600" />
+                       Paramètres Généraux
+                   </h2>
+                   
+                   {/* Diagnostic Tool */}
+                   <div className="bg-white rounded-xl shadow border border-slate-200 overflow-hidden">
+                       <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                           <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                               <Server className="w-5 h-5 text-purple-600" />
+                               Diagnostic Système
+                           </h3>
+                           <button 
+                               onClick={handleCheckDb} 
+                               disabled={isCheckingDb}
+                               className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium hover:bg-slate-50 transition-colors flex items-center gap-2 disabled:opacity-50"
+                           >
+                               {isCheckingDb ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+                               Tester connexion BDD
+                           </button>
+                       </div>
+                       <div className="p-4">
+                            {dbStatus === null ? (
+                                <p className="text-sm text-slate-400 italic">Cliquez sur le bouton pour vérifier la connexion à la base de données.</p>
+                            ) : dbStatus.success ? (
+                                <div className="flex items-center gap-3 text-sm bg-green-50 text-green-700 p-3 rounded-lg border border-green-200">
+                                    <CheckCircle2 className="w-5 h-5" />
+                                    <span>
+                                        Connexion Supabase active. Latence: <strong>{dbStatus.latency}ms</strong>
+                                    </span>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-3 text-sm bg-red-50 text-red-700 p-3 rounded-lg border border-red-200">
+                                    <AlertCircle className="w-5 h-5" />
+                                    <span>
+                                        Échec de connexion: <strong>{dbStatus.message}</strong>
+                                    </span>
+                                </div>
+                            )}
+                       </div>
+                   </div>
+
                    <SkillsSettings skills={skillsList} onReload={loadData} />
                    <ServiceSettings service={activeService} onReload={loadData} />
                </div>

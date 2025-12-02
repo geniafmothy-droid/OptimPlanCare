@@ -1,5 +1,4 @@
 
-
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Employee, ShiftCode, ViewMode } from '../types';
 import { SHIFT_TYPES } from '../constants';
@@ -36,12 +35,12 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
   useEffect(() => {
     const handleGlobalMouseUp = () => {
         if (isDragging && selectionStart && selectionCurrent && onRangeSelect) {
-            let start = selectionStart.dateObj;
-            let end = selectionCurrent.dateObj;
-            if (start > end) { [start, end] = [end, start]; }
+            // Use date strings directly to avoid Timezone offsets with ISOString()
+            let sStr = selectionStart.dateStr;
+            let eStr = selectionCurrent.dateStr;
             
-            const sStr = start.toISOString().split('T')[0];
-            const eStr = end.toISOString().split('T')[0];
+            // Lexicographical comparison works for YYYY-MM-DD
+            if (sStr > eStr) { [sStr, eStr] = [eStr, sStr]; }
 
             if (sStr !== eStr) {
                  // Smart Drag: If started on a cell with a code, extend that code
@@ -127,7 +126,6 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
 
   // --- MODE HORAIRE (HOURLY) ---
   if (viewMode === 'hourly') {
-    // ... Existing hourly code remains mostly same, simplified for brevity as logic didn't change much ...
     const year = startDate.getFullYear();
     const month = String(startDate.getMonth() + 1).padStart(2, '0');
     const day = String(startDate.getDate()).padStart(2, '0');

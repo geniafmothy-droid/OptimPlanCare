@@ -1,8 +1,30 @@
 
-
 import { supabase } from '../lib/supabase';
 import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus } from '../types';
 import { MOCK_EMPLOYEES } from '../constants';
+
+// --- System Diagnostics ---
+export const checkConnection = async (): Promise<{ success: boolean; latency: number; message?: string }> => {
+    const start = performance.now();
+    try {
+        // Simple lightweight query to check connection
+        const { error } = await supabase.from('services').select('count', { count: 'exact', head: true });
+        const end = performance.now();
+        
+        if (error) throw new Error(error.message);
+        
+        return { 
+            success: true, 
+            latency: Math.round(end - start) 
+        };
+    } catch (err: any) {
+        return { 
+            success: false, 
+            latency: 0, 
+            message: err.message || "Erreur inconnue" 
+        };
+    }
+};
 
 // --- Services Management ---
 export const fetchServices = async (): Promise<Service[]> => {
@@ -332,24 +354,34 @@ export const bulkUpsertShifts = async (shifts: {employee_id: string, date: strin
 export const clearShiftsInRange = async (year: number, month: number, serviceId?: string) => {
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0);
-    const startStr = startDate.toISOString().split('T')[0];
-    const endStr = endDate.toISOString().split('T')[0];
+    // Use local string construction to ensure we get the full range YYYY-MM-01 to YYYY-MM-LastDay
+    const startStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
+    const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
     
     let query = supabase.from('shifts').delete().gte('date', startStr).lte('date', endStr);
 
     if (serviceId) {
+        // Filter by employees in this service during the period
         const { data: assignments } = await supabase
             .from('service_assignments')
-            .select('employee_id')
-            .eq('service_id', serviceId)
-            .lte('start_date', endStr)
-            .or(`end_date.is.null,end_date.gte.${startStr}`);
+            .select('employee_id, start_date, end_date')
+            .eq('service_id', serviceId);
 
-        const empIds = assignments ? assignments.map((a: any) => a.employee_id) : [];
+        // Filter assignments in JS to correctly handle overlapping date ranges
+        // An assignment is relevant if it overlaps with [startStr, endStr]
+        const relevantEmpIds = (assignments || [])
+            .filter((a: any) => {
+                const aStart = a.start_date;
+                const aEnd = a.end_date || '9999-12-31';
+                // Overlap check
+                return (aStart <= endStr) && (aEnd >= startStr);
+            })
+            .map((a: any) => a.employee_id);
         
-        if (empIds.length > 0) {
-            query = query.in('employee_id', empIds);
+        if (relevantEmpIds.length > 0) {
+            query = query.in('employee_id', relevantEmpIds);
         } else {
+             // If no employees in service for this range, delete nothing (using empty array)
              query = query.in('employee_id', []);
         }
     }
