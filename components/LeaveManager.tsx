@@ -1,7 +1,8 @@
 
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Employee, ShiftCode, LeaveData, ViewMode, LeaveCounters, LeaveRequestWorkflow, UserRole, AppNotification, LeaveRequestStatus, ServiceAssignment } from '../types';
-import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, Trash2, Save, Send, XCircle, Check, AlertOctagon } from 'lucide-react';
+import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, Trash2, Save, Send, XCircle, Check, AlertOctagon, Edit2, X } from 'lucide-react';
 import * as db from '../services/db';
 import { parseLeaveCSV } from '../utils/csvImport';
 import { LeaveCalendar } from './LeaveCalendar';
@@ -18,7 +19,7 @@ interface LeaveManagerProps {
 
 export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload, currentUser, activeServiceId, assignmentsList }) => {
     // Determine default mode based on role
-    const defaultMode = currentUser.role === 'INFIRMIER' || currentUser.role === 'AIDE_SOIGNANT' ? 'my_requests' : 'validation';
+    const defaultMode = (currentUser.role === 'INFIRMIER' || currentUser.role === 'AIDE_SOIGNANT') ? 'my_requests' : 'validation';
 
     const [mode, setMode] = useState<'my_requests' | 'validation' | 'counters' | 'calendar'>(defaultMode);
     const [isLoading, setIsLoading] = useState(false);
@@ -32,6 +33,13 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [conflictWarning, setConflictWarning] = useState<string | null>(null);
+    
+    // Editing state
+    const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
+
+    // Validation Modal State
+    const [validationModal, setValidationModal] = useState<{ isOpen: boolean, req: LeaveRequestWorkflow | null, isApprove: boolean } | null>(null);
+    const [refusalReason, setRefusalReason] = useState('');
 
     // Counters State
     const [selectedEmpId, setSelectedEmpId] = useState(currentUser.employeeId || '');
@@ -54,11 +62,9 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
     // Filtered Employees for Calendar & Counters view
     const filteredEmployees = useMemo(() => {
         if (!activeServiceId || !assignmentsList) return employees;
-        // If Service selected, only show employees assigned to it
         const assignedIds = assignmentsList
             .filter(a => a.serviceId === activeServiceId)
             .map(a => a.employeeId);
-        
         return employees.filter(e => assignedIds.includes(e.id));
     }, [employees, activeServiceId, assignmentsList]);
 
@@ -81,7 +87,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
             const dStr = d.toISOString().split('T')[0];
             sameSkillEmps.forEach(colleague => {
                 const shift = colleague.shifts[dStr];
-                if (['CA', 'RH', 'RC', 'NT', 'FO', 'HS'].includes(shift)) {
+                if (['CA', 'RH', 'RC', 'NT', 'FO', 'HS', 'F'].includes(shift)) {
                     conflictCount++;
                 }
             });
@@ -104,7 +110,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
 
     // --- ACTIONS ---
 
-    const handleCreateRequest = async (e: React.FormEvent) => {
+    const handleCreateOrUpdate = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!currentUser.employeeId || !startDate || !endDate) return;
 
@@ -116,69 +122,62 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
             // DÉFINITION DU WORKFLOW HIÉRARCHIQUE
             let initialStatus: LeaveRequestStatus = 'PENDING_CADRE';
             let recipientRole: UserRole | 'DG' = 'CADRE';
-            let notifTitle = 'Nouvelle Demande de Congé';
+            let notifTitle = editingRequestId ? 'Modification Demande' : 'Nouvelle Demande';
 
-            // Si c'est un arrêt maladie, on valide et notifie le cadre
             if (isSickLeave) {
                 initialStatus = 'VALIDATED'; // Auto-validé
                 recipientRole = 'CADRE'; 
             } else {
-                // Workflow Standard
                 if (me?.role === 'Infirmier' || me?.role === 'Aide-Soignant') {
-                    // -> Cadre
                     initialStatus = 'PENDING_CADRE';
                     recipientRole = 'CADRE';
                 } else if (me?.role === 'Cadre' || me?.role === 'Manager') {
-                    // -> Directeur
                     initialStatus = 'PENDING_DIRECTOR';
                     recipientRole = 'DIRECTOR';
                 } else if (me?.role === 'Directeur') {
-                    // -> Directeur Général (DG)
                     initialStatus = 'PENDING_DG';
-                    recipientRole = 'DG'; // Simulera une notification système ou Admin
+                    recipientRole = 'DG';
                 }
             }
 
-            const req = await db.createLeaveRequest({
-                employeeId: me!.id,
-                employeeName: me!.name,
-                type: leaveType as ShiftCode,
-                startDate,
-                endDate,
-            }, initialStatus);
-
-            if (isSickLeave) {
-                // Pour maladie, on écrit direct dans le planning
-                await db.saveLeaveRange(me!.id, startDate, endDate, 'NT');
-                await db.createNotification({
-                    recipientRole: 'CADRE',
-                    title: 'Arrêt Maladie Signalé',
-                    message: `${me!.name} a signalé un arrêt maladie du ${startDate} au ${endDate}.`,
-                    type: 'warning',
-                    actionType: 'LEAVE_VALIDATION',
-                    entityId: req.id
+            if (editingRequestId) {
+                // UPDATE
+                await db.updateLeaveRequest(editingRequestId, {
+                    type: leaveType as ShiftCode,
+                    startDate,
+                    endDate,
+                    // Note: In a real app, modification might reset validation status.
+                    // Here we assume modifying resets it to initial step.
+                    status: initialStatus
                 });
-                setMessage({ text: "Arrêt maladie enregistré et transmis au cadre.", type: 'success' });
+                setMessage({ text: "Demande mise à jour.", type: 'success' });
             } else {
-                // Notification au N+1
+                // CREATE
+                const req = await db.createLeaveRequest({
+                    employeeId: me!.id,
+                    employeeName: me!.name,
+                    type: leaveType as ShiftCode,
+                    startDate,
+                    endDate,
+                }, initialStatus);
+                
+                // NOTIFICATIONS (Simulated logic similar to Create)
                 await db.createNotification({
-                    recipientRole: recipientRole === 'DG' ? 'ADMIN' : recipientRole, // Fallback Admin pour DG
+                    recipientRole: recipientRole === 'DG' ? 'ADMIN' : recipientRole,
                     title: notifTitle,
-                    message: `${me!.name} (${me!.role}) demande des congés (${leaveType}) du ${startDate} au ${endDate}.`,
+                    message: `${me!.name} a ${editingRequestId ? 'modifié' : 'créé'} une demande de ${leaveType}.`,
                     type: 'info',
                     actionType: 'LEAVE_VALIDATION',
                     entityId: req.id
                 });
-
-                if (recipientRole === 'DG') {
-                    setMessage({ text: "Demande transmise au Directeur Général.", type: 'success' });
-                } else {
-                    setMessage({ text: `Demande envoyée au ${recipientRole === 'DIRECTOR' ? 'Directeur' : 'Cadre'} pour validation.`, type: 'success' });
-                }
+                setMessage({ text: "Demande envoyée.", type: 'success' });
             }
-
+            
+            // Reset Form
             setStartDate('');
             setEndDate('');
+            setEditingRequestId(null);
+            setLeaveType('CA');
             loadRequests();
         } catch (err: any) {
             setMessage({ text: err.message, type: 'error' });
@@ -187,33 +186,57 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
         }
     };
 
-    const handleValidation = async (req: LeaveRequestWorkflow, approved: boolean) => {
-        let refusalReason = '';
-        let commentToSave = '';
+    const handleEditRequest = (req: LeaveRequestWorkflow) => {
+        setLeaveType(req.type);
+        setStartDate(req.startDate);
+        setEndDate(req.endDate);
+        setEditingRequestId(req.id);
+        setMessage({ text: "Vous modifiez une demande existante.", type: 'info' });
+    };
 
-        if (!approved) {
-            const input = prompt("Veuillez indiquer le motif du refus :");
-            if (input === null) return; // Annulation par l'utilisateur
-            if (!input.trim()) {
-                alert("Un motif est obligatoire pour refuser une demande.");
-                return;
-            }
-            refusalReason = input;
-            commentToSave = `Refusé par ${currentUser.role}: ${input}`;
-        } else {
-            if (!confirm("Valider cette demande ?")) return;
-            commentToSave = `Validé par ${currentUser.role}`;
+    const handleDeleteRequest = async (id: string) => {
+        if(!confirm("Supprimer cette demande ?")) return;
+        try {
+            await db.deleteLeaveRequest(id);
+            loadRequests();
+            setMessage({ text: "Demande supprimée.", type: 'success' });
+        } catch(e: any) {
+            setMessage({ text: e.message, type: 'error' });
+        }
+    };
+
+    const cancelEdit = () => {
+        setEditingRequestId(null);
+        setStartDate('');
+        setEndDate('');
+        setLeaveType('CA');
+        setMessage(null);
+    };
+
+    // OPEN VALIDATION MODAL
+    const openValidationModal = (req: LeaveRequestWorkflow, isApprove: boolean) => {
+        setRefusalReason('');
+        setValidationModal({ isOpen: true, req, isApprove });
+    };
+
+    // CONFIRM VALIDATION / REFUSAL
+    const confirmValidation = async () => {
+        if (!validationModal || !validationModal.req) return;
+        const { req, isApprove } = validationModal;
+
+        if (!isApprove && !refusalReason.trim()) {
+            alert("Un motif est obligatoire pour refuser.");
+            return;
         }
 
         setIsLoading(true);
         try {
-            let newStatus: LeaveRequestWorkflow['status'] = approved ? 'VALIDATED' : 'REFUSED';
-            let notifMsg = approved ? `Votre demande a été validée.` : `Votre demande a été refusée par ${currentUser.role}. Motif: ${refusalReason}`;
+            let newStatus: LeaveRequestWorkflow['status'] = isApprove ? 'VALIDATED' : 'REFUSED';
+            let commentToSave = isApprove ? `Validé par ${currentUser.role}` : `Refusé par ${currentUser.role}: ${refusalReason}`;
+            let notifMsg = isApprove ? `Votre demande a été validée.` : `Votre demande a été refusée par ${currentUser.role}. Motif: ${refusalReason}`;
 
-            // Logique de validation en cascade
-            if (approved) {
+            if (isApprove) {
                 if (req.status === 'PENDING_CADRE') {
-                     // Cadre valide -> Passe au Directeur
                      newStatus = 'PENDING_DIRECTOR';
                      notifMsg = `Pré-validée par le cadre, transmise à la Direction.`;
                      await db.createNotification({
@@ -225,24 +248,22 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                         entityId: req.id
                     });
                 } else if (req.status === 'PENDING_DIRECTOR' || req.status === 'PENDING_DG') {
-                     // Validation Finale
                      newStatus = 'VALIDATED';
                      await db.saveLeaveRange(req.employeeId, req.startDate, req.endDate, req.type);
                 }
             }
 
-            // Mise à jour de la demande en base
             await db.updateLeaveRequestStatus(req.id, newStatus, commentToSave);
-
-            // Notification au demandeur
+            
             await db.createNotification({ 
                 recipientId: req.employeeId, 
-                title: approved ? 'Validation Congés' : 'Refus Congés', 
+                title: isApprove ? 'Validation Congés' : 'Refus Congés', 
                 message: notifMsg, 
-                type: approved ? 'success' : 'error' 
+                type: isApprove ? 'success' : 'error' 
             } as any);
             
-            setMessage({ text: approved ? "Demande validée/transmise." : "Demande refusée avec succès.", type: approved ? 'success' : 'warning' });
+            setMessage({ text: isApprove ? "Demande traitée." : "Refus enregistré.", type: isApprove ? 'success' : 'warning' });
+            setValidationModal(null);
             loadRequests();
             onReload();
         } catch (e: any) {
@@ -259,22 +280,18 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
         reader.onload = async (evt) => {
             const text = evt.target?.result as string;
             if (text) {
-                // Here we would normally implement bulk import logic for leaves
-                // For now, simulate success
                 setMessage({ text: "Import des demandes de congés effectué (Simulation).", type: 'success' });
             }
         };
         reader.readAsText(file);
     };
 
-    // --- VUES ---
     const myRequests = requests.filter(r => r.employeeId === currentUser.employeeId);
     
-    // Filtres pour l'onglet Validation selon le rôle connecté
     const requestsToValidate = requests.filter(r => {
         if (currentUser.role === 'CADRE') return r.status === 'PENDING_CADRE';
         if (currentUser.role === 'DIRECTOR') return r.status === 'PENDING_DIRECTOR';
-        if (currentUser.role === 'ADMIN') return r.status === 'PENDING_DG' || r.status === 'PENDING_DIRECTOR' || r.status === 'PENDING_CADRE'; // Admin sees all
+        if (currentUser.role === 'ADMIN') return r.status === 'PENDING_DG' || r.status === 'PENDING_DIRECTOR' || r.status === 'PENDING_CADRE'; 
         return false;
     });
 
@@ -300,7 +317,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
         setCalDate(newD);
     };
 
-    // Helper to safely render counter value
     const getCounterDisplay = (val: any) => {
         if (typeof val === 'number') return val;
         if (typeof val === 'object' && val !== null && 'reliquat' in val) return val.reliquat;
@@ -308,7 +324,50 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
     };
 
     return (
-        <div className="p-4 md:p-8 max-w-6xl mx-auto h-full flex flex-col">
+        <div className="p-4 md:p-8 max-w-6xl mx-auto h-full flex flex-col relative">
+            
+            {/* VALIDATION MODAL */}
+            {validationModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+                        <h3 className={`text-lg font-bold mb-4 flex items-center gap-2 ${validationModal.isApprove ? 'text-green-600' : 'text-red-600'}`}>
+                            {validationModal.isApprove ? <CheckCircle2 className="w-5 h-5"/> : <XCircle className="w-5 h-5"/>}
+                            {validationModal.isApprove ? 'Confirmer Validation' : 'Refuser la Demande'}
+                        </h3>
+                        
+                        <div className="bg-slate-50 p-3 rounded mb-4 text-sm">
+                            <p><strong>{validationModal.req?.employeeName}</strong></p>
+                            <p>{validationModal.req?.type} : {validationModal.req?.startDate} au {validationModal.req?.endDate}</p>
+                        </div>
+
+                        {!validationModal.isApprove && (
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Motif du refus (Obligatoire)</label>
+                                <textarea 
+                                    value={refusalReason}
+                                    onChange={(e) => setRefusalReason(e.target.value)}
+                                    className="w-full border rounded p-2 text-sm"
+                                    rows={3}
+                                    placeholder="Ex: Effectif insuffisant..."
+                                    autoFocus
+                                />
+                            </div>
+                        )}
+
+                        <div className="flex justify-end gap-3">
+                            <button onClick={() => setValidationModal(null)} className="px-4 py-2 rounded border hover:bg-slate-50 text-slate-600">Annuler</button>
+                            <button 
+                                onClick={confirmValidation} 
+                                disabled={isLoading || (!validationModal.isApprove && !refusalReason.trim())}
+                                className={`px-4 py-2 rounded text-white font-medium ${validationModal.isApprove ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'} disabled:opacity-50`}
+                            >
+                                {isLoading ? 'Traitement...' : 'Confirmer'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
                     <Calendar className="w-6 h-6 text-blue-600" /> Gestion des Congés
@@ -342,8 +401,8 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
 
             <div className="bg-white rounded-xl shadow border border-slate-200 p-6 flex-1 overflow-y-auto">
                 {message && (
-                    <div className={`mb-4 p-3 rounded-lg text-sm flex items-center gap-2 ${message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                        {message.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+                    <div className={`mb-4 p-3 rounded-lg text-sm flex items-center gap-2 ${message.type === 'success' ? 'bg-green-50 text-green-700' : message.type === 'info' ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'}`}>
+                        {message.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : message.type === 'info' ? <AlertOctagon className="w-4 h-4"/> : <AlertTriangle className="w-4 h-4" />}
                         {message.text}
                     </div>
                 )}
@@ -352,8 +411,13 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                 {mode === 'my_requests' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div>
-                            <h3 className="font-bold text-lg mb-4">Nouvelle Demande</h3>
-                            <form onSubmit={handleCreateRequest} className="space-y-4 bg-slate-50 p-4 rounded-lg border">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="font-bold text-lg">{editingRequestId ? 'Modifier la demande' : 'Nouvelle Demande'}</h3>
+                                {editingRequestId && (
+                                    <button onClick={cancelEdit} className="text-xs text-red-500 hover:underline">Annuler modif</button>
+                                )}
+                            </div>
+                            <form onSubmit={handleCreateOrUpdate} className={`space-y-4 bg-slate-50 p-4 rounded-lg border ${editingRequestId ? 'border-blue-300 ring-1 ring-blue-100' : ''}`}>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">Type</label>
                                     <select value={leaveType} onChange={(e) => setLeaveType(e.target.value)} className="w-full p-2 border rounded">
@@ -362,6 +426,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                                         <option value="HS">Hors Saison (HS)</option>
                                         <option value="RC">Repos Cycle (RC)</option>
                                         <option value="NT">Maladie (Arrêt)</option>
+                                        <option value="F">Férié (F)</option>
                                     </select>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
@@ -375,34 +440,61 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                                     </div>
                                 </div>
                                 {conflictWarning && <div className="bg-yellow-50 text-yellow-800 text-xs p-2 rounded">{conflictWarning}</div>}
-                                <button type="submit" disabled={isLoading} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">Envoyer</button>
+                                <button type="submit" disabled={isLoading} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 flex justify-center gap-2 items-center">
+                                    {isLoading && <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>}
+                                    {editingRequestId ? 'Mettre à jour' : 'Envoyer'}
+                                </button>
                             </form>
                         </div>
                         <div>
                             <h3 className="font-bold text-lg mb-4">Historique</h3>
-                            {myRequests.map(req => (
-                                <div key={req.id} className="border p-3 rounded-lg flex flex-col mb-2 bg-slate-50">
-                                    <div className="flex justify-between items-start">
-                                        <div>
-                                            <div className="font-bold text-slate-700">{req.type}</div>
-                                            <div className="text-sm text-slate-500">{new Date(req.startDate).toLocaleDateString()} au {new Date(req.endDate).toLocaleDateString()}</div>
+                            {myRequests.map(req => {
+                                const isPending = req.status.startsWith('PENDING');
+                                return (
+                                    <div key={req.id} className="border p-3 rounded-lg flex flex-col mb-2 bg-slate-50">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <div className="font-bold text-slate-700">{req.type}</div>
+                                                <div className="text-sm text-slate-500">{new Date(req.startDate).toLocaleDateString()} au {new Date(req.endDate).toLocaleDateString()}</div>
+                                            </div>
+                                            <div className="flex flex-col items-end gap-2">
+                                                <span className={`text-xs p-1 rounded font-bold ${
+                                                    req.status === 'VALIDATED' ? 'bg-green-100 text-green-700' : 
+                                                    req.status === 'REFUSED' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+                                                }`}>
+                                                    {req.status === 'PENDING_CADRE' ? 'En attente Cadre' : 
+                                                    req.status === 'PENDING_DIRECTOR' ? 'En attente Direction' : 
+                                                    req.status === 'PENDING_DG' ? 'En attente DG' : req.status}
+                                                </span>
+                                                {/* Edit/Delete Actions for Pending Requests */}
+                                                {isPending && (
+                                                    <div className="flex gap-2">
+                                                        <button 
+                                                            onClick={() => handleEditRequest(req)} 
+                                                            className="text-slate-400 hover:text-blue-600" 
+                                                            title="Modifier"
+                                                        >
+                                                            <Edit2 className="w-4 h-4" />
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => handleDeleteRequest(req.id)} 
+                                                            className="text-slate-400 hover:text-red-600" 
+                                                            title="Supprimer"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
-                                        <span className={`text-xs p-1 rounded font-bold ${
-                                            req.status === 'VALIDATED' ? 'bg-green-100 text-green-700' : 
-                                            req.status === 'REFUSED' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
-                                        }`}>
-                                            {req.status === 'PENDING_CADRE' ? 'En attente Cadre' : 
-                                             req.status === 'PENDING_DIRECTOR' ? 'En attente Direction' : 
-                                             req.status === 'PENDING_DG' ? 'En attente DG' : req.status}
-                                        </span>
+                                        {req.comments && (
+                                            <div className="mt-2 text-xs text-slate-600 border-t pt-2 italic">
+                                                "{req.comments}"
+                                            </div>
+                                        )}
                                     </div>
-                                    {req.comments && (
-                                        <div className="mt-2 text-xs text-slate-600 border-t pt-2 italic">
-                                            "{req.comments}"
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
+                                );
+                            })}
                             {myRequests.length === 0 && <p className="text-slate-400 italic text-sm">Aucune demande.</p>}
                         </div>
                     </div>
@@ -429,8 +521,8 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                                          <div className="text-xs text-slate-500">{req.startDate} ➜ {req.endDate}</div>
                                      </div>
                                      <div className="flex gap-2">
-                                         <button onClick={() => handleValidation(req, false)} className="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200 transition-colors">Refuser</button>
-                                         <button onClick={() => handleValidation(req, true)} className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm hover:bg-green-200 transition-colors">
+                                         <button onClick={() => openValidationModal(req, false)} className="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200 transition-colors">Refuser</button>
+                                         <button onClick={() => openValidationModal(req, true)} className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm hover:bg-green-200 transition-colors">
                                             {req.status === 'PENDING_CADRE' ? 'Pré-valider' : 'Valider'}
                                          </button>
                                      </div>
@@ -455,7 +547,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                                 </div>
                             )}
                         </div>
-                        {/* We use filteredEmployees to only show relevant people */}
                         <LeaveCalendar employees={filteredEmployees} startDate={calStartDate} days={calDays} />
                     </div>
                 )}
@@ -466,7 +557,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                          {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE') && (
                             <select value={selectedEmpId} onChange={(e) => setSelectedEmpId(e.target.value)} className="w-full p-2 border rounded mb-4">
                                 <option value="">-- Choisir un collaborateur --</option>
-                                {/* Only show filtered list */}
                                 {filteredEmployees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
                             </select>
                          )}

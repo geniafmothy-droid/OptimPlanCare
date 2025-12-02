@@ -1,8 +1,10 @@
 
-import React, { useMemo, useState, useRef } from 'react';
+
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Employee, ShiftCode, ViewMode } from '../types';
 import { SHIFT_TYPES } from '../constants';
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
+import { getHolidayName } from '../utils/holidays';
 
 interface ScheduleGridProps {
   employees: Employee[];
@@ -10,10 +12,55 @@ interface ScheduleGridProps {
   days: number;
   viewMode: ViewMode;
   onCellClick: (employeeId: string, date: string) => void;
+  onRangeSelect?: (employeeId: string, startDate: string, endDate: string, forcedCode?: ShiftCode) => void;
+  highlightNight?: boolean;
 }
 
-export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate, days, viewMode, onCellClick }) => {
+export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ 
+  employees, 
+  startDate, 
+  days, 
+  viewMode, 
+  onCellClick,
+  onRangeSelect,
+  highlightNight = false
+}) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Drag Selection State
+  const [isDragging, setIsDragging] = useState(false);
+  const [selectionStart, setSelectionStart] = useState<{empId: string, dateStr: string, dateObj: Date, initialCode?: ShiftCode} | null>(null);
+  const [selectionCurrent, setSelectionCurrent] = useState<{empId: string, dateStr: string, dateObj: Date} | null>(null);
+
+  // Reset selection on mouse up globally
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+        if (isDragging && selectionStart && selectionCurrent && onRangeSelect) {
+            let start = selectionStart.dateObj;
+            let end = selectionCurrent.dateObj;
+            if (start > end) { [start, end] = [end, start]; }
+            
+            const sStr = start.toISOString().split('T')[0];
+            const eStr = end.toISOString().split('T')[0];
+
+            if (sStr !== eStr) {
+                 // Smart Drag: If started on a cell with a code, extend that code
+                 // Otherwise open range modal (undefined code)
+                 const codeToExtend = selectionStart.initialCode !== 'OFF' ? selectionStart.initialCode : undefined;
+                 onRangeSelect(selectionStart.empId, sStr, eStr, codeToExtend);
+            } else {
+                 onCellClick(selectionStart.empId, sStr);
+            }
+        }
+        setIsDragging(false);
+        setSelectionStart(null);
+        setSelectionCurrent(null);
+    };
+
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, [isDragging, selectionStart, selectionCurrent, onRangeSelect, onCellClick]);
+
 
   // Generate date headers
   const dates = useMemo(() => {
@@ -26,6 +73,8 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
       const month = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
       const dateStr = `${year}-${month}-${day}`;
+      
+      const holiday = getHolidayName(d);
 
       result.push({
         obj: d,
@@ -33,7 +82,8 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
         dayName: d.toLocaleDateString('fr-FR', { weekday: 'short' }),
         dayNameFull: d.toLocaleDateString('fr-FR', { weekday: 'long' }),
         dayNum: d.getDate(),
-        month: d.toLocaleDateString('fr-FR', { month: 'short' })
+        month: d.toLocaleDateString('fr-FR', { month: 'short' }),
+        holiday
       });
     }
     return result;
@@ -49,12 +99,40 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
       }
   };
 
+  const handleMouseDown = (empId: string, dateStr: string, dateObj: Date, currentCode: ShiftCode) => {
+      if (viewMode === 'hourly') return; 
+      setIsDragging(true);
+      setSelectionStart({ empId, dateStr, dateObj, initialCode: currentCode });
+      setSelectionCurrent({ empId, dateStr, dateObj });
+  };
+
+  const handleMouseEnter = (empId: string, dateStr: string, dateObj: Date) => {
+      if (isDragging && selectionStart) {
+          if (empId === selectionStart.empId) {
+              setSelectionCurrent({ empId, dateStr, dateObj });
+          }
+      }
+  };
+
+  const isCellSelected = (empId: string, dateObj: Date) => {
+      if (!isDragging || !selectionStart || !selectionCurrent) return false;
+      if (empId !== selectionStart.empId) return false;
+
+      let start = selectionStart.dateObj;
+      let end = selectionCurrent.dateObj;
+      if (start > end) { [start, end] = [end, start]; }
+
+      return dateObj >= start && dateObj <= end;
+  };
+
   // --- MODE HORAIRE (HOURLY) ---
   if (viewMode === 'hourly') {
+    // ... Existing hourly code remains mostly same, simplified for brevity as logic didn't change much ...
     const year = startDate.getFullYear();
     const month = String(startDate.getMonth() + 1).padStart(2, '0');
     const day = String(startDate.getDate()).padStart(2, '0');
     const currentDateStr = `${year}-${month}-${day}`;
+    const holidayName = getHolidayName(startDate);
 
     const startDisplayHour = 5;
     const endDisplayHour = 24;
@@ -62,6 +140,11 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
 
     return (
       <div className="flex-1 overflow-hidden flex flex-col h-full relative group bg-white">
+         {holidayName && (
+             <div className="bg-red-50 text-red-700 text-xs text-center py-1 font-medium border-b border-red-100">
+                 Jour Férié : {holidayName}
+             </div>
+         )}
          <div className="overflow-auto relative h-full" ref={scrollContainerRef}>
             <table className="border-collapse w-max min-w-full">
               <thead className="sticky top-0 z-20 bg-white shadow-sm">
@@ -142,8 +225,8 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
   };
 
   return (
-    <div className="flex-1 overflow-hidden flex flex-col h-full relative group">
-      {/* Buttons Fixed to Sticky Header Area to ensure visibility even if table is short */}
+    <div className="flex-1 overflow-hidden flex flex-col h-full relative group select-none">
+      {/* Buttons Fixed to Sticky Header Area */}
       {days > 7 && (
           <>
             <button 
@@ -174,16 +257,23 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
               {dates.map((d) => (
                 <th 
                   key={d.str} 
+                  title={d.holiday || ''}
                   className={`${getCellWidthClass()} border-b border-r border-slate-200 p-1 text-center text-xs h-14 ${
-                    isWeekend(d.obj) ? 'bg-slate-100 text-slate-800' : 'bg-white text-slate-600'
+                    d.holiday 
+                        ? 'bg-red-50 text-red-700' 
+                        : isWeekend(d.obj) 
+                            ? 'bg-slate-100 text-slate-800' 
+                            : 'bg-white text-slate-600'
                   }`}
                 >
                   <div className="font-bold flex items-center justify-center gap-1">
                       {d.dayNum}
-                      {days <= 7 && <span className="font-normal text-slate-400">{d.month}</span>}
+                      {days <= 7 && <span className="font-normal opacity-70">{d.month}</span>}
                   </div>
-                  <div className="text-[10px] uppercase">
+                  <div className="text-[10px] uppercase flex flex-col items-center">
                       {days <= 7 ? d.dayNameFull : d.dayName.slice(0, 1)}
+                      {d.holiday && days > 7 && <div className="w-1.5 h-1.5 rounded-full bg-red-500 mt-0.5" />}
+                      {d.holiday && days <= 7 && <span className="text-[9px] font-bold text-red-600 truncate max-w-[90px]">{d.holiday}</span>}
                   </div>
                 </th>
               ))}
@@ -211,22 +301,38 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                 {dates.map((d) => {
                   const shiftCode = emp.shifts[d.str] || 'OFF';
                   const shiftDef = SHIFT_TYPES[shiftCode];
+                  const selected = isCellSelected(emp.id, d.obj);
                   
+                  const isNight = shiftCode === 'S';
+                  let opacityClass = 'opacity-100';
+                  let spotlightClass = '';
+                  
+                  if (highlightNight) {
+                      if (isNight) {
+                          spotlightClass = 'scale-110 shadow-lg ring-2 ring-indigo-500 z-10';
+                      } else {
+                          opacityClass = 'opacity-20';
+                      }
+                  }
+
                   return (
                     <td 
                       key={`${emp.id}-${d.str}`} 
-                      className={`border-b border-r border-slate-200 p-0.5 text-center cursor-pointer relative group h-12 ${
-                        isWeekend(d.obj) ? 'bg-slate-50/50' : ''
-                      }`}
-                      onClick={() => onCellClick(emp.id, d.str)}
-                      title={shiftCode !== 'OFF' ? `${d.dayName} ${d.dayNum}: ${shiftDef.label}` : undefined}
+                      className={`
+                        border-b border-r border-slate-200 p-0.5 text-center cursor-pointer relative group h-12
+                        ${d.holiday ? 'bg-red-50/30' : (isWeekend(d.obj) ? 'bg-slate-50/50' : '')}
+                        ${selected ? 'bg-blue-100 ring-1 ring-inset ring-blue-300' : ''}
+                      `}
+                      onMouseDown={() => handleMouseDown(emp.id, d.str, d.obj, shiftCode)}
+                      onMouseEnter={() => handleMouseEnter(emp.id, d.str, d.obj)}
                     >
                       <div 
                         className={`
                           w-full h-8 flex items-center justify-center text-[10px] font-bold rounded-sm shadow-sm transition-all
-                          hover:opacity-80 hover:scale-105 hover:z-10 hover:shadow-md
+                          ${!highlightNight && 'hover:opacity-80 hover:scale-105 hover:z-10 hover:shadow-md'}
                           ${shiftDef.color} ${shiftDef.textColor}
                           ${shiftCode === 'OFF' ? 'opacity-0 hover:opacity-100 border border-dashed border-slate-300' : ''}
+                          ${opacityClass} ${spotlightClass}
                         `}
                       >
                         {shiftCode !== 'OFF' ? shiftCode : '+'}

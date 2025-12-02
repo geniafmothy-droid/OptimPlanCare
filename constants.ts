@@ -1,4 +1,5 @@
 
+
 import { ShiftDefinition, Employee, ShiftCode } from './types';
 
 // Parsing the colors and codes from the image and user rules
@@ -53,6 +54,7 @@ export const SHIFT_TYPES: Record<ShiftCode, ShiftDefinition> = {
   'ETP': { code: 'ETP', label: 'ETP', color: 'bg-yellow-100', textColor: 'text-yellow-800', description: 'Temps Partiel', isWork: false },
   'DP': { code: 'DP', label: 'DP', color: 'bg-pink-200', textColor: 'text-pink-900', description: 'Déplacement', isWork: true, startHour: 8.0, endHour: 16.0 },
   'M': { code: 'M', label: 'M', color: 'bg-sky-200', textColor: 'text-sky-900', description: 'Matin (Générique)', isWork: true, startHour: 7.0, endHour: 14.5 },
+  'F': { code: 'F', label: 'F', color: 'bg-fuchsia-200', textColor: 'text-fuchsia-900', description: 'Férié', isWork: false },
   'OFF': { code: 'OFF', label: '', color: 'bg-white', textColor: 'text-gray-300', description: 'Vide', isWork: false },
 };
 
@@ -68,6 +70,7 @@ export const SHIFT_HOURS: Record<string, number> = {
   'CA': 0,
   'RC': 0,
   'HS': 0,
+  'F': 0,
   'M': 7,     // Estimation pour Matin standard si utilisé
   'DP': 7,
   'ETP': 0,
@@ -96,11 +99,11 @@ const NAMES = [
 
 // Initial structure without shifts
 const BASE_EMPLOYEES: Employee[] = NAMES.map((name, index) => ({
-  id: `emp-${index}`,
-  matricule: `M${(index + 1).toString().padStart(3, '0')}`, // Génération d'un matricule
+  id: `a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a${10 + index}`, // Use valid UUID-like strings
+  matricule: `M${(index + 1).toString().padStart(3, '0')}`,
   name,
   role: index % 4 === 0 ? 'Cadre' : (index % 3 === 0 ? 'Aide-Soignant' : 'Infirmier'),
-  fte: 1.0, // Default quotité 100%
+  fte: 1.0, 
   leaveBalance: 0,
   leaveCounters: { CA: 25, RTT: 0, HS: 0, RC: 0 },
   skills: index < 5 ? ['Senior', 'Tutorat'] : ['Junior'],
@@ -109,7 +112,7 @@ const BASE_EMPLOYEES: Employee[] = NAMES.map((name, index) => ({
 
 // Ajouter explicitement la Directrice
 const DIRECTOR: Employee = {
-    id: 'emp-dir-001',
+    id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380d99',
     matricule: 'DIR001',
     name: 'Mme Durand (Directrice)',
     role: 'Directeur',

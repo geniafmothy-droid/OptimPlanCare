@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { Employee, ShiftCode } from '../types';
 import { SHIFT_TYPES } from '../constants';
 import { ChevronDown, ChevronUp, Users } from 'lucide-react';
+import { getHolidayName } from '../utils/holidays';
 
 interface StaffingSummaryProps {
   employees: Employee[];
@@ -28,7 +29,8 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
         dateStr,
         dayNum: d.getDate(),
         dayName: d.toLocaleDateString('fr-FR', { weekday: 'short' }).slice(0, 1),
-        isWeekend: d.getDay() === 0 || d.getDay() === 6
+        isWeekend: d.getDay() === 0 || d.getDay() === 6,
+        holiday: getHolidayName(d)
       });
     }
     return result;
@@ -59,7 +61,14 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
                       Compétence / Poste
                    </th>
                    {dates.map(d => (
-                      <th key={d.dateStr} className={`p-1 border-r border-b border-slate-200 text-center min-w-[30px] ${d.isWeekend ? 'bg-slate-50 text-slate-800' : 'bg-white text-slate-500'}`}>
+                      <th 
+                        key={d.dateStr} 
+                        title={d.holiday || undefined}
+                        className={`p-1 border-r border-b border-slate-200 text-center min-w-[30px] ${
+                            d.holiday ? 'bg-red-50 text-red-700' :
+                            d.isWeekend ? 'bg-slate-50 text-slate-800' : 'bg-white text-slate-500'
+                        }`}
+                      >
                          <div className="font-bold">{d.dayNum}</div>
                          <div className="text-[9px] uppercase">{d.dayName}</div>
                       </th>
@@ -83,7 +92,7 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
                             
                             // Highlight logic
                             let bgClass = '';
-                            if (code === 'IT' && count < 4 && !d.isWeekend) bgClass = 'bg-red-50 text-red-700 font-bold';
+                            if (code === 'IT' && count < 4 && !d.isWeekend && !d.holiday) bgClass = 'bg-red-50 text-red-700 font-bold';
                             else if (count === 0) bgClass = 'text-slate-300';
                             else bgClass = 'text-slate-700 font-medium';
 

@@ -1,6 +1,7 @@
 
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare } from 'lucide-react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Moon } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
 import { StaffingSummary } from './components/StaffingSummary';
 import { StatsPanel } from './components/StatsPanel';
@@ -48,6 +49,7 @@ function App() {
   const [showQualifiedOnly, setShowQualifiedOnly] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | 'present' | 'absent'>('all');
   const [absenceTypeFilter, setAbsenceTypeFilter] = useState<string>('all');
+  const [highlightNight, setHighlightNight] = useState(false);
 
   // Sidebar Mobile State
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -63,6 +65,10 @@ function App() {
   const [actionModal, setActionModal] = useState<{ type: 'GENERATE' | 'RESET', isOpen: boolean } | null>(null);
   const [actionMonth, setActionMonth] = useState<number>(new Date().getMonth());
   const [actionYear, setActionYear] = useState<number>(new Date().getFullYear());
+  
+  // Range Selection State
+  const [rangeSelection, setRangeSelection] = useState<{empId: string, start: string, end: string} | null>(null);
+  const [isRangeModalOpen, setIsRangeModalOpen] = useState(false);
 
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -116,10 +122,8 @@ function App() {
   };
 
   const handleLogin = (role: UserRole, employee?: Employee) => {
-      // Logic: If Cadre, auto-select their service if possible (mock logic: pick first service or specific if assigned)
       let serviceToSelect = activeServiceId;
       if (role === 'CADRE') {
-          // Check if cadre is assigned to a service
           const myAssignment = assignmentsList.find(a => a.employeeId === employee?.id);
           if (myAssignment) serviceToSelect = myAssignment.serviceId;
           else if (servicesList.length > 0) serviceToSelect = servicesList[0].id;
@@ -171,7 +175,6 @@ function App() {
               if (res.error) {
                   setToast({ message: res.error, type: "error" });
               } else {
-                  // Save to DB
                   await db.bulkImportEmployees(res.employees);
                   await loadData();
                   setToast({ message: `Import réussi : ${res.stats?.updated} mis à jour, ${res.stats?.created} créés`, type: "success" });
@@ -182,7 +185,6 @@ function App() {
       e.target.value = '';
   };
 
-  // Open Modals for Generation/Reset
   const openActionModal = (type: 'GENERATE' | 'RESET') => {
       setActionMonth(currentDate.getMonth());
       setActionYear(currentDate.getFullYear());
@@ -195,7 +197,7 @@ function App() {
       const targetDate = new Date(actionYear, actionMonth, 1);
       const monthName = targetDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
 
-      setActionModal(null); // Close modal
+      setActionModal(null); 
       setIsLoading(true);
 
       try {
@@ -205,9 +207,9 @@ function App() {
                await loadData();
                setToast({ message: `Planning de ${monthName} généré avec succès`, type: "success" });
           } else {
-               await db.clearShiftsInRange(actionYear, actionMonth);
+               await db.clearShiftsInRange(actionYear, actionMonth, activeServiceId || undefined);
                await loadData();
-               setToast({ message: `Planning de ${monthName} réinitialisé avec succès.`, type: "success" });
+               setToast({ message: `Planning de ${monthName} réinitialisé ${activeServiceId ? 'pour le service' : 'globalement'}.`, type: "success" });
           }
       } catch (e: any) {
           setToast({ message: e.message, type: "error" });
@@ -220,7 +222,6 @@ function App() {
       if (!confirm("Copier le planning du mois précédent sur le mois en cours ?")) return;
       setIsLoading(true);
       try {
-          // Logic simplifiée
           setToast({ message: "Fonctionnalité simulée : Planning copié.", type: "success" });
       } catch(e) {
           console.error(e);
@@ -265,31 +266,23 @@ function App() {
       }
 
       return employees.filter(emp => {
-        // 1. Role & Skill Filter
         const roleMatch = selectedRoles.length === 0 || selectedRoles.includes(emp.role);
         const skillMatch = skillFilter === 'all' || emp.skills.includes(skillFilter);
         
-        // 2. Service Qualification Filter
         let qualificationMatch = true;
         if (showQualifiedOnly && activeService?.config?.requiredSkills?.length > 0) {
             const reqSkills = activeService.config.requiredSkills;
-            const hasSkill = emp.skills.some(s => reqSkills.includes(s));
-            qualificationMatch = hasSkill;
+            qualificationMatch = emp.skills.some(s => reqSkills.includes(s));
         }
 
-        // 3. Service Assignment Filter
         let assignmentMatch = true;
         if (activeServiceId && assignmentsList.length > 0) {
             const empAssignments = assignmentsList.filter(a => a.employeeId === emp.id && a.serviceId === activeServiceId);
             if (activeServiceId) {
-                // Pour filtrage "Planning Global", on veut voir ceux affectés au service courant
-                if (empAssignments.length === 0) {
-                    assignmentMatch = false;
-                }
+                if (empAssignments.length === 0) assignmentMatch = false;
             }
         }
 
-        // 4. Status & Absence Type Filter
         let statusMatch = true;
         let absenceTypeMatch = true;
         if (statusFilter !== 'all' || absenceTypeFilter !== 'all') {
@@ -337,6 +330,35 @@ function App() {
       }
   };
 
+  const handleRangeSelect = async (empId: string, start: string, end: string, forcedCode?: ShiftCode) => {
+     if (currentUser?.role !== 'ADMIN' && currentUser?.role !== 'CADRE' && currentUser?.role !== 'DIRECTOR') return;
+     
+     if (forcedCode) {
+         // Smart Drag Extension (No Modal)
+         try {
+             const startDate = new Date(start);
+             const endDate = new Date(end);
+             const shiftsToUpdate = [];
+             for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                 shiftsToUpdate.push({
+                     employee_id: empId,
+                     date: d.toISOString().split('T')[0],
+                     shift_code: forcedCode
+                 });
+             }
+             await db.bulkUpsertShifts(shiftsToUpdate);
+             loadData();
+             setToast({ message: "Extension rapide effectuée", type: "success" });
+         } catch(e: any) {
+             setToast({ message: "Erreur extension: " + e.message, type: "error" });
+         }
+     } else {
+         // Standard Selection (Open Modal)
+         setRangeSelection({ empId, start, end });
+         setIsRangeModalOpen(true);
+     }
+  };
+
   const handleCellClick = (empId: string, date: string) => {
     if (currentUser?.role !== 'ADMIN' && currentUser?.role !== 'CADRE' && currentUser?.role !== 'DIRECTOR') {
         setToast({ message: "Modification directe non autorisée.", type: "warning" });
@@ -347,19 +369,41 @@ function App() {
   };
 
   const handleShiftChange = async (code: ShiftCode) => {
-    if (!selectedCell) return;
     try {
-      await db.upsertShift(selectedCell.empId, selectedCell.date, code);
-      setToast({ message: "Poste mis à jour", type: "success" });
+      if (isRangeModalOpen && rangeSelection) {
+         // BULK UPDATE FOR RANGE
+         const start = new Date(rangeSelection.start);
+         const end = new Date(rangeSelection.end);
+         const shiftsToUpdate = [];
+         
+         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            const dateStr = d.toISOString().split('T')[0];
+            shiftsToUpdate.push({
+                employee_id: rangeSelection.empId,
+                date: dateStr,
+                shift_code: code
+            });
+         }
+         
+         await db.bulkUpsertShifts(shiftsToUpdate);
+         setToast({ message: "Plage modifiée avec succès", type: "success" });
+         setIsRangeModalOpen(false);
+         setRangeSelection(null);
+
+      } else if (selectedCell) {
+         // SINGLE UPDATE
+         await db.upsertShift(selectedCell.empId, selectedCell.date, code);
+         setToast({ message: "Poste mis à jour", type: "success" });
+         setIsEditorOpen(false);
+      }
+      
       loadData(); 
-      setIsEditorOpen(false);
     } catch (error: any) {
       setToast({ message: `Erreur: ${error.message}`, type: "error" });
     }
   };
 
   const handleNotificationAction = (notif: AppNotification) => {
-      // Mark as read
       db.markNotificationRead(notif.id).then(() => {
           loadNotifications();
       });
@@ -388,9 +432,16 @@ function App() {
         }
       `}</style>
       
+      {/* Mobile Backdrop */}
+      {isSidebarOpen && (
+          <div 
+            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+            onClick={() => setIsSidebarOpen(false)}
+          />
+      )}
+      
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       
-      {/* Hidden File Input */}
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
 
       {/* HEADER */}
@@ -417,7 +468,6 @@ function App() {
                    <div className="flex items-center bg-slate-50 rounded-lg p-1 border border-slate-200 relative gap-1">
                      <button className="p-1 hover:bg-slate-200 rounded" onClick={() => handleDateNavigate('prev')}><ChevronLeft className="w-4 h-4 text-slate-600" /></button>
                      
-                     {/* CALENDAR INPUT */}
                      <div className="relative group flex items-center">
                          <Calendar className="w-4 h-4 text-slate-500 absolute left-2 pointer-events-none" />
                          <input 
@@ -490,7 +540,7 @@ function App() {
       <div className="flex-1 flex overflow-hidden relative">
         {/* SIDEBAR */}
         <aside className={`
-            absolute lg:static inset-y-0 left-0 z-30 w-72 bg-white border-r border-slate-200 flex flex-col overflow-y-auto transition-transform duration-300 ease-in-out
+            absolute lg:static inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200 flex flex-col overflow-y-auto transition-transform duration-300 ease-in-out
             ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
             no-print
         `}>
@@ -506,348 +556,389 @@ function App() {
                 <button onClick={() => setActiveTab('team')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'team' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}><Users className="w-5 h-5" /> Équipe</button>
                 </>
             )}
-            
+
             <button onClick={() => setActiveTab('leaves')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'leaves' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}>
-                <BriefcaseBusiness className="w-5 h-5" /> {currentUser.role === 'INFIRMIER' || currentUser.role === 'AIDE_SOIGNANT' ? 'Mes Congés' : 'Gestion des Congés'}
+                <Coffee className="w-5 h-5" /> Gestion des Congés
             </button>
             
-            {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE' || currentUser.role === 'DIRECTOR') && (
+            {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR') && (
                 <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'settings' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}><Settings className="w-5 h-5" /> Paramètres</button>
             )}
           </nav>
 
-          {/* FILTERS SIDEBAR */}
-          {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE' || currentUser.role === 'DIRECTOR' || currentUser.role === 'MANAGER') && (
-              <div className="p-4 space-y-6">
-                 <div className="flex items-center gap-2 text-slate-400 uppercase text-xs font-bold tracking-wider">
-                     <Filter className="w-3 h-3" /> Filtres & Contexte
-                 </div>
-                 
-                 {/* 1. Service Filter with Improved Counts */}
-                 <div className="space-y-3">
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">
-                            Service
-                        </label>
-                        <select 
-                            value={activeServiceId} 
-                            onChange={(e) => setActiveServiceId(e.target.value)} 
-                            className="w-full text-sm border border-slate-300 p-2.5 rounded-lg bg-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
-                        >
-                            <option value="">-- Vue Globale --</option>
-                            {servicesList.map(s => {
-                                // Count people assigned
-                                const count = assignmentsList.filter(a => a.serviceId === s.id).length;
-                                return <option key={s.id} value={s.id}>{s.name}</option>;
-                            })}
-                        </select>
-                     </div>
-
-                     {activeService ? (
-                         <div className="grid grid-cols-2 gap-2">
-                             <div className="bg-blue-50 border border-blue-100 p-2 rounded-lg flex flex-col items-center justify-center text-center">
-                                 <div className="text-xl font-bold text-blue-700 leading-none">
-                                     {assignmentsList.filter(a => a.serviceId === activeService.id).length}
-                                 </div>
-                                 <div className="text-[10px] text-blue-600 font-medium uppercase mt-1">Affectés</div>
-                             </div>
-                             <div className="bg-purple-50 border border-purple-100 p-2 rounded-lg flex flex-col items-center justify-center text-center">
-                                 <div className="text-xl font-bold text-purple-700 leading-none">
-                                     {activeService.config?.requiredSkills?.length || 0}
-                                 </div>
-                                 <div className="text-[10px] text-purple-600 font-medium uppercase mt-1">Compétences</div>
-                             </div>
-                         </div>
-                     ) : (
-                         <div className="p-2 bg-slate-50 border border-slate-100 rounded-lg text-center text-xs text-slate-400 italic">
-                             Sélectionnez un service pour voir les détails.
-                         </div>
-                     )}
-                 </div>
-
-                 {/* 2. Role Filter - CHECKBOXES */}
-                 <div className="space-y-2">
-                     <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-700">Rôles</label>
-                        {selectedRoles.length > 0 && (
-                            <button onClick={() => setSelectedRoles([])} className="text-[10px] text-blue-600 hover:underline">
-                                Effacer
-                            </button>
-                        )}
-                     </div>
-                     <div className="space-y-1.5 bg-slate-50 p-2 rounded-lg border border-slate-200">
-                         {['Infirmier', 'Aide-Soignant', 'Cadre', 'Manager', 'Directeur'].map(role => (
-                             <label key={role} className="flex items-center gap-2 text-sm text-slate-700 hover:text-blue-600 cursor-pointer select-none">
-                                 <input 
-                                     type="checkbox"
-                                     checked={selectedRoles.includes(role)}
-                                     onChange={() => toggleRole(role)}
-                                     className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
-                                 />
-                                 {role}
-                             </label>
-                         ))}
-                     </div>
-                 </div>
-
-                 {/* 3. Skills Filter (Dynamic based on selected Service) */}
-                 <div className="space-y-2">
-                     <label className="text-xs font-semibold text-slate-700">Compétence</label>
-                     <select value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} className="w-full text-sm border border-slate-300 p-2 rounded-lg bg-slate-50">
-                         <option value="all">Toutes compétences</option>
-                         {activeService 
-                            ? activeService.config?.requiredSkills.map(code => <option key={code} value={code}>{code}</option>)
-                            : skillsList.map(s => <option key={s.id} value={s.code}>{s.label}</option>)
-                         }
-                     </select>
-                 </div>
-
-                 {/* 4. Qualified Only Switch */}
-                 {activeService && (
-                     <div className="flex items-center justify-between">
-                         <label className="text-xs font-semibold text-slate-700">Qualifiés Uniquement</label>
-                         <button 
-                            onClick={() => setShowQualifiedOnly(!showQualifiedOnly)}
-                            className={`w-10 h-5 rounded-full flex items-center transition-colors px-0.5 ${showQualifiedOnly ? 'bg-blue-600 justify-end' : 'bg-slate-300 justify-start'}`}
-                         >
-                            <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
-                         </button>
-                     </div>
-                 )}
-
-                 <hr className="border-slate-100" />
-
-                 {/* 5. Status Filter - Segmented Control */}
-                 <div className="space-y-2">
-                     <label className="text-xs font-semibold text-slate-700">Statut (Période)</label>
-                     <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 select-none">
-                         {[
-                             { id: 'all', label: 'Tous', icon: Users },
-                             { id: 'present', label: 'Présents', icon: UserCheck },
-                             { id: 'absent', label: 'Absents', icon: UserX },
-                         ].map(opt => (
-                             <button
-                                 key={opt.id}
-                                 onClick={() => setStatusFilter(opt.id as any)}
-                                 className={`flex-1 py-1.5 px-2 text-xs font-medium rounded-md flex items-center justify-center gap-1.5 transition-all ${
-                                     statusFilter === opt.id
-                                         ? 'bg-white text-blue-700 shadow-sm ring-1 ring-black/5'
-                                         : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
-                                 }`}
-                                 title={opt.label}
-                             >
-                                 {/* On small widths, maybe hide icon or label. For now showing both as flex wraps gracefully if needed */}
-                                 {statusFilter === opt.id && <opt.icon className="w-3 h-3" />}
-                                 <span>{opt.label}</span>
-                             </button>
-                         ))}
-                     </div>
-                 </div>
-
-                 {/* 6. Absence Type Filter - Chips/Badges Selector */}
-                 <div className="space-y-2">
-                     <label className="text-xs font-semibold text-slate-700">Type d'Absence</label>
-                     <div className="flex flex-wrap gap-2">
-                         {[
-                             { id: 'all', label: 'Tout' },
-                             { id: 'CA', label: 'CA' },
-                             { id: 'RTT', label: 'RTT' },
-                             { id: 'NT', label: 'Maladie' },
-                             { id: 'HS', label: 'HS' },
-                             { id: 'RC', label: 'RC' },
-                             { id: 'FO', label: 'Formation' },
-                             { id: 'RH', label: 'Repos' }
-                         ].map(opt => (
-                             <button
-                                 key={opt.id}
-                                 onClick={() => setAbsenceTypeFilter(opt.id)}
-                                 className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
-                                     absenceTypeFilter === opt.id
-                                         ? 'bg-blue-100 text-blue-700 border-blue-200 ring-1 ring-blue-200'
-                                         : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                                 }`}
-                             >
-                                 {opt.label}
-                             </button>
-                         ))}
-                     </div>
-                 </div>
+          {/* FILTERS PANEL */}
+          <div className="p-4 space-y-6">
+              <div>
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                      <Store className="w-3 h-3" /> Service
+                  </h3>
+                  <select 
+                      value={activeServiceId} 
+                      onChange={(e) => setActiveServiceId(e.target.value)}
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                      {servicesList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      <option value="">Vue Globale (Tous)</option>
+                  </select>
+                  
+                  {activeService && (
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                          <div className="bg-blue-50 p-2 rounded border border-blue-100 text-center">
+                              <div className="text-xs text-blue-500 font-medium">Effectifs</div>
+                              <div className="text-lg font-bold text-blue-700">
+                                  {assignmentsList.filter(a => a.serviceId === activeServiceId).length}
+                              </div>
+                          </div>
+                          <div className="bg-purple-50 p-2 rounded border border-purple-100 text-center">
+                              <div className="text-xs text-purple-500 font-medium">Compétences</div>
+                              <div className="text-lg font-bold text-purple-700">
+                                  {activeService.config?.requiredSkills?.length || 0}
+                              </div>
+                          </div>
+                      </div>
+                  )}
               </div>
-          )}
+
+              <div>
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                      <BriefcaseBusiness className="w-3 h-3" /> Rôles
+                  </h3>
+                  <div className="space-y-1">
+                      {['Infirmier', 'Aide-Soignant', 'Cadre', 'Manager', 'Directeur'].map(role => (
+                          <label key={role} className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer hover:bg-slate-50 p-1.5 rounded">
+                              <input 
+                                  type="checkbox" 
+                                  checked={selectedRoles.includes(role)}
+                                  onChange={() => toggleRole(role)}
+                                  className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 border-gray-300"
+                              />
+                              {role}
+                          </label>
+                      ))}
+                  </div>
+                  {selectedRoles.length > 0 && (
+                      <button onClick={() => setSelectedRoles([])} className="text-xs text-blue-600 mt-2 hover:underline">
+                          Réinitialiser
+                      </button>
+                  )}
+              </div>
+
+              <div>
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                      <CheckSquare className="w-3 h-3" /> Compétences
+                  </h3>
+                  <select 
+                      value={skillFilter} 
+                      onChange={(e) => setSkillFilter(e.target.value)}
+                      className="w-full p-2 bg-white border border-slate-200 rounded text-sm mb-2"
+                  >
+                      <option value="all">Toutes</option>
+                      {activeServiceId 
+                         ? activeService?.config.requiredSkills.map(code => {
+                             const sk = skillsList.find(s => s.code === code);
+                             return <option key={code} value={code}>{sk ? sk.label : code}</option>;
+                         })
+                         : skillsList.map(s => <option key={s.id} value={s.code}>{s.label}</option>)
+                      }
+                  </select>
+                  <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                      <input 
+                          type="checkbox" 
+                          checked={showQualifiedOnly} 
+                          onChange={(e) => setShowQualifiedOnly(e.target.checked)}
+                          className="rounded text-blue-600"
+                      />
+                      Qualifiés uniquement
+                  </label>
+              </div>
+
+              <div>
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Statut (Période)</h3>
+                  <div className="flex bg-slate-100 p-1 rounded-lg">
+                      <button 
+                          onClick={() => setStatusFilter('all')} 
+                          className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${statusFilter === 'all' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                          Tous
+                      </button>
+                      <button 
+                          onClick={() => setStatusFilter('present')} 
+                          className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${statusFilter === 'present' ? 'bg-white shadow text-green-600' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                          <UserCheck className="w-3 h-3 mx-auto" />
+                      </button>
+                      <button 
+                          onClick={() => setStatusFilter('absent')} 
+                          className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${statusFilter === 'absent' ? 'bg-white shadow text-red-600' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                          <UserX className="w-3 h-3 mx-auto" />
+                      </button>
+                  </div>
+              </div>
+
+              <div>
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Type d'absence</h3>
+                  <div className="flex flex-wrap gap-1.5">
+                      <button 
+                          onClick={() => setAbsenceTypeFilter('all')}
+                          className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${absenceTypeFilter === 'all' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
+                      >
+                          Tous
+                      </button>
+                      {['CA', 'RTT', 'NT', 'RH', 'RC', 'HS', 'FO', 'F'].map(type => (
+                          <button
+                              key={type}
+                              onClick={() => setAbsenceTypeFilter(type)}
+                              className={`px-2.5 py-1 text-xs rounded-full border transition-colors font-medium ${
+                                  absenceTypeFilter === type 
+                                  ? 'bg-blue-100 text-blue-700 border-blue-200 ring-1 ring-blue-200' 
+                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                              }`}
+                          >
+                              {type}
+                          </button>
+                      ))}
+                  </div>
+              </div>
+
+          </div>
         </aside>
 
-        {/* MAIN CONTENT */}
-        <main className="flex-1 flex flex-col overflow-hidden relative bg-slate-100">
-             {activeTab === 'planning' && (
-                <div className="print-container flex-1 p-2 md:p-4 flex flex-col gap-2 overflow-hidden h-full">
-                    {/* View & Actions Toolbar */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 mb-2 no-print">
-                        <div className="flex bg-white rounded-lg border border-slate-200 p-1 shadow-sm">
-                            {(['month', 'week', 'workweek', 'day', 'hourly'] as ViewMode[]).map(mode => (
-                                <button
-                                    key={mode}
-                                    onClick={() => setViewMode(mode)}
-                                    className={`px-3 py-1.5 text-xs font-medium rounded transition-colors capitalize ${viewMode === mode ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}
-                                >
-                                    {mode === 'month' ? 'Mois' : mode === 'week' ? 'Semaine' : mode === 'workweek' ? 'Ouvré (5j)' : mode === 'day' ? 'Jour' : 'Horaire'}
-                                </button>
-                            ))}
-                        </div>
+        {/* MAIN CONTENT AREA */}
+        <main className="flex-1 overflow-hidden flex flex-col relative bg-slate-50/50">
+           {activeTab === 'planning' && (
+             <>
+               {/* TOOLBAR */}
+               <div className="bg-white border-b border-slate-200 p-2 flex items-center gap-2 justify-between flex-wrap no-print">
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+                      <button onClick={() => setViewMode('month')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'month' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Mois</button>
+                      <button onClick={() => setViewMode('week')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'week' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Semaine</button>
+                      <button onClick={() => setViewMode('workweek')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'workweek' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Ouvrée</button>
+                      <button onClick={() => setViewMode('day')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'day' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Jour</button>
+                      <button onClick={() => setViewMode('hourly')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'hourly' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Horaire</button>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                       {/* Night Spotlight Toggle */}
+                       <button
+                           onClick={() => setHighlightNight(!highlightNight)}
+                           className={`p-2 rounded-lg border transition-all flex items-center gap-2 text-xs font-medium ${
+                               highlightNight 
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-200' 
+                                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                           }`}
+                           title="Mettre en évidence les postes de Nuit (S)"
+                       >
+                           <Moon className="w-3.5 h-3.5" />
+                           {!highlightNight ? 'Nuit' : 'Nuit Active'}
+                       </button>
 
-                        {(currentUser.role !== 'INFIRMIER' && currentUser.role !== 'AIDE_SOIGNANT') && (
-                            <div className="flex gap-2">
-                                <button onClick={handlePrint} className="p-2 bg-white border border-slate-300 text-slate-700 rounded hover:bg-slate-50" title="Imprimer PDF">
-                                    <Printer className="w-4 h-4" />
-                                </button>
-                                <button onClick={handleExportCSV} className="p-2 bg-white border border-slate-300 text-slate-700 rounded hover:bg-slate-50" title="Exporter CSV">
-                                    <Download className="w-4 h-4" />
-                                </button>
-                                <button onClick={handleImportClick} className="p-2 bg-white border border-slate-300 text-slate-700 rounded hover:bg-slate-50" title="Importer Planning CSV">
-                                    <Upload className="w-4 h-4" />
-                                </button>
-                                <div className="w-px h-8 bg-slate-300 mx-1" />
-                                <button onClick={handleCopyPlanning} className="p-2 bg-white border border-slate-300 text-slate-700 rounded hover:bg-slate-50" title="Copier M-1">
-                                    <Copy className="w-4 h-4" />
-                                </button>
-                                <button onClick={() => openActionModal('RESET')} className="p-2 bg-white border border-slate-300 text-red-600 rounded hover:bg-red-50" title="Réinitialiser Planning">
-                                    <Trash2 className="w-4 h-4" />
-                                </button>
-                                <button onClick={() => openActionModal('GENERATE')} className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium shadow-sm">
-                                    <Wand2 className="w-3 h-3" /> Génération Auto
-                                </button>
-                            </div>
-                        )}
-                    </div>
+                       {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE' || currentUser.role === 'DIRECTOR' || currentUser.role === 'MANAGER') && (
+                        <>
+                           <div className="h-6 w-px bg-slate-300 mx-1"></div>
+                           
+                           <button onClick={handlePrint} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200" title="Imprimer"><Printer className="w-4 h-4" /></button>
+                           <button onClick={handleExportCSV} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200" title="Exporter CSV"><FileDown className="w-4 h-4" /></button>
+                           <button onClick={handleImportClick} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200" title="Importer CSV"><Upload className="w-4 h-4" /></button>
+                           <button onClick={() => openActionModal('RESET')} className="p-2 text-red-600 hover:bg-red-50 rounded-lg border border-slate-200" title="Réinitialiser Planning"><Trash2 className="w-4 h-4" /></button>
+                           <button onClick={handleCopyPlanning} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg border border-slate-200" title="Copier M-1"><Copy className="w-4 h-4" /></button>
+                           <button onClick={() => openActionModal('GENERATE')} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 shadow-sm transition-colors">
+                              <Wand2 className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Générer Auto</span>
+                           </button>
+                        </>
+                       )}
+                  </div>
+               </div>
 
-                    <div className="flex-1 flex gap-4 min-h-0 overflow-hidden">
-                        <div className="flex-1 flex flex-col h-full min-w-0 bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-                             <ScheduleGrid employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} viewMode={viewMode} onCellClick={handleCellClick} />
-                             {viewMode !== 'hourly' && (
-                                 <div className="border-t border-slate-200 bg-slate-50">
-                                    <StaffingSummary employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />
-                                 </div>
-                             )}
-                        </div>
-                        {/* Constraints Sidebar */}
-                        {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE' || currentUser.role === 'DIRECTOR') && (
-                            <div className="w-80 flex-shrink-0 hidden xl:flex flex-col h-full no-print overflow-hidden">
-                                <ConstraintChecker employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} serviceConfig={activeService?.config} />
-                            </div>
-                        )}
-                    </div>
-                </div>
-             )}
-             
-             {activeTab === 'stats' && <StatsPanel employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />}
-             
-             {activeTab === 'dashboard' && (
-                <div className="flex-1 overflow-y-auto h-full">
-                    <Dashboard employees={employees} currentDate={currentDate} serviceConfig={activeService?.config} />
-                </div>
-             )}
+               {/* MAIN GRID */}
+               <div className="flex-1 overflow-hidden flex flex-col p-4">
+                  <div className="flex-1 bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col">
+                     <ScheduleGrid 
+                        employees={filteredEmployees} 
+                        startDate={gridStartDate} 
+                        days={gridDuration} 
+                        viewMode={viewMode}
+                        onCellClick={handleCellClick}
+                        onRangeSelect={handleRangeSelect}
+                        highlightNight={highlightNight}
+                     />
+                  </div>
+                  {/* SUMMARY FOOTER */}
+                  {(viewMode !== 'hourly' && viewMode !== 'day') && (
+                      <div className="mt-4">
+                          <StaffingSummary employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />
+                      </div>
+                  )}
+               </div>
 
-             {activeTab === 'team' && (
-                 <TeamManager employees={employees} allSkills={skillsList} currentUser={currentUser} onReload={loadData} />
-             )}
+               {/* CONSTRAINT PANEL (SIDE SPLIT) */}
+               {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE') && (
+                  <div className="w-80 border-l border-slate-200 bg-white overflow-y-auto hidden xl:block p-4">
+                      <ConstraintChecker 
+                          employees={filteredEmployees} 
+                          startDate={gridStartDate} 
+                          days={gridDuration} 
+                          serviceConfig={activeService?.config} 
+                      />
+                  </div>
+               )}
+             </>
+           )}
 
-             {activeTab === 'leaves' && (
-                <div className="flex-1 overflow-y-auto h-full">
-                    <LeaveManager 
-                        employees={employees} 
-                        onReload={loadData} 
-                        currentUser={currentUser} 
-                        activeServiceId={activeServiceId}
-                        assignmentsList={assignmentsList}
-                    />
-                </div>
-             )}
-             
-             {activeTab === 'settings' && (
-                <div className="flex-1 overflow-y-auto h-full p-8 space-y-8">
-                     <div className="bg-white rounded-xl shadow border border-slate-200 p-6">
-                        <h3 className="text-lg font-bold text-slate-800 mb-4">Administration</h3>
-                        <p className="text-sm text-slate-500 mb-4">Initialiser les données de démonstration.</p>
-                        <button onClick={async () => { await db.seedDatabase(); await loadData(); }} className="px-4 py-2 bg-purple-50 text-purple-700 rounded-lg border border-purple-200">Recharger Démo</button>
-                    </div>
-                    <ServiceSettings service={activeService} onReload={loadData} />
-                    <SkillsSettings skills={skillsList} onReload={loadData} />
-                </div>
-             )}
+           {activeTab === 'dashboard' && <Dashboard employees={employees} currentDate={currentDate} serviceConfig={activeService?.config} />}
+           {activeTab === 'stats' && <StatsPanel employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />}
+           {activeTab === 'team' && <TeamManager employees={employees} allSkills={skillsList} currentUser={currentUser} onReload={loadData} />}
+           {activeTab === 'leaves' && <LeaveManager employees={employees} onReload={loadData} currentUser={currentUser} activeServiceId={activeServiceId} assignmentsList={assignmentsList} />}
+           {activeTab === 'settings' && (
+               <div className="p-6 max-w-6xl mx-auto space-y-6 w-full overflow-y-auto">
+                   <h2 className="text-2xl font-bold text-slate-800">Paramètres Généraux</h2>
+                   <SkillsSettings skills={skillsList} onReload={loadData} />
+                   <ServiceSettings service={activeService} onReload={loadData} />
+               </div>
+           )}
         </main>
-
-        {/* Shift Editor Modal */}
-        {isEditorOpen && selectedCell && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-                <div className="bg-white p-6 rounded-xl shadow-xl max-w-sm w-full">
-                    <h3 className="font-bold mb-4 text-lg">Modifier Poste</h3>
-                    <div className="grid grid-cols-4 gap-2">
-                         {Object.values(SHIFT_TYPES).map(t => (
-                             <button key={t.code} onClick={() => handleShiftChange(t.code as ShiftCode)} className={`p-2 rounded text-xs font-bold ${t.color} ${t.textColor}`}>
-                                {t.code}
-                             </button>
-                         ))}
-                    </div>
-                    <button onClick={() => setIsEditorOpen(false)} className="mt-6 w-full border border-slate-300 p-2.5 rounded-lg text-slate-600 hover:bg-slate-50 font-medium">Annuler</button>
-                </div>
-            </div>
-        )}
-
-        {/* Action Confirmation Modal (Generate / Reset) */}
-        {actionModal && actionModal.isOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-                <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full animate-in zoom-in-95 duration-200">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                            {actionModal.type === 'GENERATE' ? <Wand2 className="w-5 h-5 text-blue-600" /> : <Trash2 className="w-5 h-5 text-red-600" />}
-                            {actionModal.type === 'GENERATE' ? 'Générer Planning' : 'Réinitialiser Planning'}
-                        </h3>
-                        <button onClick={() => setActionModal(null)}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
-                    </div>
-                    
-                    <p className="text-sm text-slate-600 mb-4">
-                        {actionModal.type === 'GENERATE' 
-                            ? "Veuillez sélectionner le mois à générer. Attention, cela remplacera les postes existants (hors congés validés)." 
-                            : "Veuillez sélectionner le mois à vider complètement."}
-                    </p>
-
-                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-6 space-y-3">
-                         <div>
-                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mois</label>
-                             <select 
-                                value={actionMonth} 
-                                onChange={(e) => setActionMonth(parseInt(e.target.value))} 
-                                className="w-full p-2 border rounded-lg"
-                             >
-                                 {Array.from({ length: 12 }, (_, i) => (
-                                     <option key={i} value={i}>{new Date(2000, i, 1).toLocaleDateString('fr-FR', { month: 'long' })}</option>
-                                 ))}
-                             </select>
-                         </div>
-                         <div>
-                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Année</label>
-                             <input 
-                                type="number" 
-                                value={actionYear} 
-                                onChange={(e) => setActionYear(parseInt(e.target.value))} 
-                                className="w-full p-2 border rounded-lg"
-                             />
-                         </div>
-                    </div>
-
-                    <div className="flex gap-3">
-                        <button onClick={() => setActionModal(null)} className="flex-1 py-2 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 font-medium">Annuler</button>
-                        <button 
-                            onClick={confirmAction}
-                            className={`flex-1 py-2 text-white rounded-lg font-medium shadow-sm flex items-center justify-center gap-2 ${actionModal.type === 'GENERATE' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'}`}
-                        >
-                            {actionModal.type === 'GENERATE' ? 'Générer' : 'Effacer'}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        )}
-
       </div>
+
+      {/* SHIFT EDITOR MODAL (SINGLE CELL) */}
+      {isEditorOpen && selectedCell && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm" onClick={() => setIsEditorOpen(false)}>
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-96 transform transition-all scale-100" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+               <h3 className="text-lg font-bold text-slate-800">Modifier le poste</h3>
+               <button onClick={() => setIsEditorOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+            </div>
+            
+            <div className="text-sm text-slate-500 mb-4 bg-slate-50 p-3 rounded border">
+                Modification pour <span className="font-semibold text-slate-700">{employees.find(e => e.id === selectedCell.empId)?.name}</span> le <span className="font-semibold text-slate-700">{selectedCell.date}</span>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 max-h-80 overflow-y-auto pr-1">
+              {Object.values(SHIFT_TYPES).map((shift) => (
+                <button
+                  key={shift.code}
+                  onClick={() => handleShiftChange(shift.code as ShiftCode)}
+                  className={`p-2 rounded border text-xs font-bold transition-all hover:scale-105 ${shift.color} ${shift.textColor} border-transparent hover:shadow-md`}
+                  title={shift.description}
+                >
+                  {shift.code}
+                </button>
+              ))}
+              <button
+                  onClick={() => handleShiftChange('OFF')}
+                  className="p-2 rounded border border-dashed border-slate-300 text-slate-400 text-xs font-bold hover:bg-slate-50 hover:text-slate-600 col-span-4 mt-2"
+              >
+                  Effacer (Vide)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RANGE EDITOR MODAL */}
+      {isRangeModalOpen && rangeSelection && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm" onClick={() => setIsRangeModalOpen(false)}>
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-96" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+               <h3 className="text-lg font-bold text-slate-800">Modifier la plage</h3>
+               <button onClick={() => setIsRangeModalOpen(false)}><X className="w-5 h-5 text-slate-400" /></button>
+            </div>
+            
+            <div className="text-sm text-slate-500 mb-4 bg-slate-50 p-3 rounded border">
+                <div className="font-semibold text-slate-700 mb-1">{employees.find(e => e.id === rangeSelection.empId)?.name}</div>
+                <div>Du <span className="font-mono text-slate-600">{rangeSelection.start}</span> au <span className="font-mono text-slate-600">{rangeSelection.end}</span></div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 max-h-80 overflow-y-auto">
+              {Object.values(SHIFT_TYPES).map((shift) => (
+                <button
+                  key={shift.code}
+                  onClick={() => handleShiftChange(shift.code as ShiftCode)}
+                  className={`p-2 rounded border text-xs font-bold transition-all hover:scale-105 ${shift.color} ${shift.textColor} border-transparent hover:shadow-md`}
+                  title={shift.description}
+                >
+                  {shift.code}
+                </button>
+              ))}
+              <button
+                  onClick={() => handleShiftChange('OFF')}
+                  className="p-2 rounded border border-dashed border-slate-300 text-slate-400 text-xs font-bold hover:bg-slate-50 hover:text-slate-600 col-span-4 mt-2"
+              >
+                  Effacer la plage
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GENERATION / RESET MODAL */}
+      {actionModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setActionModal(null)}>
+              <div className="bg-white rounded-xl shadow-2xl p-8 w-[400px] animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                  <div className="text-center mb-6">
+                      <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 ${actionModal.type === 'GENERATE' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>
+                          {actionModal.type === 'GENERATE' ? <Wand2 className="w-6 h-6" /> : <Trash2 className="w-6 h-6" />}
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-800">
+                          {actionModal.type === 'GENERATE' ? 'Génération Automatique' : 'Réinitialisation'}
+                      </h3>
+                      <p className="text-sm text-slate-500 mt-2">
+                          Veuillez confirmer la période cible pour cette action.
+                      </p>
+                  </div>
+
+                  <div className="space-y-4 mb-6">
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mois</label>
+                          <select 
+                              value={actionMonth} 
+                              onChange={(e) => setActionMonth(parseInt(e.target.value))}
+                              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                              {Array.from({length: 12}, (_, i) => (
+                                  <option key={i} value={i}>{new Date(2024, i, 1).toLocaleDateString('fr-FR', { month: 'long' })}</option>
+                              ))}
+                          </select>
+                      </div>
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Année</label>
+                          <input 
+                              type="number" 
+                              value={actionYear} 
+                              onChange={(e) => setActionYear(parseInt(e.target.value))}
+                              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                      </div>
+                  </div>
+
+                  {actionModal.type === 'RESET' && activeService && (
+                      <div className="mb-6 p-3 bg-amber-50 text-amber-800 text-xs rounded-lg border border-amber-100 flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                          <span>Attention : Seuls les plannings du service <strong>{activeService.name}</strong> seront effacés.</span>
+                      </div>
+                  )}
+
+                  <div className="flex gap-3">
+                      <button 
+                          onClick={() => setActionModal(null)}
+                          className="flex-1 py-2.5 text-slate-600 font-medium hover:bg-slate-100 rounded-lg transition-colors"
+                      >
+                          Annuler
+                      </button>
+                      <button 
+                          onClick={confirmAction}
+                          disabled={isLoading}
+                          className={`flex-1 py-2.5 text-white font-medium rounded-lg shadow-sm flex items-center justify-center gap-2 ${
+                              actionModal.type === 'GENERATE' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'
+                          }`}
+                      >
+                          {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                          Confirmer
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
     </div>
   );
 }

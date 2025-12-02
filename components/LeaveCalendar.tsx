@@ -1,6 +1,8 @@
+
 import React, { useMemo } from 'react';
 import { Employee } from '../types';
 import { SHIFT_TYPES } from '../constants';
+import { getHolidayName } from '../utils/holidays';
 
 interface LeaveCalendarProps {
   employees: Employee[];
@@ -24,7 +26,8 @@ export const LeaveCalendar: React.FC<LeaveCalendarProps> = ({ employees, startDa
               dateStr, 
               dayNum: d.getDate(), 
               dayName: d.toLocaleDateString('fr-FR', {weekday: 'short'}),
-              isWeekend: d.getDay() === 0 || d.getDay() === 6
+              isWeekend: d.getDay() === 0 || d.getDay() === 6,
+              holiday: getHolidayName(d)
           });
       }
       return arr;
@@ -32,13 +35,20 @@ export const LeaveCalendar: React.FC<LeaveCalendarProps> = ({ employees, startDa
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col h-full">
-        <div className="overflow-auto flex-1">
+        <div className="overflow-auto flex-1 relative">
             <table className="w-max min-w-full text-xs border-collapse">
                 <thead className="sticky top-0 z-20 shadow-sm">
                     <tr>
                         <th className="p-2 border-r border-b border-slate-200 bg-slate-50 min-w-[200px] text-left sticky left-0 z-30">Collaborateur</th>
                         {dates.map(d => (
-                            <th key={d.dateStr} className={`p-1 border-r border-b border-slate-200 text-center min-w-[30px] ${d.isWeekend ? 'bg-slate-100 text-slate-600' : 'bg-white text-slate-800'}`}>
+                            <th 
+                                key={d.dateStr} 
+                                title={d.holiday || undefined}
+                                className={`p-1 border-r border-b border-slate-200 text-center min-w-[30px] ${
+                                    d.holiday ? 'bg-red-50 text-red-700 font-bold' :
+                                    d.isWeekend ? 'bg-slate-100 text-slate-600' : 'bg-white text-slate-800'
+                                }`}
+                            >
                                 <div>{d.dayNum}</div>
                                 <div className="text-[9px] uppercase">{d.dayName}</div>
                             </th>
@@ -53,11 +63,11 @@ export const LeaveCalendar: React.FC<LeaveCalendarProps> = ({ employees, startDa
                             </td>
                             {dates.map(d => {
                                 const code = emp.shifts[d.dateStr];
-                                const isAbsence = ['CA', 'RH', 'NT', 'FO', 'RC', 'HS'].includes(code);
+                                const isAbsence = ['CA', 'RH', 'NT', 'FO', 'RC', 'HS', 'RTT'].includes(code);
                                 const def = SHIFT_TYPES[code];
                                 
                                 return (
-                                    <td key={d.dateStr} className={`p-1 border-r border-b border-slate-200 text-center p-0 ${d.isWeekend ? 'bg-slate-50/50' : ''}`}>
+                                    <td key={d.dateStr} className={`p-1 border-r border-b border-slate-200 text-center p-0 ${d.holiday ? 'bg-red-50/20' : (d.isWeekend ? 'bg-slate-50/50' : '')}`}>
                                         {isAbsence && def && (
                                             <div 
                                                 className={`w-full h-full min-h-[24px] flex items-center justify-center font-bold rounded-sm ${def.color} ${def.textColor}`}
@@ -72,6 +82,44 @@ export const LeaveCalendar: React.FC<LeaveCalendarProps> = ({ employees, startDa
                         </tr>
                     ))}
                 </tbody>
+                {/* FOOTER DES TOTAUX */}
+                <tfoot className="sticky bottom-0 z-20 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]">
+                    {/* Ligne Présents */}
+                    <tr className="bg-blue-50 font-bold border-t-2 border-blue-100">
+                        <td className="p-2 border-r border-blue-200 text-blue-800 text-right sticky left-0 bg-blue-50 z-30">
+                            Total Présents
+                        </td>
+                        {dates.map(d => {
+                            const count = employees.reduce((acc, emp) => {
+                                const c = emp.shifts[d.dateStr];
+                                return c && SHIFT_TYPES[c]?.isWork ? acc + 1 : acc;
+                            }, 0);
+                            return (
+                                <td key={`pres-${d.dateStr}`} className="p-1 border-r border-blue-200 text-center text-blue-700 bg-blue-50">
+                                    {count}
+                                </td>
+                            );
+                        })}
+                    </tr>
+                    {/* Ligne Absents */}
+                    <tr className="bg-orange-50 font-bold border-t border-orange-100">
+                        <td className="p-2 border-r border-orange-200 text-orange-800 text-right sticky left-0 bg-orange-50 z-30">
+                            Total Absents
+                        </td>
+                        {dates.map(d => {
+                            const count = employees.reduce((acc, emp) => {
+                                const c = emp.shifts[d.dateStr];
+                                // Est absent si code défini ET isWork est faux (Inclut CA, RTT, RH, Maladie...)
+                                return c && !SHIFT_TYPES[c]?.isWork && c !== 'OFF' ? acc + 1 : acc;
+                            }, 0);
+                            return (
+                                <td key={`abs-${d.dateStr}`} className="p-1 border-r border-orange-200 text-center text-orange-700 bg-orange-50">
+                                    {count}
+                                </td>
+                            );
+                        })}
+                    </tr>
+                </tfoot>
             </table>
         </div>
     </div>

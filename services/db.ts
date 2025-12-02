@@ -1,4 +1,5 @@
 
+
 import { supabase } from '../lib/supabase';
 import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus } from '../types';
 import { MOCK_EMPLOYEES } from '../constants';
@@ -328,12 +329,32 @@ export const bulkUpsertShifts = async (shifts: {employee_id: string, date: strin
     }
 };
 
-export const clearShiftsInRange = async (year: number, month: number) => {
+export const clearShiftsInRange = async (year: number, month: number, serviceId?: string) => {
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0);
     const startStr = startDate.toISOString().split('T')[0];
     const endStr = endDate.toISOString().split('T')[0];
-    const { error } = await supabase.from('shifts').delete().gte('date', startStr).lte('date', endStr);
+    
+    let query = supabase.from('shifts').delete().gte('date', startStr).lte('date', endStr);
+
+    if (serviceId) {
+        const { data: assignments } = await supabase
+            .from('service_assignments')
+            .select('employee_id')
+            .eq('service_id', serviceId)
+            .lte('start_date', endStr)
+            .or(`end_date.is.null,end_date.gte.${startStr}`);
+
+        const empIds = assignments ? assignments.map((a: any) => a.employee_id) : [];
+        
+        if (empIds.length > 0) {
+            query = query.in('employee_id', empIds);
+        } else {
+             query = query.in('employee_id', []);
+        }
+    }
+
+    const { error } = await query;
     if (error) throw new Error(error.message);
 };
 
@@ -418,6 +439,31 @@ export const createLeaveRequest = async (req: Omit<LeaveRequestWorkflow, 'id' | 
         createdAt: data.created_at
     };
 };
+
+export const updateLeaveRequest = async (id: string, req: Partial<LeaveRequestWorkflow>) => {
+    const payload: any = {};
+    if (req.type) payload.type = req.type;
+    if (req.startDate) payload.start_date = req.startDate;
+    if (req.endDate) payload.end_date = req.endDate;
+    
+    // Reset status to pending if modified? Usually yes.
+    // We'll let the frontend decide if status should change.
+
+    const { error } = await supabase
+        .from('leave_requests')
+        .update(payload)
+        .eq('id', id);
+
+    if (error) throw new Error(error.message);
+};
+
+export const deleteLeaveRequest = async (id: string) => {
+    const { error } = await supabase
+        .from('leave_requests')
+        .delete()
+        .eq('id', id);
+    if (error) throw new Error(error.message);
+}
 
 export const updateLeaveRequestStatus = async (id: string, status: LeaveRequestWorkflow['status'], comments?: string) => {
     const updateData: any = { 
