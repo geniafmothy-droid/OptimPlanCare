@@ -1,8 +1,6 @@
 
-
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Employee, ShiftCode, LeaveData, ViewMode, LeaveCounters, LeaveRequestWorkflow, UserRole, AppNotification, LeaveRequestStatus } from '../types';
+import { Employee, ShiftCode, LeaveData, ViewMode, LeaveCounters, LeaveRequestWorkflow, UserRole, AppNotification, LeaveRequestStatus, ServiceAssignment } from '../types';
 import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, Trash2, Save, Send, XCircle, Check, AlertOctagon } from 'lucide-react';
 import * as db from '../services/db';
 import { parseLeaveCSV } from '../utils/csvImport';
@@ -14,9 +12,11 @@ interface LeaveManagerProps {
     employees: Employee[];
     onReload: () => void;
     currentUser: { role: UserRole, employeeId?: string };
+    activeServiceId?: string;
+    assignmentsList?: ServiceAssignment[];
 }
 
-export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload, currentUser }) => {
+export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload, currentUser, activeServiceId, assignmentsList }) => {
     // Determine default mode based on role
     const defaultMode = currentUser.role === 'INFIRMIER' || currentUser.role === 'AIDE_SOIGNANT' ? 'my_requests' : 'validation';
 
@@ -50,6 +50,18 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
         const data = await db.fetchLeaveRequests();
         setRequests(data);
     };
+
+    // Filtered Employees for Calendar & Counters view
+    const filteredEmployees = useMemo(() => {
+        if (!activeServiceId || !assignmentsList) return employees;
+        // If Service selected, only show employees assigned to it
+        const assignedIds = assignmentsList
+            .filter(a => a.serviceId === activeServiceId)
+            .map(a => a.employeeId);
+        
+        return employees.filter(e => assignedIds.includes(e.id));
+    }, [employees, activeServiceId, assignmentsList]);
+
 
     // --- CONFLICT CHECK LOGIC ---
     const checkConflicts = (start: string, end: string, type: string) => {
@@ -142,7 +154,9 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                     recipientRole: 'CADRE',
                     title: 'Arrêt Maladie Signalé',
                     message: `${me!.name} a signalé un arrêt maladie du ${startDate} au ${endDate}.`,
-                    type: 'warning'
+                    type: 'warning',
+                    actionType: 'LEAVE_VALIDATION',
+                    entityId: req.id
                 });
                 setMessage({ text: "Arrêt maladie enregistré et transmis au cadre.", type: 'success' });
             } else {
@@ -151,7 +165,9 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                     recipientRole: recipientRole === 'DG' ? 'ADMIN' : recipientRole, // Fallback Admin pour DG
                     title: notifTitle,
                     message: `${me!.name} (${me!.role}) demande des congés (${leaveType}) du ${startDate} au ${endDate}.`,
-                    type: 'info'
+                    type: 'info',
+                    actionType: 'LEAVE_VALIDATION',
+                    entityId: req.id
                 });
 
                 if (recipientRole === 'DG') {
@@ -172,11 +188,27 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
     };
 
     const handleValidation = async (req: LeaveRequestWorkflow, approved: boolean) => {
-        if (!confirm(approved ? "Valider cette demande ?" : "Refuser cette demande ?")) return;
+        let refusalReason = '';
+        let commentToSave = '';
+
+        if (!approved) {
+            const input = prompt("Veuillez indiquer le motif du refus :");
+            if (input === null) return; // Annulation par l'utilisateur
+            if (!input.trim()) {
+                alert("Un motif est obligatoire pour refuser une demande.");
+                return;
+            }
+            refusalReason = input;
+            commentToSave = `Refusé par ${currentUser.role}: ${input}`;
+        } else {
+            if (!confirm("Valider cette demande ?")) return;
+            commentToSave = `Validé par ${currentUser.role}`;
+        }
+
         setIsLoading(true);
         try {
             let newStatus: LeaveRequestWorkflow['status'] = approved ? 'VALIDATED' : 'REFUSED';
-            let notifMsg = approved ? `Votre demande a été validée.` : `Votre demande a été refusée.`;
+            let notifMsg = approved ? `Votre demande a été validée.` : `Votre demande a été refusée par ${currentUser.role}. Motif: ${refusalReason}`;
 
             // Logique de validation en cascade
             if (approved) {
@@ -188,7 +220,9 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                         recipientRole: 'DIRECTOR',
                         title: 'Validation Requise',
                         message: `Le cadre a pré-validé les congés de ${req.employeeName}. Validation finale requise.`,
-                        type: 'info'
+                        type: 'info',
+                        actionType: 'LEAVE_VALIDATION',
+                        entityId: req.id
                     });
                 } else if (req.status === 'PENDING_DIRECTOR' || req.status === 'PENDING_DG') {
                      // Validation Finale
@@ -197,9 +231,18 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                 }
             }
 
-            await db.updateLeaveRequestStatus(req.id, newStatus);
-            await db.createNotification({ recipientId: req.employeeId, title: 'Mise à jour demande de congé', message: notifMsg, type: approved ? 'success' : 'error' } as any);
+            // Mise à jour de la demande en base
+            await db.updateLeaveRequestStatus(req.id, newStatus, commentToSave);
+
+            // Notification au demandeur
+            await db.createNotification({ 
+                recipientId: req.employeeId, 
+                title: approved ? 'Validation Congés' : 'Refus Congés', 
+                message: notifMsg, 
+                type: approved ? 'success' : 'error' 
+            } as any);
             
+            setMessage({ text: approved ? "Demande validée/transmise." : "Demande refusée avec succès.", type: approved ? 'success' : 'warning' });
             loadRequests();
             onReload();
         } catch (e: any) {
@@ -338,19 +381,26 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                         <div>
                             <h3 className="font-bold text-lg mb-4">Historique</h3>
                             {myRequests.map(req => (
-                                <div key={req.id} className="border p-3 rounded-lg flex justify-between items-center mb-2">
-                                    <div>
-                                        <div className="font-bold text-slate-700">{req.type}</div>
-                                        <div className="text-sm text-slate-500">{new Date(req.startDate).toLocaleDateString()} au {new Date(req.endDate).toLocaleDateString()}</div>
+                                <div key={req.id} className="border p-3 rounded-lg flex flex-col mb-2 bg-slate-50">
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <div className="font-bold text-slate-700">{req.type}</div>
+                                            <div className="text-sm text-slate-500">{new Date(req.startDate).toLocaleDateString()} au {new Date(req.endDate).toLocaleDateString()}</div>
+                                        </div>
+                                        <span className={`text-xs p-1 rounded font-bold ${
+                                            req.status === 'VALIDATED' ? 'bg-green-100 text-green-700' : 
+                                            req.status === 'REFUSED' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+                                        }`}>
+                                            {req.status === 'PENDING_CADRE' ? 'En attente Cadre' : 
+                                             req.status === 'PENDING_DIRECTOR' ? 'En attente Direction' : 
+                                             req.status === 'PENDING_DG' ? 'En attente DG' : req.status}
+                                        </span>
                                     </div>
-                                    <span className={`text-xs p-1 rounded font-bold ${
-                                        req.status === 'VALIDATED' ? 'bg-green-100 text-green-700' : 
-                                        req.status === 'REFUSED' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
-                                    }`}>
-                                        {req.status === 'PENDING_CADRE' ? 'En attente Cadre' : 
-                                         req.status === 'PENDING_DIRECTOR' ? 'En attente Direction' : 
-                                         req.status === 'PENDING_DG' ? 'En attente DG' : req.status}
-                                    </span>
+                                    {req.comments && (
+                                        <div className="mt-2 text-xs text-slate-600 border-t pt-2 italic">
+                                            "{req.comments}"
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                             {myRequests.length === 0 && <p className="text-slate-400 italic text-sm">Aucune demande.</p>}
@@ -399,8 +449,14 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                                 <span className="text-sm font-semibold min-w-[150px] text-center capitalize">{calLabel}</span>
                                 <button onClick={() => handleCalNavigate('next')}><ChevronRight className="w-4 h-4" /></button>
                             </div>
+                            {activeServiceId && (
+                                <div className="text-xs text-slate-500 italic px-2">
+                                    Filtré par service affecté
+                                </div>
+                            )}
                         </div>
-                        <LeaveCalendar employees={employees} startDate={calStartDate} days={calDays} />
+                        {/* We use filteredEmployees to only show relevant people */}
+                        <LeaveCalendar employees={filteredEmployees} startDate={calStartDate} days={calDays} />
                     </div>
                 )}
 
@@ -410,13 +466,14 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                          {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE') && (
                             <select value={selectedEmpId} onChange={(e) => setSelectedEmpId(e.target.value)} className="w-full p-2 border rounded mb-4">
                                 <option value="">-- Choisir un collaborateur --</option>
-                                {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+                                {/* Only show filtered list */}
+                                {filteredEmployees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
                             </select>
                          )}
                          {selectedEmpId && (
                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 {(() => {
-                                     const emp = employees.find(e => e.id === selectedEmpId);
+                                     const emp = filteredEmployees.find(e => e.id === selectedEmpId);
                                      if(!emp) return null;
                                      const counts = emp.leaveCounters || { CA: 0, RTT: 0, HS: 0, RC: 0 };
                                      return Object.entries(counts).map(([key, val]) => (

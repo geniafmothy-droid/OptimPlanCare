@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
@@ -57,6 +58,11 @@ function App() {
   // Notification State
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [appNotifications, setAppNotifications] = useState<AppNotification[]>([]);
+
+  // Generation / Reset Modal State
+  const [actionModal, setActionModal] = useState<{ type: 'GENERATE' | 'RESET', isOpen: boolean } | null>(null);
+  const [actionMonth, setActionMonth] = useState<number>(new Date().getMonth());
+  const [actionYear, setActionYear] = useState<number>(new Date().getFullYear());
 
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -147,7 +153,7 @@ function App() {
 
   const handleExportCSV = () => {
       exportScheduleToCSV(filteredEmployees, currentDate);
-      setToast({ message: "Export CSV généré", type: "success" });
+      setToast({ message: "Export CSV généré avec succès.", type: "success" });
   };
 
   const handleImportClick = () => {
@@ -176,30 +182,33 @@ function App() {
       e.target.value = '';
   };
 
-  const handleGenerateSchedule = async () => {
-      if (!confirm("Générer le planning effacera les postes actuels (hors congés validés) pour ce mois. Continuer ?")) return;
-      setIsLoading(true);
-      try {
-          const year = currentDate.getFullYear();
-          const month = currentDate.getMonth();
-          const newEmps = generateMonthlySchedule(employees, year, month, activeService?.config);
-          await db.bulkSaveSchedule(newEmps);
-          await loadData();
-          setToast({ message: "Planning généré avec succès", type: "success" });
-      } catch (e: any) {
-          setToast({ message: e.message, type: "error" });
-      } finally {
-          setIsLoading(false);
-      }
+  // Open Modals for Generation/Reset
+  const openActionModal = (type: 'GENERATE' | 'RESET') => {
+      setActionMonth(currentDate.getMonth());
+      setActionYear(currentDate.getFullYear());
+      setActionModal({ type, isOpen: true });
   };
 
-  const handleResetPlanning = async () => {
-      if (!confirm("Voulez-vous vraiment réinitialiser TOUT le planning de ce mois ?")) return;
+  const confirmAction = async () => {
+      if (!actionModal) return;
+
+      const targetDate = new Date(actionYear, actionMonth, 1);
+      const monthName = targetDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+
+      setActionModal(null); // Close modal
       setIsLoading(true);
+
       try {
-          await db.clearShiftsInRange(currentDate.getFullYear(), currentDate.getMonth());
-          await loadData();
-          setToast({ message: "Planning réinitialisé.", type: "success" });
+          if (actionModal.type === 'GENERATE') {
+               const newEmps = generateMonthlySchedule(employees, actionYear, actionMonth, activeService?.config);
+               await db.bulkSaveSchedule(newEmps);
+               await loadData();
+               setToast({ message: `Planning de ${monthName} généré avec succès`, type: "success" });
+          } else {
+               await db.clearShiftsInRange(actionYear, actionMonth);
+               await loadData();
+               setToast({ message: `Planning de ${monthName} réinitialisé avec succès.`, type: "success" });
+          }
       } catch (e: any) {
           setToast({ message: e.message, type: "error" });
       } finally {
@@ -211,16 +220,7 @@ function App() {
       if (!confirm("Copier le planning du mois précédent sur le mois en cours ?")) return;
       setIsLoading(true);
       try {
-          // Logic simplifiée : récupération shifts M-1 et application M
-          // Pour la démo, on simule une copie
-          const year = currentDate.getFullYear();
-          const month = currentDate.getMonth();
-          const prevMonth = month === 0 ? 11 : month - 1;
-          const prevYear = month === 0 ? year - 1 : year;
-          
-          // Fetch prev month shifts (would be a specific DB call in real app)
-          // Here we just re-generate purely for demo continuity or use existing logic
-          // A real copy would fetch shifts from prev month date range and insert them with +1 month date
+          // Logic simplifiée
           setToast({ message: "Fonctionnalité simulée : Planning copié.", type: "success" });
       } catch(e) {
           console.error(e);
@@ -280,31 +280,11 @@ function App() {
         // 3. Service Assignment Filter
         let assignmentMatch = true;
         if (activeServiceId && assignmentsList.length > 0) {
-            const viewEnd = new Date(gridStartDate);
-            viewEnd.setDate(viewEnd.getDate() + gridDuration);
-
-            const empAssignments = assignmentsList.filter(a => 
-                a.employeeId === emp.id && 
-                a.serviceId === activeServiceId
-            );
-
-            // If Service selected, strict check. If 'All Services', show everyone.
+            const empAssignments = assignmentsList.filter(a => a.employeeId === emp.id && a.serviceId === activeServiceId);
             if (activeServiceId) {
-                if (empAssignments.length > 0) {
-                     const hasOverlap = empAssignments.some(a => {
-                        const aStart = new Date(a.startDate);
-                        const aEnd = a.endDate ? new Date(a.endDate) : new Date('2099-12-31');
-                        return aStart < viewEnd && aEnd >= gridStartDate;
-                    });
-                    assignmentMatch = hasOverlap;
-                } else {
-                    // Check if this employee belongs to ANY other service assignment that overlaps
-                    // If assigned to Service B, don't show in Service A view
-                    // For demo simplicity, if activeServiceId is set, filter by assignment
-                    const anyAssignment = assignmentsList.find(a => a.employeeId === emp.id && a.serviceId !== activeServiceId);
-                     // If assigned elsewhere, hide. If not assigned anywhere, show? Usually hide.
-                     // Strict mode: Must be assigned to THIS service.
-                     assignmentMatch = false; 
+                // Pour filtrage "Planning Global", on veut voir ceux affectés au service courant
+                if (empAssignments.length === 0) {
+                    assignmentMatch = false;
                 }
             }
         }
@@ -326,7 +306,7 @@ function App() {
                 }
             }
             if (statusFilter === 'present') statusMatch = hasWork;
-            else if (statusFilter === 'absent') statusMatch = !hasWork; // Strictly absent whole period? Or absent at least once? Usually "Present at least once vs Absent whole period"
+            else if (statusFilter === 'absent') statusMatch = !hasWork;
             
             if (absenceTypeFilter !== 'all') absenceTypeMatch = hasSpecificAbsence;
         }
@@ -378,6 +358,18 @@ function App() {
     }
   };
 
+  const handleNotificationAction = (notif: AppNotification) => {
+      // Mark as read
+      db.markNotificationRead(notif.id).then(() => {
+          loadNotifications();
+      });
+
+      if (notif.actionType === 'LEAVE_VALIDATION') {
+          setActiveTab('leaves');
+          setIsNotifOpen(false);
+      }
+  };
+
   if (!currentUser) {
       return <LoginScreen employees={employees} onLogin={handleLogin} />;
   }
@@ -416,28 +408,28 @@ function App() {
         
         <div className="flex items-center gap-2 md:gap-4">
            {/* Date Nav */}
-           {(activeTab === 'planning' || activeTab === 'dashboard') && (
-               <div className="flex items-center bg-slate-50 rounded-lg p-1 border border-slate-200 relative gap-1">
-                 <button className="p-1 hover:bg-slate-200 rounded" onClick={() => handleDateNavigate('prev')}><ChevronLeft className="w-4 h-4 text-slate-600" /></button>
-                 
-                 {/* Native Date Picker hidden but clickable or just displayed nicely */}
-                 <div className="relative group">
-                     <span className="px-2 md:px-3 text-sm font-medium text-slate-700 min-w-[120px] md:min-w-[200px] text-center capitalize cursor-pointer block py-1">
-                        {viewMode === 'month' ? currentDate.toLocaleDateString('fr-FR', {month:'long', year:'numeric'}) : 
-                         viewMode === 'day' || viewMode === 'hourly' ? currentDate.toLocaleDateString('fr-FR', {weekday: 'long', day:'numeric', month:'long'}) :
-                         `Semaine du ${gridStartDate.toLocaleDateString('fr-FR', {day: 'numeric', month: 'numeric'})}`
-                        }
-                     </span>
-                     <input 
-                        type="date" 
-                        className="absolute inset-0 opacity-0 cursor-pointer" 
-                        onChange={handleDateSelect}
-                        // Value needs YYYY-MM-DD
-                        value={currentDate.toISOString().split('T')[0]}
-                     />
-                 </div>
+           {(activeTab === 'planning' || activeTab === 'dashboard' || activeTab === 'leaves') && (
+               <div className="flex items-center gap-2">
+                   <h2 className="text-lg font-bold text-slate-700 capitalize hidden md:block w-40 text-right">
+                       {currentDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+                   </h2>
+                   
+                   <div className="flex items-center bg-slate-50 rounded-lg p-1 border border-slate-200 relative gap-1">
+                     <button className="p-1 hover:bg-slate-200 rounded" onClick={() => handleDateNavigate('prev')}><ChevronLeft className="w-4 h-4 text-slate-600" /></button>
+                     
+                     {/* CALENDAR INPUT */}
+                     <div className="relative group flex items-center">
+                         <Calendar className="w-4 h-4 text-slate-500 absolute left-2 pointer-events-none" />
+                         <input 
+                            type="date" 
+                            className="pl-8 pr-2 py-1 bg-transparent text-sm font-medium text-slate-700 outline-none cursor-pointer w-[130px]"
+                            onChange={handleDateSelect}
+                            value={currentDate.toISOString().split('T')[0]}
+                         />
+                     </div>
 
-                 <button className="p-1 hover:bg-slate-200 rounded" onClick={() => handleDateNavigate('next')}><ChevronRight className="w-4 h-4 text-slate-600" /></button>
+                     <button className="p-1 hover:bg-slate-200 rounded" onClick={() => handleDateNavigate('next')}><ChevronRight className="w-4 h-4 text-slate-600" /></button>
+                   </div>
                </div>
            )}
 
@@ -452,13 +444,24 @@ function App() {
                  </button>
                  {isNotifOpen && (
                      <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border z-50 overflow-hidden">
-                         <div className="p-3 bg-slate-50 border-b font-semibold text-sm">Notifications</div>
+                         <div className="p-3 bg-slate-50 border-b font-semibold text-sm flex justify-between">
+                             <span>Notifications</span>
+                             {unreadNotifs > 0 && <span className="bg-red-100 text-red-600 px-2 rounded-full text-xs flex items-center">{unreadNotifs}</span>}
+                         </div>
                          <div className="max-h-80 overflow-y-auto">
                              {appNotifications.length === 0 ? <div className="p-4 text-slate-400 text-sm text-center">Rien à signaler.</div> : 
                                 appNotifications.map(n => (
                                     <div key={n.id} className={`p-3 border-b text-sm hover:bg-slate-50 ${!n.isRead ? 'bg-blue-50/50' : ''}`}>
                                         <div className="font-bold text-slate-800 mb-1">{n.title}</div>
-                                        <div className="text-slate-600">{n.message}</div>
+                                        <div className="text-slate-600 mb-2">{n.message}</div>
+                                        {n.actionType === 'LEAVE_VALIDATION' && (
+                                            <button 
+                                                onClick={() => handleNotificationAction(n)}
+                                                className="w-full text-center bg-white border border-blue-200 text-blue-600 text-xs py-1.5 rounded hover:bg-blue-50 font-medium"
+                                            >
+                                                Traiter la demande
+                                            </button>
+                                        )}
                                     </div>
                                 ))
                              }
@@ -614,26 +617,60 @@ function App() {
 
                  <hr className="border-slate-100" />
 
-                 {/* 5. Status Filter */}
+                 {/* 5. Status Filter - Segmented Control */}
                  <div className="space-y-2">
-                     <label className="text-xs font-semibold text-slate-700">Statut Période</label>
-                     <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="w-full text-sm border border-slate-300 p-2 rounded-lg bg-slate-50">
-                         <option value="all">Tous</option>
-                         <option value="present">Présents</option>
-                         <option value="absent">Absents</option>
-                     </select>
+                     <label className="text-xs font-semibold text-slate-700">Statut (Période)</label>
+                     <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 select-none">
+                         {[
+                             { id: 'all', label: 'Tous', icon: Users },
+                             { id: 'present', label: 'Présents', icon: UserCheck },
+                             { id: 'absent', label: 'Absents', icon: UserX },
+                         ].map(opt => (
+                             <button
+                                 key={opt.id}
+                                 onClick={() => setStatusFilter(opt.id as any)}
+                                 className={`flex-1 py-1.5 px-2 text-xs font-medium rounded-md flex items-center justify-center gap-1.5 transition-all ${
+                                     statusFilter === opt.id
+                                         ? 'bg-white text-blue-700 shadow-sm ring-1 ring-black/5'
+                                         : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                                 }`}
+                                 title={opt.label}
+                             >
+                                 {/* On small widths, maybe hide icon or label. For now showing both as flex wraps gracefully if needed */}
+                                 {statusFilter === opt.id && <opt.icon className="w-3 h-3" />}
+                                 <span>{opt.label}</span>
+                             </button>
+                         ))}
+                     </div>
                  </div>
 
-                 {/* 6. Absence Type Filter */}
+                 {/* 6. Absence Type Filter - Chips/Badges Selector */}
                  <div className="space-y-2">
                      <label className="text-xs font-semibold text-slate-700">Type d'Absence</label>
-                     <select value={absenceTypeFilter} onChange={(e) => setAbsenceTypeFilter(e.target.value)} className="w-full text-sm border border-slate-300 p-2 rounded-lg bg-slate-50">
-                         <option value="all">Tout type</option>
-                         <option value="CA">Congés (CA)</option>
-                         <option value="RTT">RTT</option>
-                         <option value="NT">Maladie (NT)</option>
-                         <option value="RH">Repos Hebdo (RH)</option>
-                     </select>
+                     <div className="flex flex-wrap gap-2">
+                         {[
+                             { id: 'all', label: 'Tout' },
+                             { id: 'CA', label: 'CA' },
+                             { id: 'RTT', label: 'RTT' },
+                             { id: 'NT', label: 'Maladie' },
+                             { id: 'HS', label: 'HS' },
+                             { id: 'RC', label: 'RC' },
+                             { id: 'FO', label: 'Formation' },
+                             { id: 'RH', label: 'Repos' }
+                         ].map(opt => (
+                             <button
+                                 key={opt.id}
+                                 onClick={() => setAbsenceTypeFilter(opt.id)}
+                                 className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+                                     absenceTypeFilter === opt.id
+                                         ? 'bg-blue-100 text-blue-700 border-blue-200 ring-1 ring-blue-200'
+                                         : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                                 }`}
+                             >
+                                 {opt.label}
+                             </button>
+                         ))}
+                     </div>
                  </div>
               </div>
           )}
@@ -672,10 +709,10 @@ function App() {
                                 <button onClick={handleCopyPlanning} className="p-2 bg-white border border-slate-300 text-slate-700 rounded hover:bg-slate-50" title="Copier M-1">
                                     <Copy className="w-4 h-4" />
                                 </button>
-                                <button onClick={handleResetPlanning} className="p-2 bg-white border border-slate-300 text-red-600 rounded hover:bg-red-50" title="Réinitialiser Planning">
+                                <button onClick={() => openActionModal('RESET')} className="p-2 bg-white border border-slate-300 text-red-600 rounded hover:bg-red-50" title="Réinitialiser Planning">
                                     <Trash2 className="w-4 h-4" />
                                 </button>
-                                <button onClick={handleGenerateSchedule} className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium shadow-sm">
+                                <button onClick={() => openActionModal('GENERATE')} className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium shadow-sm">
                                     <Wand2 className="w-3 h-3" /> Génération Auto
                                 </button>
                             </div>
@@ -715,7 +752,13 @@ function App() {
 
              {activeTab === 'leaves' && (
                 <div className="flex-1 overflow-y-auto h-full">
-                    <LeaveManager employees={employees} onReload={loadData} currentUser={currentUser} />
+                    <LeaveManager 
+                        employees={employees} 
+                        onReload={loadData} 
+                        currentUser={currentUser} 
+                        activeServiceId={activeServiceId}
+                        assignmentsList={assignmentsList}
+                    />
                 </div>
              )}
              
@@ -748,6 +791,62 @@ function App() {
                 </div>
             </div>
         )}
+
+        {/* Action Confirmation Modal (Generate / Reset) */}
+        {actionModal && actionModal.isOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+                <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full animate-in zoom-in-95 duration-200">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                            {actionModal.type === 'GENERATE' ? <Wand2 className="w-5 h-5 text-blue-600" /> : <Trash2 className="w-5 h-5 text-red-600" />}
+                            {actionModal.type === 'GENERATE' ? 'Générer Planning' : 'Réinitialiser Planning'}
+                        </h3>
+                        <button onClick={() => setActionModal(null)}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
+                    </div>
+                    
+                    <p className="text-sm text-slate-600 mb-4">
+                        {actionModal.type === 'GENERATE' 
+                            ? "Veuillez sélectionner le mois à générer. Attention, cela remplacera les postes existants (hors congés validés)." 
+                            : "Veuillez sélectionner le mois à vider complètement."}
+                    </p>
+
+                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-6 space-y-3">
+                         <div>
+                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mois</label>
+                             <select 
+                                value={actionMonth} 
+                                onChange={(e) => setActionMonth(parseInt(e.target.value))} 
+                                className="w-full p-2 border rounded-lg"
+                             >
+                                 {Array.from({ length: 12 }, (_, i) => (
+                                     <option key={i} value={i}>{new Date(2000, i, 1).toLocaleDateString('fr-FR', { month: 'long' })}</option>
+                                 ))}
+                             </select>
+                         </div>
+                         <div>
+                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Année</label>
+                             <input 
+                                type="number" 
+                                value={actionYear} 
+                                onChange={(e) => setActionYear(parseInt(e.target.value))} 
+                                className="w-full p-2 border rounded-lg"
+                             />
+                         </div>
+                    </div>
+
+                    <div className="flex gap-3">
+                        <button onClick={() => setActionModal(null)} className="flex-1 py-2 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 font-medium">Annuler</button>
+                        <button 
+                            onClick={confirmAction}
+                            className={`flex-1 py-2 text-white rounded-lg font-medium shadow-sm flex items-center justify-center gap-2 ${actionModal.type === 'GENERATE' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'}`}
+                        >
+                            {actionModal.type === 'GENERATE' ? 'Générer' : 'Effacer'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
       </div>
     </div>
   );

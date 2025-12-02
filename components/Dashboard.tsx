@@ -87,6 +87,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
         .slice(0, 5);
   }, [violations]);
 
+  // Helper to find name from ID
+  const getEmpName = (id: string) => {
+      if (id === 'ALL') return 'Service Global';
+      const emp = employees.find(e => e.id === id);
+      return emp ? emp.name : `Employé #${id.substring(0, 6)}`;
+  };
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -245,7 +252,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
                             <div className="w-1.5 h-1.5 rounded-full bg-red-500 mt-2 flex-shrink-0"></div>
                             <div>
                                 <div className="text-xs text-red-400 font-mono mb-0.5">{v.date}</div>
-                                <div className="text-sm font-medium text-slate-800">{v.employeeId === 'ALL' ? 'Service Dialyse' : 'Employé #' + v.employeeId.slice(0,4)}</div>
+                                <div className="text-sm font-medium text-slate-800">
+                                    {getEmpName(v.employeeId)}
+                                </div>
                                 <div className="text-xs text-slate-600">{v.message}</div>
                             </div>
                         </div>

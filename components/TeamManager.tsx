@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect } from 'react';
 import { Employee, LeaveCounters, Skill, UserRole } from '../types';
 import { Plus, Search, Edit2, Trash2, Save, X, User, Shield, Briefcase, Calculator, Tag, Percent } from 'lucide-react';
@@ -69,9 +66,16 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
         if (!editingEmp || !editingEmp.name || !editingEmp.matricule) return;
         
         try {
-            // Upsert Logic
-            await db.upsertEmployee(editingEmp as Employee);
+            // Ensure leaveCounters are set correctly in the object sent to DB
+            const employeeToSave = {
+                ...editingEmp,
+                // If counters were edited, they are in editingEmp.leaveCounters
+                // The DB service upsertEmployee will map this to leave_data.counters
+            } as Employee;
+
+            await db.upsertEmployee(employeeToSave);
             setIsModalOpen(false);
+            alert("Employé enregistré avec succès !");
             onReload();
         } catch (error: any) {
             alert("Erreur lors de l'enregistrement: " + error.message);
@@ -92,10 +96,14 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
     const updateCounter = (key: keyof LeaveCounters, value: string) => {
         if (!editingEmp) return;
         const num = parseFloat(value) || 0;
+        
+        // Deep merge logic to avoid losing other counters
+        const currentCounters = editingEmp.leaveCounters || { CA: 0, RTT: 0, HS: 0, RC: 0 };
+        
         setEditingEmp({
             ...editingEmp,
             leaveCounters: {
-                ...(editingEmp.leaveCounters || { CA: 0, RTT: 0, HS: 0, RC: 0 }),
+                ...currentCounters,
                 [key]: num
             }
         });
@@ -378,7 +386,7 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
                                     </div>
                                     
                                     <div className="mt-6 text-xs text-slate-500 italic">
-                                        Note: La modification manuelle des compteurs ne créé pas d'historique automatique. Utilisez le module Congés pour les demandes régulières.
+                                        Les modifications manuelles des compteurs sont enregistrées immédiatement.
                                     </div>
                                 </div>
                             </div>

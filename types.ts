@@ -72,6 +72,8 @@ export interface AppNotification {
     message: string;
     isRead: boolean;
     type: 'info' | 'warning' | 'success' | 'error';
+    actionType?: string;
+    entityId?: string;
 }
 
 export interface Employee {

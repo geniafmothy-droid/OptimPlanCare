@@ -1,6 +1,4 @@
 
-
-
 import { supabase } from '../lib/supabase';
 import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus } from '../types';
 import { MOCK_EMPLOYEES } from '../constants';
@@ -13,9 +11,7 @@ export const fetchServices = async (): Promise<Service[]> => {
         .order('name');
     
     if (error) {
-        // console.error('Error fetching services:', JSON.stringify(error, null, 2)); // Suppressed for mock flow
         if (error.code === '42P01') return []; 
-        // throw new Error(error.message);
         return [];
     }
     return data || [];
@@ -138,7 +134,6 @@ export const fetchEmployeesWithShifts = async (): Promise<Employee[]> => {
     .order('name');
 
   if (empError) {
-    // Return mock data if DB fails or is empty for demo purposes
     console.warn("Using mock data due to DB error or empty DB");
     return MOCK_EMPLOYEES;
   }
@@ -153,6 +148,11 @@ export const fetchEmployeesWithShifts = async (): Promise<Employee[]> => {
       });
     }
 
+    let safeCounters = { CA: 0, RTT: 0, HS: 0, RC: 0 };
+    if (emp.leave_data && emp.leave_data.counters) {
+        safeCounters = emp.leave_data.counters;
+    }
+
     return {
       id: emp.id,
       matricule: emp.matricule,
@@ -160,7 +160,7 @@ export const fetchEmployeesWithShifts = async (): Promise<Employee[]> => {
       role: emp.role,
       fte: emp.fte,
       leaveBalance: emp.leave_balance || 0,
-      leaveCounters: emp.leave_data?.counters || { CA: 0, RTT: 0, HS: 0, RC: 0 },
+      leaveCounters: safeCounters,
       leaveData: emp.leave_data,
       skills: emp.skills || [],
       shifts: shiftsRecord
@@ -238,13 +238,16 @@ export const updateEmployeeLeaveData = async (employeeId: string, leaveData: any
 };
 
 export const upsertEmployee = async (employee: Employee) => {
+  const currentLeaveData = employee.leaveData || { counters: {}, history: [] };
+  currentLeaveData.counters = employee.leaveCounters;
+
   const payload: any = {
       matricule: employee.matricule,
       name: employee.name,
       role: employee.role,
       fte: employee.fte,
       leave_balance: employee.leaveBalance,
-      leave_data: employee.leaveData,
+      leave_data: currentLeaveData,
       skills: employee.skills
   };
 
@@ -270,7 +273,6 @@ export const deleteEmployee = async (employeeId: string) => {
 }
 
 export const seedDatabase = async () => {
-  // Same logic as before
   for (const emp of MOCK_EMPLOYEES) {
     const { data, error } = await supabase
       .from('employees')
@@ -280,6 +282,7 @@ export const seedDatabase = async () => {
         role: emp.role,
         fte: emp.fte,
         leave_balance: emp.leaveBalance,
+        leave_data: { counters: emp.leaveCounters, history: [] },
         skills: emp.skills
       }, { onConflict: 'matricule' })
       .select()
@@ -335,7 +338,6 @@ export const clearShiftsInRange = async (year: number, month: number) => {
 };
 
 export const bulkImportEmployees = async (employees: Employee[]) => {
-    // Same import logic
     for (const emp of employees) {
         const { data: dbEmp, error } = await supabase
              .from('employees')
@@ -345,7 +347,7 @@ export const bulkImportEmployees = async (employees: Employee[]) => {
                  role: emp.role,
                  fte: emp.fte,
                  leave_balance: emp.leaveBalance,
-                 leave_data: emp.leaveData,
+                 leave_data: { counters: emp.leaveCounters, history: emp.leaveData?.history || [] },
                  skills: emp.skills
              }, { onConflict: 'matricule' })
              .select()
@@ -364,61 +366,119 @@ export const bulkImportEmployees = async (employees: Employee[]) => {
     }
 }
 
-// --- MOCK STORAGE FOR WORKFLOW (Pending real DB tables) ---
-// In a real app, these would be 'leave_requests' and 'notifications' tables in Supabase.
-// We use localStorage simulation here to make it persistent across reloads for the demo.
-
-const getStored = (key: string) => JSON.parse(localStorage.getItem(key) || '[]');
-const setStored = (key: string, val: any) => localStorage.setItem(key, JSON.stringify(val));
+// --- DB-BACKED WORKFLOW MANAGEMENT ---
 
 export const fetchLeaveRequests = async (): Promise<LeaveRequestWorkflow[]> => {
-    return getStored('optiplan_leave_requests');
+    // JOIN to get employee name
+    const { data, error } = await supabase
+        .from('leave_requests')
+        .select(`
+            *,
+            employee:employees(name)
+        `)
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        // Fallback or empty if table doesn't exist yet
+        return [];
+    }
+
+    return data.map((r: any) => ({
+        id: r.id,
+        employeeId: r.employee_id,
+        employeeName: r.employee?.name || 'Inconnu',
+        type: r.type,
+        startDate: r.start_date,
+        endDate: r.end_date,
+        status: r.status as LeaveRequestStatus,
+        createdAt: r.created_at,
+        comments: r.comments
+    }));
 };
 
 export const createLeaveRequest = async (req: Omit<LeaveRequestWorkflow, 'id' | 'createdAt' | 'status'>, initialStatus: LeaveRequestStatus = 'PENDING_CADRE') => {
-    const current = getStored('optiplan_leave_requests');
-    const newReq: LeaveRequestWorkflow = {
+    const { data, error } = await supabase
+        .from('leave_requests')
+        .insert([{
+            employee_id: req.employeeId,
+            type: req.type,
+            start_date: req.startDate,
+            end_date: req.endDate,
+            status: initialStatus
+        }])
+        .select()
+        .single();
+    
+    if (error) throw new Error(error.message);
+    
+    return {
         ...req,
-        id: crypto.randomUUID(),
-        createdAt: new Date().toISOString(),
-        status: initialStatus
+        id: data.id,
+        status: initialStatus,
+        createdAt: data.created_at
     };
-    current.push(newReq);
-    setStored('optiplan_leave_requests', current);
-    return newReq;
 };
 
 export const updateLeaveRequestStatus = async (id: string, status: LeaveRequestWorkflow['status'], comments?: string) => {
-    const current = getStored('optiplan_leave_requests') as LeaveRequestWorkflow[];
-    const idx = current.findIndex(r => r.id === id);
-    if (idx !== -1) {
-        current[idx].status = status;
-        if (comments) current[idx].comments = comments;
-        setStored('optiplan_leave_requests', current);
-    }
+    const updateData: any = { 
+        status, 
+        validation_date: new Date().toISOString()
+        // validator_id could be passed here if we had current user ID context in this function
+    };
+    if (comments) updateData.comments = comments;
+
+    const { error } = await supabase
+        .from('leave_requests')
+        .update(updateData)
+        .eq('id', id);
+
+    if (error) throw new Error(error.message);
 };
 
+// --- DB NOTIFICATIONS ---
+
 export const fetchNotifications = async (): Promise<AppNotification[]> => {
-    return getStored('optiplan_notifications');
+    const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .order('date', { ascending: false })
+        .limit(50);
+    
+    if (error) return [];
+
+    return data.map((n: any) => ({
+        id: n.id,
+        date: n.date,
+        recipientRole: n.recipient_role,
+        recipientId: n.recipient_id,
+        title: n.title,
+        message: n.message,
+        isRead: n.is_read,
+        type: n.type || 'info',
+        actionType: n.action_type,
+        entityId: n.entity_id
+    }));
 };
 
 export const createNotification = async (notif: Omit<AppNotification, 'id' | 'date' | 'isRead'>) => {
-    const current = getStored('optiplan_notifications');
-    const newNotif: AppNotification = {
-        ...notif,
-        id: crypto.randomUUID(),
-        date: new Date().toISOString(),
-        isRead: false
-    };
-    current.unshift(newNotif); // Add to top
-    setStored('optiplan_notifications', current);
+    const { error } = await supabase
+        .from('notifications')
+        .insert([{
+            recipient_role: notif.recipientRole,
+            recipient_id: notif.recipientId,
+            title: notif.title,
+            message: notif.message,
+            type: notif.type,
+            action_type: notif.actionType || null,
+            entity_id: notif.entityId || null
+        }]);
+    
+    if (error) console.error("Error sending notification:", error);
 };
 
 export const markNotificationRead = async (id: string) => {
-    const current = getStored('optiplan_notifications') as AppNotification[];
-    const idx = current.findIndex(n => n.id === id);
-    if (idx !== -1) {
-        current[idx].isRead = true;
-        setStored('optiplan_notifications', current);
-    }
+    await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('id', id);
 };
