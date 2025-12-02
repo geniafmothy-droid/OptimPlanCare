@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -12,52 +13,41 @@ interface StatsPanelProps {
   days: number;
 }
 
-// Updated vivid color palette for better distinction
-const COLORS = [
-    '#3B82F6', // Blue-500 (IT/Standard)
-    '#F59E0B', // Amber-500 (Soir)
-    '#10B981', // Emerald-500 (Matin/T5)
-    '#8B5CF6', // Violet-500 (T6)
-    '#EF4444', // Red-500 (Absence/Alert)
-    '#6366F1', // Indigo-500
-    '#EC4899', // Pink-500
-    '#64748B'  // Slate-500 (Other)
-];
-
 export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, days }) => {
   
   // Calculate distribution of shift types across the period
   const shiftDistribution = React.useMemo(() => {
     const counts: Record<string, number> = {};
     employees.forEach(emp => {
-      Object.values(emp.shifts).forEach((code) => {
-        if (code !== 'OFF') {
-          // Cast code to string to fix TS error "Type 'unknown' cannot be used as an index type"
-          const key = code as string;
-          counts[key] = (counts[key] || 0) + 1;
-        }
-      });
+      // Limit analysis to the visible period
+      for(let i=0; i<days; i++) {
+          const d = new Date(startDate);
+          d.setDate(d.getDate() + i);
+          const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          const code = emp.shifts[dateStr];
+          if (code && code !== 'OFF') {
+              counts[code] = (counts[code] || 0) + 1;
+          }
+      }
     });
     return Object.keys(counts).map(key => ({
       name: key,
       value: counts[key]
     })).sort((a, b) => b.value - a.value);
-  }, [employees]);
+  }, [employees, startDate, days]);
 
-  // Calculate daily coverage (Modified: Removed Senior logic)
+  // Calculate daily coverage
   const dailyCoverage = React.useMemo(() => {
     const data = [];
     for (let i = 0; i < days; i++) {
       const d = new Date(startDate);
       d.setDate(d.getDate() + i);
-      // Force local string format to match keys
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
       const dateStr = `${year}-${month}-${day}`;
       
       let present = 0;
-      
       employees.forEach(emp => {
         const code = emp.shifts[dateStr];
         if (code && SHIFT_TYPES[code]?.isWork) {
@@ -66,7 +56,7 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
       });
 
       data.push({
-        date: `${day}/${month}`, // Short date for XAxis
+        date: `${day}/${month}`,
         Présents: present,
       });
     }
@@ -75,29 +65,39 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
 
   const totalEstimatedHours = React.useMemo(() => {
     return employees.reduce((total: number, emp) => {
-      const empHours = (Object.values(emp.shifts) as string[]).reduce((acc: number, code: string) => {
-        return acc + (SHIFT_HOURS[code] || 0);
-      }, 0);
+      let empHours = 0;
+      for(let i=0; i<days; i++) {
+          const d = new Date(startDate);
+          d.setDate(d.getDate() + i);
+          const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          const code = emp.shifts[dateStr];
+          if (code) empHours += (SHIFT_HOURS[code] || 0);
+      }
       return total + empHours;
     }, 0);
-  }, [employees]);
+  }, [employees, startDate, days]);
 
   // Hours per person
   const personHours = React.useMemo(() => {
       return employees.map(emp => {
-          const hours = (Object.values(emp.shifts) as string[]).reduce((acc: number, code: string) => {
-             return acc + (SHIFT_HOURS[code] || 0);
-          }, 0);
+          let hours = 0;
+          for(let i=0; i<days; i++) {
+            const d = new Date(startDate);
+            d.setDate(d.getDate() + i);
+            const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            const code = emp.shifts[dateStr];
+            if (code) hours += (SHIFT_HOURS[code] || 0);
+          }
           return { name: emp.name, hours, fte: emp.fte };
       }).sort((a,b) => b.hours - a.hours);
-  }, [employees]);
+  }, [employees, startDate, days]);
 
   return (
     <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-6 h-full overflow-y-auto">
       
       {/* Distribution Chart */}
       <div className="bg-white p-4 rounded-lg shadow border border-slate-200">
-        <h3 className="text-lg font-semibold mb-4 text-slate-800">Répartition des Postes</h3>
+        <h3 className="text-lg font-semibold mb-4 text-slate-800">Répartition des Postes (Période Affichée)</h3>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
@@ -106,14 +106,29 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => percent > 0.05 ? `${name} ${(percent * 100).toFixed(0)}%` : ''}
+                label={({ name, percent }) => percent > 0.05 ? `${name}` : ''}
                 outerRadius={80}
-                fill="#8884d8"
                 dataKey="value"
               >
-                {shiftDistribution.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={SHIFT_TYPES[entry.name as ShiftCode]?.color.replace('bg-', 'var(--tw-bg-opacity, 1) ') || COLORS[index % COLORS.length]} />
-                ))}
+                {shiftDistribution.map((entry, index) => {
+                    // USE CONSTANT COLORS DIRECTLY
+                    const shiftDef = SHIFT_TYPES[entry.name as ShiftCode];
+                    // Fallback to blue if undefined, but strip 'bg-' and Tailwind class to hex if possible. 
+                    // Since Recharts needs hex/rgb, we assume standard tailwind colors or use a mapping.
+                    // Ideally we should have Hex codes in constants.ts. 
+                    // Hack: Use hardcoded mapping based on typical tailwind values for visual consistency.
+                    let color = '#94a3b8'; // default slate-400
+                    if (entry.name === 'IT') color = '#60a5fa'; // blue-400
+                    if (entry.name === 'T5') color = '#fdba74'; // orange-300
+                    if (entry.name === 'T6') color = '#fb923c'; // orange-400
+                    if (entry.name === 'S') color = '#fde68a'; // amber-200
+                    if (entry.name === 'NT') color = '#e2e8f0'; // slate-200
+                    if (entry.name === 'RH') color = '#bbf7d0'; // green-200
+                    if (entry.name === 'CA') color = '#60a5fa'; // blue-400 (darker)
+                    if (entry.name === 'RC') color = '#f1f5f9'; // gray-100
+                    
+                    return <Cell key={`cell-${index}`} fill={color} stroke="#fff" />;
+                })}
               </Pie>
               <Tooltip />
               <Legend />
@@ -139,7 +154,6 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
                 cursor={{ fill: '#f1f5f9' }}
               />
               <Legend />
-              {/* Removed Senior Bar */}
               <Bar 
                 dataKey="Présents" 
                 fill="#3B82F6" 
@@ -159,7 +173,7 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
           <div className="text-2xl font-bold text-blue-900">{employees.length}</div>
         </div>
         <div className="bg-orange-50 p-4 rounded-xl border-orange-100">
-          <div className="text-sm text-orange-600 font-medium">Total Heures Travaillées</div>
+          <div className="text-sm text-orange-600 font-medium">Total Heures (Période)</div>
           <div className="text-2xl font-bold text-orange-900">
             {totalEstimatedHours.toLocaleString()}h
           </div>
@@ -170,7 +184,6 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
           <div className="text-2xl font-bold text-purple-900">
              {(shiftDistribution.find(x => x.name === 'NT')?.value || 0) + (shiftDistribution.find(x => x.name === 'RC')?.value || 0)}
           </div>
-          <div className="text-xs text-purple-400 mt-1">NT + RC</div>
         </div>
         <div className="bg-green-50 p-4 rounded-xl border-green-100">
            <div className="text-sm text-green-600 font-medium">Taux Repos Total</div>
@@ -186,7 +199,7 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
 
        {/* Hours Per Person Table */}
        <div className="md:col-span-2 bg-white p-4 rounded-lg shadow border border-slate-200">
-          <h3 className="text-lg font-semibold mb-4 text-slate-800">Heures par collaborateur</h3>
+          <h3 className="text-lg font-semibold mb-4 text-slate-800">Heures par collaborateur (Période)</h3>
           <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50 text-slate-500 uppercase font-medium text-xs">

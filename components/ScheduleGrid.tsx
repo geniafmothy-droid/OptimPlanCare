@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState, useRef } from 'react';
 import { Employee, ShiftCode, ViewMode } from '../types';
 import { SHIFT_TYPES } from '../constants';
@@ -51,6 +52,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
 
   // --- MODE HORAIRE (HOURLY) ---
   if (viewMode === 'hourly') {
+     // ... (Keep existing hourly logic logic but ensure layout matches)
     const year = startDate.getFullYear();
     const month = String(startDate.getMonth() + 1).padStart(2, '0');
     const day = String(startDate.getDate()).padStart(2, '0');
@@ -61,20 +63,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
     const hours = Array.from({ length: endDisplayHour - startDisplayHour }, (_, i) => i + startDisplayHour);
 
     return (
-      <div className="flex-1 overflow-hidden flex flex-col border rounded-lg bg-white shadow-sm h-full relative group">
-         <button 
-            onClick={() => handleScroll('left')}
-            className="absolute left-2 top-1/2 -translate-y-1/2 z-40 p-2 bg-white/80 hover:bg-white text-slate-600 rounded-full shadow-md border border-slate-200 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-0"
-         >
-            <ChevronLeft className="w-5 h-5" />
-         </button>
-         <button 
-            onClick={() => handleScroll('right')}
-            className="absolute right-2 top-1/2 -translate-y-1/2 z-40 p-2 bg-white/80 hover:bg-white text-slate-600 rounded-full shadow-md border border-slate-200 opacity-0 group-hover:opacity-100 transition-opacity"
-         >
-            <ChevronRight className="w-5 h-5" />
-         </button>
-
+      <div className="flex-1 overflow-hidden flex flex-col h-full relative group">
          <div className="overflow-auto relative h-full" ref={scrollContainerRef}>
             <table className="border-collapse w-max min-w-full">
               <thead className="sticky top-0 z-20 bg-white shadow-sm">
@@ -103,56 +92,32 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                              onClick={() => onCellClick(emp.id, currentDateStr)}
                           >
                              <div className="font-medium text-sm text-slate-900">{emp.name}</div>
-                             <div className="text-[10px] text-slate-500">
-                                {shiftCode ? (
-                                   <span className={`px-1.5 py-0.5 rounded ${shiftDef?.color} ${shiftDef?.textColor}`}>
-                                      {shiftDef?.label} 
-                                      {isWorking ? ` (${shiftDef?.startHour}h-${shiftDef?.endHour}h)` : ''}
-                                   </span>
-                                ) : 'OFF'}
-                             </div>
                           </td>
-                          
                           {hours.map(h => {
                              let content = null;
-
                              if (isWorking && shiftDef?.startHour !== undefined && shiftDef?.endHour !== undefined) {
                                 const start = shiftDef.startHour;
                                 const end = shiftDef.endHour;
-
                                 if (h >= Math.floor(start) && h < end) {
                                    let leftPct = 0;
                                    let widthPct = 100;
-
                                    if (h === Math.floor(start)) {
                                        leftPct = (start % 1) * 100;
                                        widthPct -= leftPct;
                                    }
-
                                    if (h === Math.floor(end)) {
                                        const endPct = (end % 1) === 0 ? 100 : (end % 1) * 100;
                                        widthPct = endPct - leftPct;
                                    }
-
                                    content = (
                                       <div 
                                         className={`absolute inset-y-1 rounded-sm ${shiftDef.color} opacity-90 shadow-sm`}
-                                        style={{ 
-                                            left: `${leftPct}%`, 
-                                            width: `${widthPct}%`,
-                                            margin: '0 1px'
-                                        }}
-                                        title={`${shiftDef.label} (${start}h - ${end}h)`}
+                                        style={{ left: `${leftPct}%`, width: `${widthPct}%`, margin: '0 1px' }}
                                       ></div>
                                    );
                                 }
                              }
-
-                             return (
-                                <td key={h} className="border-b border-r border-slate-100 p-0 relative h-10 min-w-[40px]">
-                                   {content}
-                                </td>
-                             );
+                             return <td key={h} className="border-b border-r border-slate-100 p-0 relative h-10 min-w-[40px]">{content}</td>;
                           })}
                        </tr>
                     );
@@ -177,35 +142,31 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
       return "min-w-[40px]";
   };
 
-  const codesToCount: ShiftCode[] = ['IT', 'T5', 'T6', 'S', 'RH'];
-
   return (
-    <div className="flex-1 overflow-hidden flex flex-col border rounded-lg bg-white shadow-sm h-full relative group">
-      
+    <div className="flex-1 overflow-hidden flex flex-col h-full relative group">
+      {/* Buttons Fixed to Sticky Header Area to ensure visibility even if table is short */}
       {days > 7 && (
           <>
             <button 
                 onClick={() => handleScroll('left')}
-                className="absolute left-2 top-1/2 -translate-y-1/2 z-40 p-2 bg-white/90 hover:bg-white text-slate-700 hover:text-blue-600 rounded-full shadow-[0_2px_8px_rgba(0,0,0,0.15)] border border-slate-200 opacity-0 group-hover:opacity-100 transition-all duration-200 transform hover:scale-110 active:scale-95"
-                title="Défiler à gauche"
+                className="absolute left-[225px] top-10 z-40 p-1.5 bg-white/90 hover:bg-white text-slate-700 border border-slate-300 rounded shadow-md opacity-0 group-hover:opacity-100 transition-all"
             >
-                <ChevronLeft className="w-6 h-6" />
+                <ChevronLeft className="w-5 h-5" />
             </button>
             <button 
                 onClick={() => handleScroll('right')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 z-40 p-2 bg-white/90 hover:bg-white text-slate-700 hover:text-blue-600 rounded-full shadow-[0_2px_8px_rgba(0,0,0,0.15)] border border-slate-200 opacity-0 group-hover:opacity-100 transition-all duration-200 transform hover:scale-110 active:scale-95"
-                title="Défiler à droite"
+                className="absolute right-2 top-10 z-40 p-1.5 bg-white/90 hover:bg-white text-slate-700 border border-slate-300 rounded shadow-md opacity-0 group-hover:opacity-100 transition-all"
             >
-                <ChevronRight className="w-6 h-6" />
+                <ChevronRight className="w-5 h-5" />
             </button>
           </>
       )}
 
-      <div className="overflow-auto relative h-full flex flex-col scroll-smooth" ref={scrollContainerRef}>
+      <div className="overflow-auto relative flex-1 flex flex-col scroll-smooth" ref={scrollContainerRef}>
         <table className="border-collapse w-max">
           <thead className="sticky top-0 z-20 bg-white shadow-sm">
             <tr>
-              <th className="sticky left-0 z-30 bg-slate-50 border-b border-r border-slate-200 p-2 min-w-[220px] text-left">
+              <th className="sticky left-0 z-30 bg-slate-50 border-b border-r border-slate-200 p-2 min-w-[220px] text-left h-14">
                 <div className="flex flex-col">
                   <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Collaborateur</span>
                   <span className="text-[10px] text-slate-400 font-normal">Matricule / Quotité / Comp.</span>
@@ -214,7 +175,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
               {dates.map((d) => (
                 <th 
                   key={d.str} 
-                  className={`${getCellWidthClass()} border-b border-r border-slate-200 p-1 text-center text-xs ${
+                  className={`${getCellWidthClass()} border-b border-r border-slate-200 p-1 text-center text-xs h-14 ${
                     isWeekend(d.obj) ? 'bg-slate-100 text-slate-800' : 'bg-white text-slate-600'
                   }`}
                 >
@@ -232,24 +193,19 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
           <tbody>
             {employees.map((emp) => (
               <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
-                <td className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 p-2 group cursor-pointer">
+                <td className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 p-2 group cursor-pointer h-12">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="font-medium text-sm text-slate-900">{emp.name}</div>
                       <div className="text-[10px] text-slate-500 flex flex-wrap items-center gap-1 mt-0.5">
-                        <span className="text-slate-400 font-mono text-[9px] mr-1">#{emp.matricule}</span>
                         <span className={`px-1.5 py-0.5 rounded-full font-semibold ${
                             emp.fte < 1.0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
                         }`}>
                             {Math.round(emp.fte * 100)}%
                         </span>
                         <span className="px-1.5 py-0.5 rounded-full bg-slate-100">{emp.role.slice(0, 3)}</span>
-                        {emp.skills.includes('Senior') && (
-                          <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Sr</span>
-                        )}
                       </div>
                     </div>
-                    <div className="w-2 h-2 rounded-full bg-green-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                   </div>
                 </td>
 
@@ -260,11 +216,11 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                   return (
                     <td 
                       key={`${emp.id}-${d.str}`} 
-                      className={`border-b border-r border-slate-200 p-0.5 text-center cursor-pointer relative group ${
+                      className={`border-b border-r border-slate-200 p-0.5 text-center cursor-pointer relative group h-12 ${
                         isWeekend(d.obj) ? 'bg-slate-50/50' : ''
                       }`}
                       onClick={() => onCellClick(emp.id, d.str)}
-                      title={shiftCode !== 'OFF' ? `${d.dayName} ${d.dayNum}: ${shiftDef.label} - ${shiftDef.description}` : undefined}
+                      title={shiftCode !== 'OFF' ? `${d.dayName} ${d.dayNum}: ${shiftDef.label}` : undefined}
                     >
                       <div 
                         className={`
@@ -281,69 +237,15 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ employees, startDate
                 })}
               </tr>
             ))}
+             {employees.length === 0 && (
+                 <tr>
+                     <td colSpan={dates.length + 1} className="p-8 text-center text-slate-400 italic bg-slate-50">
+                         Aucun employé ne correspond aux filtres.
+                     </td>
+                 </tr>
+             )}
           </tbody>
-          
-          <tfoot className="bg-slate-50 border-t-2 border-slate-300 shadow-[0_-2px_4px_rgba(0,0,0,0.05)] sticky bottom-0 z-20">
-             <tr>
-               <td className="sticky left-0 z-30 bg-slate-50 border-b border-r border-slate-300 p-2">
-                 <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-700 uppercase">Total Présents</span>
-                    <button 
-                        onClick={() => setShowDetails(!showDetails)}
-                        className="p-1 hover:bg-slate-200 rounded text-slate-500"
-                        title={showDetails ? "Masquer détails" : "Voir détails par code"}
-                    >
-                        {showDetails ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-                    </button>
-                 </div>
-               </td>
-               {dates.map(d => {
-                 const count = employees.reduce((acc, emp) => {
-                   const code = emp.shifts[d.str];
-                   return (code && SHIFT_TYPES[code].isWork) ? acc + 1 : acc;
-                 }, 0);
-                 const isUnderstaffed = count < 5; 
-                 return (
-                    <td key={`total-${d.str}`} className={`text-center text-xs font-bold p-1 border-b border-r border-slate-300 ${isUnderstaffed ? 'bg-red-50 text-red-700' : 'text-slate-700'}`}>
-                      {count}
-                    </td>
-                 )
-               })}
-            </tr>
-
-            {showDetails && codesToCount.map(code => (
-                <tr key={code} className="bg-white hover:bg-slate-50 transition-colors">
-                    <td className="sticky left-0 z-30 bg-white border-b border-r border-slate-200 p-2 text-xs text-right font-medium text-slate-500 border-l-4"
-                        style={{ borderLeftColor: SHIFT_TYPES[code].color.replace('bg-', '').replace('-200', '-400').replace('-300', '-500') }}
-                    >
-                        {code}
-                    </td>
-                    {dates.map(d => {
-                        const count = employees.reduce((acc, emp) => {
-                            return emp.shifts[d.str] === code ? acc + 1 : acc;
-                        }, 0);
-                        return (
-                            <td key={`detail-${code}-${d.str}`} className="text-center text-[10px] p-1 border-b border-r border-slate-200 text-slate-600">
-                                {count > 0 ? count : '-'}
-                            </td>
-                        )
-                    })}
-                </tr>
-            ))}
-          </tfoot>
         </table>
-      </div>
-      
-      <div className="bg-white p-2 text-[10px] text-slate-500 flex justify-between items-center no-print border-t border-slate-200">
-          <div>
-              Utilisez la flèche dans le total pour voir le détail par poste (IT, T5, etc.)
-          </div>
-          <div className="flex gap-2">
-             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-200"></span> IT</span>
-             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-300"></span> T5</span>
-             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400"></span> T6</span>
-             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-200"></span> S</span>
-          </div>
       </div>
     </div>
   );

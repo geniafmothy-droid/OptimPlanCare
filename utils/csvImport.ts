@@ -2,6 +2,12 @@
 import { Employee, ShiftCode } from '../types';
 import { SHIFT_TYPES } from '../constants';
 
+export interface CSVImportResult {
+    employees: Employee[];
+    stats?: { updated: number; created: number };
+    error?: string;
+}
+
 /**
  * Parses a CSV string and updates the employees' shifts and metadata.
  * If an employee does not exist, they are created.
@@ -9,9 +15,9 @@ import { SHIFT_TYPES } from '../constants';
  * Header: Nom;Prénom;Matricule;Fonction;Quotité;01/12/2024;02/12/2024...
  * Rows: CHEVALLET;D;24050;IDE;100;RH;S;...
  */
-export const parseScheduleCSV = (csvText: string, existingEmployees: Employee[]): Employee[] => {
+export const parseScheduleCSV = (csvText: string, existingEmployees: Employee[]): CSVImportResult => {
   const lines = csvText.trim().split(/\r?\n/);
-  if (lines.length < 2) return existingEmployees;
+  if (lines.length < 2) return { employees: existingEmployees, error: "Fichier vide ou trop court." };
 
   // Detect delimiter (comma or semicolon)
   const firstLine = lines[0];
@@ -69,8 +75,7 @@ export const parseScheduleCSV = (csvText: string, existingEmployees: Employee[])
   });
 
   if (dateColumns.length === 0) {
-    alert("Aucune colonne de date valide trouvée (format attendu après les 5 premières colonnes : Nom;Prénom;Matricule;Fonction;Quotité;Date1...).");
-    return existingEmployees;
+    return { employees: existingEmployees, error: "Aucune colonne de date valide trouvée (format attendu après les 5 premières colonnes : Nom;Prénom;Matricule;Fonction;Quotité;Date1...)." };
   }
 
   // Process rows
@@ -167,12 +172,10 @@ export const parseScheduleCSV = (csvText: string, existingEmployees: Employee[])
   }
   
   if (updatedCount > 0 || createdCount > 0) {
-    alert(`Import terminé.\n- Mis à jour : ${updatedCount}\n- Créés : ${createdCount}`);
+    return { employees: newEmployees, stats: { updated: updatedCount, created: createdCount } };
   } else {
-    alert("Aucune donnée valide trouvée dans le CSV.");
+    return { employees: existingEmployees, error: "Aucune donnée valide trouvée dans le CSV." };
   }
-
-  return newEmployees;
 };
 
 export interface LeaveRequest {
