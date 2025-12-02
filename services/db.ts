@@ -100,6 +100,19 @@ export const createServiceAssignment = async (employeeId: string, serviceId: str
     if (error) throw new Error(error.message);
 };
 
+export const updateServiceAssignment = async (id: string, employeeId: string, serviceId: string, startDate: string, endDate?: string) => {
+    const { error } = await supabase
+        .from('service_assignments')
+        .update({ 
+            employee_id: employeeId, 
+            service_id: serviceId, 
+            start_date: startDate, 
+            end_date: endDate || null 
+        })
+        .eq('id', id);
+    if (error) throw new Error(error.message);
+};
+
 export const deleteServiceAssignment = async (id: string) => {
     const { error } = await supabase
         .from('service_assignments')
@@ -351,12 +364,19 @@ export const bulkUpsertShifts = async (shifts: {employee_id: string, date: strin
     }
 };
 
+export const toLocalISOString = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 export const clearShiftsInRange = async (year: number, month: number, serviceId?: string) => {
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0);
     // Use local string construction to ensure we get the full range YYYY-MM-01 to YYYY-MM-LastDay
-    const startStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
-    const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+    const startStr = toLocalISOString(startDate);
+    const endStr = toLocalISOString(endDate);
     
     let query = supabase.from('shifts').delete().gte('date', startStr).lte('date', endStr);
 
@@ -478,9 +498,6 @@ export const updateLeaveRequest = async (id: string, req: Partial<LeaveRequestWo
     if (req.startDate) payload.start_date = req.startDate;
     if (req.endDate) payload.end_date = req.endDate;
     
-    // Reset status to pending if modified? Usually yes.
-    // We'll let the frontend decide if status should change.
-
     const { error } = await supabase
         .from('leave_requests')
         .update(payload)
@@ -501,7 +518,6 @@ export const updateLeaveRequestStatus = async (id: string, status: LeaveRequestW
     const updateData: any = { 
         status, 
         validation_date: new Date().toISOString()
-        // validator_id could be passed here if we had current user ID context in this function
     };
     if (comments) updateData.comments = comments;
 
