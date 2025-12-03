@@ -1,5 +1,3 @@
-
-
 import { supabase } from '../lib/supabase';
 import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus, WorkPreference } from '../types';
 import { MOCK_EMPLOYEES } from '../constants';
@@ -8,7 +6,6 @@ import { MOCK_EMPLOYEES } from '../constants';
 export const checkConnection = async (): Promise<{ success: boolean; latency: number; message?: string }> => {
     const start = performance.now();
     try {
-        // Simple lightweight query to check connection
         const { error } = await supabase.from('services').select('count', { count: 'exact', head: true });
         const end = performance.now();
         
@@ -275,8 +272,12 @@ export const updateEmployeeLeaveData = async (employeeId: string, leaveData: any
 };
 
 export const upsertEmployee = async (employee: Employee) => {
+  // Correctly merge the updated counters into the leave_data structure
   const currentLeaveData = employee.leaveData || { counters: {}, history: [] };
-  currentLeaveData.counters = employee.leaveCounters;
+  // Overwrite counters with the values from the employee object (which are edited in UI)
+  if (employee.leaveCounters) {
+      currentLeaveData.counters = employee.leaveCounters;
+  }
 
   const payload: any = {
       matricule: employee.matricule,
@@ -284,11 +285,12 @@ export const upsertEmployee = async (employee: Employee) => {
       role: employee.role,
       fte: employee.fte,
       leave_balance: employee.leaveBalance,
-      leave_data: currentLeaveData,
+      leave_data: currentLeaveData, // Persist the updated JSON structure
       skills: employee.skills
   };
 
   let conflictTarget = 'matricule';
+  // Use ID if available and valid UUID (length check is a rough heuristic for UUID vs temp ID)
   if (employee.id && employee.id.length > 10) {
       payload.id = employee.id;
       conflictTarget = 'id';
@@ -298,6 +300,7 @@ export const upsertEmployee = async (employee: Employee) => {
     .from('employees')
     .upsert(payload, { onConflict: conflictTarget })
     .select();
+    
   if (error) throw new Error(error.message);
 };
 
@@ -530,6 +533,54 @@ export const updateLeaveRequestStatus = async (id: string, status: LeaveRequestW
     if (error) throw new Error(error.message);
 };
 
+// --- Work Preferences Management ---
+
+export const fetchWorkPreferences = async (): Promise<WorkPreference[]> => {
+    const { data, error } = await supabase
+        .from('work_preferences')
+        .select('*');
+    
+    if (error) {
+        return [];
+    }
+
+    return data.map((p: any) => ({
+        id: p.id,
+        employeeId: p.employee_id,
+        date: p.date,
+        type: p.type,
+        reason: p.reason,
+        status: p.status,
+        rejectionReason: p.rejection_reason
+    }));
+};
+
+export const createWorkPreference = async (pref: Omit<WorkPreference, 'id' | 'status'>) => {
+    const { error } = await supabase
+        .from('work_preferences')
+        .insert([{
+            employee_id: pref.employeeId,
+            date: pref.date,
+            type: pref.type,
+            reason: pref.reason,
+            status: 'PENDING'
+        }]);
+
+    if (error) throw new Error(error.message);
+};
+
+export const updateWorkPreferenceStatus = async (id: string, status: 'VALIDATED' | 'REFUSED', rejectionReason?: string) => {
+    const updateData: any = { status };
+    if (rejectionReason) updateData.rejection_reason = rejectionReason;
+
+    const { error } = await supabase
+        .from('work_preferences')
+        .update(updateData)
+        .eq('id', id);
+
+    if (error) throw new Error(error.message);
+};
+
 // --- DB NOTIFICATIONS ---
 
 export const fetchNotifications = async (): Promise<AppNotification[]> => {
@@ -576,44 +627,4 @@ export const markNotificationRead = async (id: string) => {
         .from('notifications')
         .update({ is_read: true })
         .eq('id', id);
-};
-
-// --- WORK PREFERENCES ---
-
-export const fetchWorkPreferences = async (): Promise<WorkPreference[]> => {
-    const { data, error } = await supabase
-        .from('work_preferences')
-        .select('*');
-    if (error) return []; // Fail gracefully for now
-    
-    return data.map((d: any) => ({
-        id: d.id,
-        employeeId: d.employee_id,
-        date: d.date,
-        type: d.type,
-        reason: d.reason,
-        status: d.status,
-        rejectionReason: d.rejection_reason
-    }));
-};
-
-export const createWorkPreference = async (pref: Omit<WorkPreference, 'id' | 'status'>) => {
-    const { error } = await supabase
-        .from('work_preferences')
-        .insert([{
-            employee_id: pref.employeeId,
-            date: pref.date,
-            type: pref.type,
-            reason: pref.reason,
-            status: 'PENDING'
-        }]);
-    if (error) throw new Error(error.message);
-};
-
-export const updateWorkPreferenceStatus = async (id: string, status: 'VALIDATED' | 'REFUSED', rejectionReason?: string) => {
-    const { error } = await supabase
-        .from('work_preferences')
-        .update({ status, rejection_reason: rejectionReason })
-        .eq('id', id);
-    if (error) throw new Error(error.message);
 };

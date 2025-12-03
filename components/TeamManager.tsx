@@ -21,6 +21,7 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingEmp, setEditingEmp] = useState<Partial<Employee> | null>(null);
     const [isCreating, setIsCreating] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
 
     // Initial load for "My Profile" view if read-only
     useEffect(() => {
@@ -40,9 +41,11 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
     });
 
     const handleEdit = (emp: Employee) => {
+        // Deep copy counters to ensure state mutability
+        const safeCounters = emp.leaveCounters ? { ...emp.leaveCounters } : { CA: 0, RTT: 0, HS: 0, RC: 0 };
         setEditingEmp({ 
             ...emp, 
-            leaveCounters: emp.leaveCounters || { CA: 0, RTT: 0, HS: 0, RC: 0 } 
+            leaveCounters: safeCounters
         });
         setIsCreating(false);
         setIsModalOpen(true);
@@ -64,21 +67,17 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
 
     const handleSave = async () => {
         if (!editingEmp || !editingEmp.name || !editingEmp.matricule) return;
-        
+        setIsSaving(true);
         try {
-            // Ensure leaveCounters are set correctly in the object sent to DB
-            const employeeToSave = {
-                ...editingEmp,
-                // If counters were edited, they are in editingEmp.leaveCounters
-                // The DB service upsertEmployee will map this to leave_data.counters
-            } as Employee;
-
-            await db.upsertEmployee(employeeToSave);
+            await db.upsertEmployee(editingEmp as Employee);
             setIsModalOpen(false);
-            alert("Employé enregistré avec succès !");
+            // Simple robust feedback
+            alert("✅ Enregistrement réussi !");
             onReload();
         } catch (error: any) {
-            alert("Erreur lors de l'enregistrement: " + error.message);
+            alert("❌ Échec de l'enregistrement : " + error.message);
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -95,16 +94,16 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
     // Helper for counters
     const updateCounter = (key: keyof LeaveCounters, value: string) => {
         if (!editingEmp) return;
-        const num = parseFloat(value) || 0;
+        const num = parseFloat(value);
         
-        // Deep merge logic to avoid losing other counters
+        // Deep merge logic
         const currentCounters = editingEmp.leaveCounters || { CA: 0, RTT: 0, HS: 0, RC: 0 };
         
         setEditingEmp({
             ...editingEmp,
             leaveCounters: {
                 ...currentCounters,
-                [key]: num
+                [key]: isNaN(num) ? 0 : num
             }
         });
     };
@@ -269,6 +268,7 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
                                                 <option value="Cadre">Cadre</option>
                                                 <option value="Manager">Manager</option>
                                                 <option value="Directeur">Directeur</option>
+                                                <option value="Intérimaire">Intérimaire</option>
                                             </select>
                                         </div>
                                     </div>
@@ -385,8 +385,8 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
                                         </div>
                                     </div>
                                     
-                                    <div className="mt-6 text-xs text-slate-500 italic">
-                                        Les modifications manuelles des compteurs sont enregistrées immédiatement.
+                                    <div className="mt-6 text-xs text-slate-500 italic border-t pt-2">
+                                        Modifiez les compteurs ici. Cliquez sur "Enregistrer Fiche" pour valider.
                                     </div>
                                 </div>
                             </div>
@@ -402,9 +402,10 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
                                 </button>
                                 <button 
                                     onClick={handleSave}
-                                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm"
+                                    disabled={isSaving}
+                                    className={`px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
                                 >
-                                    <Save className="w-4 h-4" /> Enregistrer Fiche
+                                    {isSaving ? 'Enregistrement...' : <><Save className="w-4 h-4" /> Enregistrer Fiche</>}
                                 </button>
                             </div>
                         )}
