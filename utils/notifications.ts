@@ -1,3 +1,5 @@
+
+
 import { Employee, Service } from '../types';
 import { SHIFT_TYPES } from '../constants';
 
@@ -92,4 +94,20 @@ export const sendManagerWeeklyRecap = async (
     await new Promise(resolve => setTimeout(resolve, 1500));
 
     return { success: true, message: `Récapitulatif envoyé à ${managers.length} cadre(s).` };
+};
+
+/**
+ * Simulates sending an email notification for a new leave request.
+ */
+export const sendLeaveRequestEmail = async (
+    recipientRole: string,
+    employeeName: string,
+    leaveType: string,
+    startDate: string,
+    endDate: string,
+    isSickLeave: boolean
+): Promise<boolean> => {
+    console.log(`[EMAIL] To ${recipientRole}: ${employeeName} - ${leaveType} (${startDate} to ${endDate})`);
+    // In a real app, this would make an API call to an email service.
+    return new Promise(resolve => setTimeout(() => resolve(true), 500));
 };

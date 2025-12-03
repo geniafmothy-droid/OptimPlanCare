@@ -1,6 +1,7 @@
 
+
 import { supabase } from '../lib/supabase';
-import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus } from '../types';
+import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus, WorkPreference } from '../types';
 import { MOCK_EMPLOYEES } from '../constants';
 
 // --- System Diagnostics ---
@@ -575,4 +576,44 @@ export const markNotificationRead = async (id: string) => {
         .from('notifications')
         .update({ is_read: true })
         .eq('id', id);
+};
+
+// --- WORK PREFERENCES ---
+
+export const fetchWorkPreferences = async (): Promise<WorkPreference[]> => {
+    const { data, error } = await supabase
+        .from('work_preferences')
+        .select('*');
+    if (error) return []; // Fail gracefully for now
+    
+    return data.map((d: any) => ({
+        id: d.id,
+        employeeId: d.employee_id,
+        date: d.date,
+        type: d.type,
+        reason: d.reason,
+        status: d.status,
+        rejectionReason: d.rejection_reason
+    }));
+};
+
+export const createWorkPreference = async (pref: Omit<WorkPreference, 'id' | 'status'>) => {
+    const { error } = await supabase
+        .from('work_preferences')
+        .insert([{
+            employee_id: pref.employeeId,
+            date: pref.date,
+            type: pref.type,
+            reason: pref.reason,
+            status: 'PENDING'
+        }]);
+    if (error) throw new Error(error.message);
+};
+
+export const updateWorkPreferenceStatus = async (id: string, status: 'VALIDATED' | 'REFUSED', rejectionReason?: string) => {
+    const { error } = await supabase
+        .from('work_preferences')
+        .update({ status, rejection_reason: rejectionReason })
+        .eq('id', id);
+    if (error) throw new Error(error.message);
 };

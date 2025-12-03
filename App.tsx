@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Moon, Sun, Server, Activity, Flag } from 'lucide-react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Moon, Sun, Server, Activity, Flag, FileSpreadsheet, Calculator } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
 import { StaffingSummary } from './components/StaffingSummary';
 import { StatsPanel } from './components/StatsPanel';
@@ -9,6 +9,8 @@ import { LeaveManager } from './components/LeaveManager';
 import { TeamManager } from './components/TeamManager';
 import { SkillsSettings } from './components/SkillsSettings';
 import { ServiceSettings } from './components/ServiceSettings';
+import { CounterSettings } from './components/CounterSettings';
+import { ScenarioPlanner } from './components/ScenarioPlanner';
 import { Dashboard } from './components/Dashboard';
 import { LoginScreen } from './components/LoginScreen';
 import { SHIFT_TYPES } from './constants';
@@ -26,7 +28,7 @@ function App() {
   const [currentUser, setCurrentUser] = useState<{ role: UserRole, employeeId?: string, name?: string } | null>(null);
 
   // --- APP STATES ---
-  const [activeTab, setActiveTab] = useState<'planning' | 'stats' | 'team' | 'leaves' | 'settings' | 'dashboard'>('planning');
+  const [activeTab, setActiveTab] = useState<'planning' | 'stats' | 'team' | 'leaves' | 'settings' | 'dashboard' | 'scenarios' | 'counters'>('planning');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -228,7 +230,8 @@ function App() {
 
       try {
           if (actionModal.type === 'GENERATE') {
-               const newEmps = generateMonthlySchedule(employees, actionYear, actionMonth, activeService?.config);
+               // AWAIT THE ASYNC SCHEDULER
+               const newEmps = await generateMonthlySchedule(employees, actionYear, actionMonth, activeService?.config);
                await db.bulkSaveSchedule(newEmps);
                await loadData();
                setToast({ message: `Planning de ${monthName} généré avec succès`, type: "success" });
@@ -504,7 +507,7 @@ function App() {
         
         <div className="flex items-center gap-2 md:gap-4">
            {/* Date Nav */}
-           {(activeTab === 'planning' || activeTab === 'dashboard' || activeTab === 'leaves') && (
+           {(activeTab === 'planning' || activeTab === 'dashboard' || activeTab === 'leaves' || activeTab === 'scenarios') && (
                <div className="flex items-center gap-2">
                    <h2 className="text-lg font-bold text-slate-700 dark:text-slate-200 capitalize hidden md:block w-40 text-right">
                        {currentDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
@@ -606,6 +609,7 @@ function App() {
             {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP' || currentUser.role === 'MANAGER') && (
                 <>
                 <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'dashboard' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}><LayoutDashboard className="w-5 h-5" /> Carnet de Bord</button>
+                <button onClick={() => setActiveTab('scenarios')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'scenarios' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}><FileSpreadsheet className="w-5 h-5" /> Simulation & Scénarios</button>
                 <button onClick={() => setActiveTab('stats')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'stats' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}><BarChart3 className="w-5 h-5" /> Statistiques</button>
                 <button onClick={() => setActiveTab('team')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'team' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}><Users className="w-5 h-5" /> Équipe</button>
                 </>
@@ -616,7 +620,10 @@ function App() {
             </button>
             
             {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP') && (
-                <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'settings' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}><Settings className="w-5 h-5" /> Paramètres</button>
+                <>
+                    <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'settings' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}><Settings className="w-5 h-5" /> Paramètres</button>
+                    <button onClick={() => setActiveTab('counters')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'counters' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}><Calculator className="w-5 h-5" /> Règles RH</button>
+                </>
             )}
           </nav>
 
@@ -850,9 +857,11 @@ function App() {
            )}
 
            {activeTab === 'dashboard' && <Dashboard employees={employees} currentDate={currentDate} serviceConfig={activeService?.config} />}
+           {activeTab === 'scenarios' && <ScenarioPlanner employees={employees} currentDate={currentDate} service={activeService} onApplySchedule={loadData} />}
            {activeTab === 'stats' && <StatsPanel employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />}
            {activeTab === 'team' && <TeamManager employees={employees} allSkills={skillsList} currentUser={currentUser} onReload={loadData} />}
            {activeTab === 'leaves' && <LeaveManager employees={employees} onReload={loadData} currentUser={currentUser} activeServiceId={activeServiceId} assignmentsList={assignmentsList} />}
+           {activeTab === 'counters' && <CounterSettings />}
            {activeTab === 'settings' && (
                <div className="p-6 max-w-6xl mx-auto space-y-6 w-full overflow-y-auto">
                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">

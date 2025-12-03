@@ -1,8 +1,9 @@
-import { Employee, ShiftCode, ServiceConfig } from '../types';
-import { SHIFT_TYPES, SHIFT_HOURS, NURSE_CYCLE_MATRIX } from '../constants';
-import { checkConstraints } from './validation';
 
-// Helper to shuffle array for random distribution of shifts
+import { Employee, ShiftCode, ServiceConfig, WorkPreference } from '../types';
+import { SHIFT_TYPES, SHIFT_HOURS } from '../constants';
+import { fetchWorkPreferences } from '../services/db';
+
+// Helper to shuffle array for random distribution when scores are equal
 const shuffle = <T>(array: T[]): T[] => {
   const newArr = [...array];
   for (let i = newArr.length - 1; i > 0; i--) {
@@ -12,136 +13,194 @@ const shuffle = <T>(array: T[]): T[] => {
   return newArr;
 };
 
-// Helper to get ISO week number to determine cycle rotation
-const getWeekNumber = (d: Date): number => {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-  return weekNo;
-};
-
-export const generateMonthlySchedule = (
+export const generateMonthlySchedule = async (
   currentEmployees: Employee[],
   year: number,
   month: number,
   serviceConfig?: ServiceConfig
-): Employee[] => {
-  // Clone employees to avoid direct mutation issues during calculation
-  const employees = JSON.parse(JSON.stringify(currentEmployees)) as Employee[];
+): Promise<Employee[]> => {
   
-  // Clear shifts for the target month but KEEP existing CA/FO/NT (Preserve manual inputs)
+  // 1. Fetch Preferences (Desiderata) from DB
+  let preferences: WorkPreference[] = [];
+  try {
+      preferences = await fetchWorkPreferences();
+  } catch (e) {
+      console.warn("Could not fetch preferences, proceeding without.");
+  }
+
+  // Clone employees to avoid direct mutation (Crucial for Scenario Planning)
+  // Deep clone needed for shifts object
+  const employees = currentEmployees.map(emp => ({
+      ...emp,
+      shifts: { ...emp.shifts }
+  }));
+  
   const startDate = new Date(year, month, 1);
   const endDate = new Date(year, month + 1, 0); // Last day of month
-  
-  // Separate by roles
-  const infirmiers = employees.filter(e => e.role === 'Infirmier');
-  const aidesSoignants = employees.filter(e => e.role === 'Aide-Soignant');
-  const cadresAndManagers = employees.filter(e => e.role === 'Cadre' || e.role === 'Manager');
+  const numDays = endDate.getDate();
 
-  // --- INFIRMIERS LOGIC (MATRIX CYCLE) ---
-  // Apply the 7-week cycle based on the matrix
-  infirmiers.forEach((emp, index) => {
-    // Determine offset for this employee so they fall on different lines
-    const cycleOffset = index % 7;
+  // Helper: Force local date string YYYY-MM-DD
+  const toDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-        // Force local string format YYYY-MM-DD
-        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        
-        // Preserve existing manual inputs (Congés, Maladie, Formation)
-        const currentCode = emp.shifts[dateStr];
-        if (currentCode === 'CA' || currentCode === 'FO' || currentCode === 'NT' || currentCode === 'RH') {
-            continue;
-        }
+  // Helper: Get Shift Hours
+  const getShiftHours = (code: ShiftCode) => SHIFT_HOURS[code] || 0;
 
-        const jsDay = d.getDay(); 
-        const matrixDayIndex = jsDay === 0 ? 6 : jsDay - 1; // Convert Sun(0)->6, Mon(1)->0
+  // Helper: Calculate worked hours in sliding 7 days window ending at `date`
+  const getHoursLast7Days = (emp: Employee, currentDate: Date): number => {
+      let total = 0;
+      for (let i = 0; i < 7; i++) {
+          const d = new Date(currentDate);
+          d.setDate(d.getDate() - i);
+          const s = emp.shifts[toDateStr(d)];
+          if (s) total += getShiftHours(s);
+      }
+      return total;
+  };
 
-        // Determine Week Number to rotate lines
-        const weekNum = getWeekNumber(d);
-        
-        // Calculate which row of the matrix to use
-        const matrixRowIndex = (weekNum + cycleOffset) % 7;
+  // Helper: Check if worked previous Saturday
+  const workedPreviousSaturday = (emp: Employee, currentDate: Date): boolean => {
+      const d = new Date(currentDate);
+      const day = d.getDay(); // 6 = Saturday
+      if (day !== 6) return false;
+      
+      const prevSat = new Date(d);
+      prevSat.setDate(d.getDate() - 7);
+      const s = emp.shifts[toDateStr(prevSat)];
+      return !!(s && SHIFT_TYPES[s]?.isWork);
+  };
 
-        // Assign Code
-        emp.shifts[dateStr] = NURSE_CYCLE_MATRIX[matrixRowIndex][matrixDayIndex];
-    }
-  });
+  // Iterate day by day
+  for (let day = 1; day <= numDays; day++) {
+      const currentDate = new Date(year, month, day);
+      const dateStr = toDateStr(currentDate);
+      const dayOfWeek = currentDate.getDay(); // 0=Sun, 1=Mon...
 
+      // --- PHASE 0: PRE-CHECK HARD CONSTRAINTS (Absences & Desiderata) ---
+      for (const emp of employees) {
+          // 1. Preserve Manual Absences (Locked)
+          const existing = emp.shifts[dateStr];
+          if (['CA', 'NT', 'FO', 'RC', 'HS', 'F', 'RTT', 'RH'].includes(existing)) {
+              continue; // Skip logic, keep existing
+          }
 
-  // --- AIDE-SOIGNANTS & CADRES/MANAGERS (SMART RANDOM) ---
-  for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const dayOfWeek = d.getDay(); // 0=Sun, 1=Mon...
-    
-    // SERVICE OPENING RULE
-    // Use config if available, otherwise default to closed on Sunday (backward compat)
-    const isOpen = serviceConfig ? serviceConfig.openDays.includes(dayOfWeek) : dayOfWeek !== 0;
+          // 2. Apply Validated Desiderata
+          const pref = preferences.find(p => p.employeeId === emp.id && p.date === dateStr && p.status === 'VALIDATED');
+          if (pref) {
+              if (pref.type === 'NO_WORK') {
+                  emp.shifts[dateStr] = 'RH'; // Force Rest
+              }
+              // Other pref types (NO_NIGHT) handled during assignment
+          }
 
-    if (!isOpen) {
-      [...aidesSoignants, ...cadresAndManagers].forEach(emp => {
-        if (!['CA', 'FO', 'NT'].includes(emp.shifts[dateStr])) {
-            emp.shifts[dateStr] = 'RH';
-        }
+          // 3. Service Closed Rule (Sunday) - Unless config says open
+          const isOpen = serviceConfig ? serviceConfig.openDays.includes(dayOfWeek) : dayOfWeek !== 0;
+          if (!isOpen && !['CA', 'NT'].includes(emp.shifts[dateStr])) {
+              emp.shifts[dateStr] = 'RH';
+          }
+      }
+
+      // If Service Closed, skip assignment logic for this day
+      const isOpen = serviceConfig ? serviceConfig.openDays.includes(dayOfWeek) : dayOfWeek !== 0;
+      if (!isOpen) continue;
+
+      // --- PHASE 1: IDENTIFY TARGETS ---
+      // Defaults (Dialysis example) if no config
+      let targets: Record<string, number> = { 'IT': 4, 'T5': 1, 'T6': 1, 'M': 2 }; // Generic default
+      
+      // Override with Specific Day Targets from Config
+      if (serviceConfig?.shiftTargets && serviceConfig.shiftTargets[dayOfWeek]) {
+          targets = serviceConfig.shiftTargets[dayOfWeek];
+      } else if (dayOfWeek === 1 || dayOfWeek === 3 || dayOfWeek === 5) {
+          // Default Dialysis Rule: 2 S on Mon/Wed/Fri
+          targets['S'] = 2;
+      }
+
+      // --- PHASE 2: ASSIGN CRITICAL SHIFTS (Greedy with Scoring) ---
+      // We iterate through required shifts (e.g., first fill S, then IT...)
+      // Order matters: Fill hardest shifts first (Night/Soir)
+      const shiftPriority: ShiftCode[] = ['S', 'T6', 'T5', 'IT', 'M', 'DP']; 
+      
+      for (const shiftType of shiftPriority) {
+          const needed = targets[shiftType] || 0;
+          if (needed === 0) continue;
+
+          let assignedCount = 0;
+          
+          // Filter eligible candidates
+          // Candidates are employees who:
+          // 1. Don't have a shift yet today
+          // 2. Have the required Skill
+          // 3. Not blocked by Desiderata (NO_NIGHT)
+          // 4. Respect 48h rule
+          // 5. Respect Sat rotation
+          // 6. Respect Post-Night rule
+          
+          const candidates = employees.filter(emp => {
+              if (emp.shifts[dateStr]) return false; // Already assigned (Absence or other shift)
+              
+              // Skill Check
+              if (serviceConfig?.requiredSkills?.includes(shiftType)) {
+                  // If shift is a skill code, emp must have it
+                  if (!emp.skills.includes(shiftType)) return false;
+              }
+
+              // Desiderata Check
+              const pref = preferences.find(p => p.employeeId === emp.id && p.date === dateStr && p.status === 'VALIDATED');
+              if (pref && pref.type === 'NO_NIGHT' && shiftType === 'S') return false;
+              if (pref && pref.type === 'MORNING_ONLY' && (shiftType === 'S' || shiftType === 'IT')) return false;
+
+              // Post-Night Rule (Look at yesterday)
+              const prevDate = new Date(currentDate);
+              prevDate.setDate(currentDate.getDate() - 1);
+              const prevShift = emp.shifts[toDateStr(prevDate)];
+              if (prevShift === 'S') return false; // Must rest after Night
+
+              // Saturday Rule
+              if (dayOfWeek === 6 && workedPreviousSaturday(emp, currentDate)) return false;
+
+              // 48h Rule
+              const hoursThisWeek = getHoursLast7Days(emp, currentDate);
+              if (hoursThisWeek + getShiftHours(shiftType) > 48) return false;
+
+              return true;
+          });
+
+          // --- SCORING FOR EQUITY ---
+          // Score = (FTE - CurrentMonthHours/TargetHours) + RandomFactor
+          // Prioritize those who worked less relative to their FTE
+          const scoredCandidates = candidates.map(emp => {
+              // Calculate hours worked so far this month
+              let hoursMonth = 0;
+              for(let d=1; d<day; d++) {
+                  const s = emp.shifts[toDateStr(new Date(year, month, d))];
+                  if(s) hoursMonth += getShiftHours(s);
+              }
+              
+              // Lower score is better (we sort ascending) -> Sort by hours ascending
+              // Weight by FTE (Someone with 50% should have fewer hours)
+              const weightedHours = hoursMonth / (emp.fte || 1);
+              
+              return { emp, score: weightedHours + Math.random() * 5 }; // Random factor to break ties
+          }).sort((a, b) => a.score - b.score);
+
+          // Assign
+          for (const cand of scoredCandidates) {
+              if (assignedCount >= needed) break;
+              cand.emp.shifts[dateStr] = shiftType;
+              assignedCount++;
+          }
+      }
+
+      // --- PHASE 3: FILL REMAINING / OFF ---
+      employees.forEach(emp => {
+          if (!emp.shifts[dateStr]) {
+              // Decide between Repos (RH) or Default Work (M) based on FTE needs?
+              // For simplicity in this version, unassigned becomes RH/OFF
+              // In a real roster, we might assign generic 'M' if under-hours.
+              emp.shifts[dateStr] = 'RH'; 
+          }
       });
-      continue;
-    }
-
-    // --- AIDE-SOIGNANTS ---
-    // Try to assign shifts while respecting constraints (48h, etc.)
-    let availableAS = shuffle(aidesSoignants);
-    const asWorkCount = Math.min(2, availableAS.length); // Need ~2 AS per day
-    let assignedCount = 0;
-
-    for(let i=0; i<availableAS.length; i++) {
-        const emp = availableAS[i];
-        
-        if (['CA', 'FO', 'NT', 'RH'].includes(emp.shifts[dateStr])) continue;
-
-        // Check if employee needs rest due to previous 'S' shift
-        // Get yesterday
-        const prevD = new Date(d);
-        prevD.setDate(d.getDate() - 1);
-        const prevStr = `${prevD.getFullYear()}-${String(prevD.getMonth() + 1).padStart(2, '0')}-${String(prevD.getDate()).padStart(2, '0')}`;
-        if (emp.shifts[prevStr] === 'S') {
-            emp.shifts[dateStr] = 'NT';
-            continue;
-        }
-
-        // Try to assign Work if needed
-        if (assignedCount < asWorkCount) {
-             const candidateShift = Math.random() > 0.5 ? 'IT' : 'M';
-             emp.shifts[dateStr] = candidateShift;
-             
-             // Check constraints validation locally for this employee
-             // We check a window around today to see if this shift causes a violation (like 48h limit)
-             const violations = checkConstraints([emp], d, 1, serviceConfig); // Check just this day/window
-             const hasError = violations.some(v => v.severity === 'error');
-
-             if (hasError) {
-                 // Revert to NT if violation
-                 emp.shifts[dateStr] = 'NT';
-             } else {
-                 assignedCount++;
-             }
-        } else {
-             emp.shifts[dateStr] = 'NT';
-        }
-    }
-
-    // --- CADRES & MANAGERS ---
-    cadresAndManagers.forEach(c => {
-        if (['CA', 'FO', 'NT'].includes(c.shifts[dateStr])) return;
-
-        // Standard Mon-Fri work week if service is open
-        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-            c.shifts[dateStr] = 'IT';
-        } else {
-            c.shifts[dateStr] = 'RH';
-        }
-    });
   }
-  
+
   return employees;
 };
