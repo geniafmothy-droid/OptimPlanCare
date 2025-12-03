@@ -55,6 +55,7 @@ export const SHIFT_TYPES: Record<ShiftCode, ShiftDefinition> = {
   'DP': { code: 'DP', label: 'DP', color: 'bg-pink-200', textColor: 'text-pink-900', description: 'Déplacement', isWork: true, startHour: 8.0, endHour: 16.0 },
   'M': { code: 'M', label: 'M', color: 'bg-sky-200', textColor: 'text-sky-900', description: 'Matin (Générique)', isWork: true, startHour: 7.0, endHour: 14.5 },
   'F': { code: 'F', label: 'F', color: 'bg-fuchsia-200', textColor: 'text-fuchsia-900', description: 'Férié', isWork: false },
+  'RTT': { code: 'RTT', label: 'RTT', color: 'bg-emerald-200', textColor: 'text-emerald-900', description: 'Réduction Temps de Travail', isWork: false },
   'OFF': { code: 'OFF', label: '', color: 'bg-white', textColor: 'text-gray-300', description: 'Vide', isWork: false },
 };
 
@@ -71,6 +72,7 @@ export const SHIFT_HOURS: Record<string, number> = {
   'RC': 0,
   'HS': 0,
   'F': 0,
+  'RTT': 0,
   'M': 7,     // Estimation pour Matin standard si utilisé
   'DP': 7,
   'ETP': 0,

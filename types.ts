@@ -1,7 +1,7 @@
 
 
 export type ShiftCode = 
-  | 'M' | 'T5' | 'T6' | 'S' | 'IT' | 'NT' | 'CA' | 'RH' | 'FO' | 'ETP' | 'DP' | 'OFF' | 'RC' | 'HS' | 'F';
+  | 'M' | 'T5' | 'T6' | 'S' | 'IT' | 'NT' | 'CA' | 'RH' | 'FO' | 'ETP' | 'DP' | 'OFF' | 'RC' | 'HS' | 'F' | 'RTT';
 
 export type UserRole = 'ADMIN' | 'DIRECTOR' | 'CADRE' | 'INFIRMIER' | 'AIDE_SOIGNANT' | 'MANAGER' | 'CADRE_SUP';
 

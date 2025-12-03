@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Moon, Sun, Server, Activity } from 'lucide-react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Moon, Sun, Server, Activity, Flag } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
 import { StaffingSummary } from './components/StaffingSummary';
 import { StatsPanel } from './components/StatsPanel';
@@ -47,7 +47,7 @@ function App() {
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [skillFilter, setSkillFilter] = useState<string>('all');
   const [showQualifiedOnly, setShowQualifiedOnly] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'present' | 'absent'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'present' | 'absent' | 'holiday'>('all');
   const [absenceTypeFilter, setAbsenceTypeFilter] = useState<string>('all');
   const [highlightNight, setHighlightNight] = useState(false);
 
@@ -315,6 +315,7 @@ function App() {
         let absenceTypeMatch = true;
         if (statusFilter !== 'all' || absenceTypeFilter !== 'all') {
             let hasWork = false;
+            let hasHolidayShift = false;
             let hasSpecificAbsence = false;
             for (let i = 0; i < gridDuration; i++) {
                 const d = new Date(gridStartDate);
@@ -323,11 +324,13 @@ function App() {
                 const code = emp.shifts[dateStr];
                 if (code) {
                     if (SHIFT_TYPES[code]?.isWork) hasWork = true;
+                    if (code === 'F') hasHolidayShift = true;
                     if (code === absenceTypeFilter) hasSpecificAbsence = true;
                 }
             }
             if (statusFilter === 'present') statusMatch = hasWork;
             else if (statusFilter === 'absent') statusMatch = !hasWork;
+            else if (statusFilter === 'holiday') statusMatch = hasHolidayShift;
             
             if (absenceTypeFilter !== 'all') absenceTypeMatch = hasSpecificAbsence;
         }
@@ -705,7 +708,7 @@ function App() {
 
               <div>
                   <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3">Statut (Période)</h3>
-                  <div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-lg">
+                  <div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-lg gap-1">
                       <button 
                           onClick={() => setStatusFilter('all')} 
                           className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${statusFilter === 'all' ? 'bg-white dark:bg-slate-600 shadow text-blue-600 dark:text-blue-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}
@@ -725,6 +728,13 @@ function App() {
                       >
                           <UserX className="w-3 h-3" />
                           <span className="hidden sm:inline">Absents</span>
+                      </button>
+                      <button 
+                          onClick={() => setStatusFilter('holiday')} 
+                          className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1 ${statusFilter === 'holiday' ? 'bg-white dark:bg-slate-600 shadow text-fuchsia-600 dark:text-fuchsia-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                      >
+                          <Flag className="w-3 h-3" />
+                          <span className="hidden sm:inline">Fériés</span>
                       </button>
                   </div>
               </div>
