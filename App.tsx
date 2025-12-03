@@ -690,9 +690,9 @@ function App() {
                       {activeServiceId 
                          ? (activeService?.config?.requiredSkills || []).map(code => {
                              const sk = skillsList.find(s => s.code === code);
-                             return <option key={code} value={code}>{sk ? sk.label : code}</option>;
+                             return <option key={code} value={code}>{sk ? `${code} - ${sk.label}` : code}</option>;
                          })
-                         : skillsList.map(s => <option key={s.id} value={s.code}>{s.label}</option>)
+                         : skillsList.map(s => <option key={s.id} value={s.code}>{s.code} - {s.label}</option>)
                       }
                   </select>
                   <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 cursor-pointer">

@@ -44,13 +44,16 @@ export const LeaveCalendar: React.FC<LeaveCalendarProps> = ({ employees, startDa
                             <th 
                                 key={d.dateStr} 
                                 title={d.holiday || undefined}
-                                className={`p-1 border-r border-b border-slate-200 text-center min-w-[30px] ${
+                                className={`p-1 border-r border-b border-slate-200 text-center min-w-[30px] relative ${
                                     d.holiday ? 'bg-red-50 text-red-700 font-bold' :
                                     d.isWeekend ? 'bg-slate-100 text-slate-600' : 'bg-white text-slate-800'
                                 }`}
                             >
                                 <div>{d.dayNum}</div>
                                 <div className="text-[9px] uppercase">{d.dayName}</div>
+                                {d.holiday && (
+                                    <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-red-500 rounded-full" title={d.holiday}></div>
+                                )}
                             </th>
                         ))}
                     </tr>

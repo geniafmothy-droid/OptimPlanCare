@@ -30,6 +30,7 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
         dayNum: d.getDate(),
         dayName: d.toLocaleDateString('fr-FR', { weekday: 'short' }).slice(0, 1),
         isWeekend: d.getDay() === 0 || d.getDay() === 6,
+        dayIndex: d.getDay(), // 0=Sun, 1=Mon...
         holiday: getHolidayName(d)
       });
     }
@@ -39,6 +40,30 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
   // Define Lists explicitly
   const WORK_CODES: ShiftCode[] = ['IT', 'T5', 'T6', 'S', 'M', 'DP', 'FO'];
   const ABSENCE_CODES: ShiftCode[] = ['RH', 'CA', 'RTT', 'HS', 'RC', 'NT', 'F'];
+
+  const getTargetClass = (code: ShiftCode, count: number, isWeekend: boolean, dayIndex: number, isHoliday: boolean) => {
+      // Règles Dialyse : Pas d'alerte le WE ou Férié sauf pour le Soir (S) si critique
+      if (isWeekend || isHoliday) return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
+
+      const ALERT_CLASS = 'bg-red-100 text-red-700 font-bold border border-red-300';
+
+      // 4 IT
+      if (code === 'IT' && count < 4) return ALERT_CLASS;
+      
+      // 1 T5
+      if (code === 'T5' && count < 1) return ALERT_CLASS;
+      
+      // 1 T6
+      if (code === 'T6' && count < 1) return ALERT_CLASS;
+
+      // 2 S (Lundi, Mercredi, Vendredi)
+      // dayIndex: 1=Mon, 3=Wed, 5=Fri
+      if (code === 'S' && [1, 3, 5].includes(dayIndex)) {
+          if (count < 2) return ALERT_CLASS;
+      }
+
+      return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
+  };
 
   const renderTable = (title: string, icon: React.ReactNode, codes: ShiftCode[], isWorkTable: boolean) => (
     <div className="mb-6 last:mb-0">
@@ -83,14 +108,15 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
                                         return emp.shifts[d.dateStr] === code ? acc + 1 : acc;
                                     }, 0);
                                     
-                                    // Highlight logic for specific rules
-                                    let bgClass = '';
-                                    if (code === 'IT' && count < 4 && !d.isWeekend && !d.holiday) bgClass = 'bg-red-50 text-red-700 font-bold';
-                                    else if (count === 0) bgClass = 'text-slate-300';
-                                    else bgClass = 'text-slate-700 font-medium';
+                                    let cellClass = '';
+                                    if (isWorkTable) {
+                                        cellClass = getTargetClass(code, count, d.isWeekend, d.dayIndex, !!d.holiday);
+                                    } else {
+                                        cellClass = count > 0 ? 'text-slate-700 font-medium' : 'text-slate-300';
+                                    }
 
                                     return (
-                                        <td key={`${code}-${d.dateStr}`} className={`p-1 border-r border-b border-slate-200 text-center ${bgClass}`}>
+                                        <td key={`${code}-${d.dateStr}`} className={`p-1 border-r border-b border-slate-200 text-center ${cellClass}`}>
                                             {count > 0 ? count : '-'}
                                         </td>
                                     );
