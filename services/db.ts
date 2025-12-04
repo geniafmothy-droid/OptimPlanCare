@@ -129,13 +129,38 @@ export const fetchSkills = async (): Promise<Skill[]> => {
         .select('*')
         .order('code');
     if (error) return []; 
-    return data || [];
+    
+    return data?.map((s: any) => ({
+        id: s.id,
+        code: s.code,
+        label: s.label,
+        defaultDuration: s.default_duration,
+        defaultBreak: s.default_break
+    })) || [];
 };
 
-export const createSkill = async (code: string, label: string) => {
+export const createSkill = async (code: string, label: string, defaultDuration?: number, defaultBreak?: number) => {
     const { error } = await supabase
         .from('skills')
-        .insert([{ code, label }]);
+        .insert([{ 
+            code, 
+            label,
+            default_duration: defaultDuration,
+            default_break: defaultBreak
+        }]);
+    if (error) throw new Error(error.message);
+};
+
+export const updateSkill = async (id: string, code: string, label: string, defaultDuration?: number, defaultBreak?: number) => {
+    const { error } = await supabase
+        .from('skills')
+        .update({ 
+            code, 
+            label,
+            default_duration: defaultDuration,
+            default_break: defaultBreak
+        })
+        .eq('id', id);
     if (error) throw new Error(error.message);
 };
 

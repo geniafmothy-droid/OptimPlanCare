@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Heart, AlertTriangle, Moon, Sun } from 'lucide-react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Heart, AlertTriangle, Moon, Sun, Flag } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
 import { StaffingSummary } from './components/StaffingSummary';
 import { StatsPanel } from './components/StatsPanel';
@@ -24,6 +24,7 @@ import { Toast } from './components/Toast';
 import { checkConstraints } from './utils/validation';
 import * as db from './services/db';
 import * as notifications from './utils/notifications';
+import { getHolidayName } from './utils/holidays';
 
 function App() {
   // --- AUTH STATE ---
@@ -52,7 +53,7 @@ function App() {
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [skillFilter, setSkillFilter] = useState<string>('all');
   const [showQualifiedOnly, setShowQualifiedOnly] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'present' | 'absent'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'present' | 'absent' | 'holiday'>('all');
   const [absenceTypeFilter, setAbsenceTypeFilter] = useState<string>('all');
 
   // Sidebar Mobile State
@@ -310,12 +311,19 @@ function App() {
             let hasWork = false;
             let hasSpecificAbsence = false;
             let hasAnyAbsence = false;
+            let hasWorkOnHoliday = false;
 
             for (let i = 0; i < gridDuration; i++) {
                 const d = new Date(gridStartDate);
                 d.setDate(d.getDate() + i);
                 const dateStr = d.toISOString().split('T')[0];
                 const code = emp.shifts[dateStr];
+                
+                // Holiday check
+                if (getHolidayName(d)) {
+                    if (code && SHIFT_TYPES[code]?.isWork) hasWorkOnHoliday = true;
+                }
+
                 if (code && code !== 'OFF') {
                     const isWork = SHIFT_TYPES[code]?.isWork;
                     if (isWork) hasWork = true;
@@ -325,7 +333,8 @@ function App() {
                 }
             }
             if (statusFilter === 'present' && !hasWork) statusMatch = false;
-            if (statusFilter === 'absent' && !hasAnyAbsence) statusMatch = false; // "Absent" means "Has at least one absence in period" or "Is fully absent"? Usually "Present" filter removes fully absent people.
+            if (statusFilter === 'absent' && !hasAnyAbsence) statusMatch = false; 
+            if (statusFilter === 'holiday' && !hasWorkOnHoliday) statusMatch = false;
             
             if (absenceTypeFilter !== 'all' && !hasSpecificAbsence) absenceTypeMatch = false;
         }
@@ -546,7 +555,7 @@ function App() {
                       <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><CheckSquare className="w-3 h-3" /> Compétences</h3>
                       <select value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} className="w-full p-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-sm mb-2 dark:text-slate-200">
                           <option value="all">Toutes</option>
-                          {skillsList.map(s => <option key={s.id} value={s.code}>{s.label}</option>)}
+                          {skillsList.map(s => <option key={s.id} value={s.code}>{s.code} - {s.label}</option>)}
                       </select>
                       <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer">
                           <input type="checkbox" checked={showQualifiedOnly} onChange={(e) => setShowQualifiedOnly(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
@@ -557,10 +566,19 @@ function App() {
                   {/* STATUT */}
                   <div>
                       <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Statut (Période)</h3>
-                      <div className="flex bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
-                          <button onClick={() => setStatusFilter('all')} className={`flex-1 py-1 text-xs rounded-md ${statusFilter === 'all' ? 'bg-white dark:bg-slate-600 shadow text-blue-600' : 'text-slate-500 dark:text-slate-400'}`}>Tous</button>
-                          <button onClick={() => setStatusFilter('present')} className={`flex-1 py-1 text-xs rounded-md ${statusFilter === 'present' ? 'bg-white dark:bg-slate-600 shadow text-green-600' : 'text-slate-500 dark:text-slate-400'}`}>Présents</button>
-                          <button onClick={() => setStatusFilter('absent')} className={`flex-1 py-1 text-xs rounded-md ${statusFilter === 'absent' ? 'bg-white dark:bg-slate-600 shadow text-red-600' : 'text-slate-500 dark:text-slate-400'}`}>Absents</button>
+                      <div className="flex flex-wrap gap-1">
+                          <button onClick={() => setStatusFilter('all')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'all' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'}`}>
+                              <Users className="w-3 h-3" /> Tous
+                          </button>
+                          <button onClick={() => setStatusFilter('present')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'present' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'}`}>
+                              <UserCheck className="w-3 h-3" /> Présents
+                          </button>
+                          <button onClick={() => setStatusFilter('absent')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'absent' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'}`}>
+                              <UserX className="w-3 h-3" /> Absents
+                          </button>
+                          <button onClick={() => setStatusFilter('holiday')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'holiday' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'}`}>
+                              <Flag className="w-3 h-3" /> Fériés
+                          </button>
                       </div>
                   </div>
 
@@ -568,9 +586,9 @@ function App() {
                   <div>
                       <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Type d'absence</h3>
                       <div className="flex flex-wrap gap-1">
-                          <button onClick={() => setAbsenceTypeFilter('all')} className={`px-2 py-1 rounded-full text-xs border ${absenceTypeFilter === 'all' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}>Tous</button>
+                          <button onClick={() => setAbsenceTypeFilter('all')} className={`px-2 py-1 rounded-full text-xs border ${absenceTypeFilter === 'all' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'}`}>Tous</button>
                           {['CA', 'RTT', 'NT', 'RH', 'RC', 'HS', 'FO', 'F'].map(code => (
-                              <button key={code} onClick={() => setAbsenceTypeFilter(code)} className={`px-2 py-1 rounded-full text-xs border ${absenceTypeFilter === code ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'}`}>{code}</button>
+                              <button key={code} onClick={() => setAbsenceTypeFilter(code)} className={`px-2 py-1 rounded-full text-xs border ${absenceTypeFilter === code ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'}`}>{code}</button>
                           ))}
                       </div>
                   </div>
