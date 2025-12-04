@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Employee, LeaveCounters, Skill, UserRole } from '../types';
 import { Plus, Search, Edit2, Trash2, Save, X, User, Shield, Briefcase, Calculator, Tag, Percent } from 'lucide-react';
@@ -161,6 +162,7 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
                         <option value="Aide-Soignant">Aide-Soignant</option>
                         <option value="Cadre">Cadre</option>
                         <option value="Directeur">Directeur</option>
+                        <option value="Agent Administratif">Agent Administratif</option>
                     </select>
                 </div>
             )}
@@ -269,6 +271,7 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
                                                 <option value="Manager">Manager</option>
                                                 <option value="Directeur">Directeur</option>
                                                 <option value="Intérimaire">Intérimaire</option>
+                                                <option value="Agent Administratif">Agent Administratif</option>
                                             </select>
                                         </div>
                                     </div>

@@ -2,7 +2,7 @@
 export type ShiftCode = 
   | 'M' | 'T5' | 'T6' | 'S' | 'IT' | 'NT' | 'CA' | 'RH' | 'FO' | 'ETP' | 'DP' | 'OFF' | 'RC' | 'HS' | 'F' | 'RTT' | 'INT'; 
 
-export type UserRole = 'ADMIN' | 'DIRECTOR' | 'CADRE' | 'INFIRMIER' | 'AIDE_SOIGNANT' | 'MANAGER' | 'CADRE_SUP';
+export type UserRole = 'ADMIN' | 'DIRECTOR' | 'CADRE' | 'INFIRMIER' | 'AIDE_SOIGNANT' | 'MANAGER' | 'CADRE_SUP' | 'AGENT_ADMIN';
 
 export interface ShiftDefinition {
   code: ShiftCode;
@@ -97,7 +97,7 @@ export interface Employee {
   id: string;
   matricule: string;
   name: string;
-  role: 'Infirmier' | 'Aide-Soignant' | 'Cadre' | 'Manager' | 'Directeur' | 'Intérimaire'; 
+  role: 'Infirmier' | 'Aide-Soignant' | 'Cadre' | 'Manager' | 'Directeur' | 'Intérimaire' | 'Agent Administratif'; 
   systemRole?: UserRole; 
   fte: number; 
   leaveBalance: number; 
@@ -171,4 +171,29 @@ export interface CounterRule {
     value: number; 
     unit: 'EUROS' | 'HOURS' | 'PERCENT';
     condition: string; 
+}
+
+export interface RoleDefinition {
+    id: string;
+    label: string;
+    description: string;
+    tasks: string[];
+    accessLevel: UserRole;
+}
+
+export interface SurveyResult {
+    period: '1_MONTH' | '3_MONTHS' | '6_MONTHS' | '1_YEAR';
+    score: number; // 0-100
+    respondents: number;
+    comments: string[];
+}
+
+export interface HazardEvent {
+    id: string;
+    date: string;
+    type: 'ABSENCE_IMPREVUE' | 'SURCROIT_ACTIVITE';
+    description: string;
+    status: 'OPEN' | 'RESOLVED';
+    impactedEmployeeId?: string; // If absence
+    resolution?: string;
 }
