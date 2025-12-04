@@ -25,6 +25,13 @@ export interface Skill {
   defaultBreak?: number;
 }
 
+export interface SkillRequirement {
+    skillCode: string;
+    minStaff: number; // Effectif cible minimum
+    startTime?: string; // "06:30"
+    endTime?: string; // "18:30"
+}
+
 export interface LeaveCounterComplex {
     taken: number;
     allowed: number;
@@ -133,7 +140,8 @@ export interface EquityConfig {
 
 export interface ServiceConfig {
     openDays: number[]; 
-    requiredSkills: string[]; 
+    requiredSkills: string[]; // Kept for backward compatibility or simple lists
+    skillRequirements?: SkillRequirement[]; // Detailed requirements
     shiftTargets?: Record<number, Record<string, number>>; 
     equityRules?: EquityConfig;
     maxConsecutiveDays?: number; // New rule

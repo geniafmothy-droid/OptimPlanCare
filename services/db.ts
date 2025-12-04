@@ -567,7 +567,7 @@ export const fetchWorkPreferences = async (): Promise<WorkPreference[]> => {
         .select('*');
     
     if (error) {
-        return [];
+        throw new Error(error.message);
     }
 
     return data.map((p: any) => ({

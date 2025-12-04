@@ -1,13 +1,8 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Employee, ShiftCode, LeaveData, ViewMode, LeaveCounters, LeaveRequestWorkflow, UserRole, AppNotification, LeaveRequestStatus, ServiceAssignment, WorkPreference } from '../types';
-import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, Trash2, Save, Send, XCircle, Check, AlertOctagon, Edit2, X, Heart, FolderClock, ChevronDown, Clock } from 'lucide-react';
+import { Employee, ShiftCode, LeaveRequestWorkflow, UserRole, ServiceAssignment, WorkPreference, LeaveRequestStatus } from '../types';
+import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, Trash2, Save, Send, XCircle, Check, AlertOctagon, Edit2, X, Heart, FolderClock, ChevronDown, Clock, Database, Lock } from 'lucide-react';
 import * as db from '../services/db';
-import * as notifications from '../utils/notifications';
-import { parseLeaveCSV } from '../utils/csvImport';
-import { LeaveCalendar } from './LeaveCalendar';
-import { checkConstraints } from '../utils/validation';
-import { Toast } from './Toast';
 import { SHIFT_TYPES } from '../constants';
 
 interface LeaveManagerProps {
@@ -24,7 +19,8 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
 
     const [mode, setMode] = useState<'my_requests' | 'desiderata' | 'validation' | 'counters' | 'calendar'>(defaultMode);
     const [isLoading, setIsLoading] = useState(false);
-    const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' | 'warning' } | null>(null);
+    const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' | 'warning' | 'info' } | null>(null);
+    const [schemaError, setSchemaError] = useState<{ msg: string, type: 'COLUMN' | 'RLS' } | null>(null);
 
     // Workflow Data
     const [requests, setRequests] = useState<LeaveRequestWorkflow[]>([]);
@@ -50,30 +46,41 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
     const [validationModal, setValidationModal] = useState<{ isOpen: boolean, req: LeaveRequestWorkflow | null, isApprove: boolean } | null>(null);
     const [refusalReason, setRefusalReason] = useState('');
 
-    // History Accordion State
-    const [expandedYears, setExpandedYears] = useState<number[]>([]);
-    const [expandedMonths, setExpandedMonths] = useState<string[]>([]); // Format "YYYY-MM"
-
-    // Counters State
-    const [selectedEmpId, setSelectedEmpId] = useState(currentUser.employeeId || '');
-
-    // Calendar State
-    const [calViewMode, setCalViewMode] = useState<ViewMode>('month');
-    const [calDate, setCalDate] = useState(new Date());
-
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         loadData();
     }, []);
 
+    const checkForDbErrors = (e: any) => {
+        const errMsg = e.message || JSON.stringify(e);
+        console.error("DB Error detected:", errMsg);
+        
+        if (errMsg.includes('recurring_days') || (errMsg.includes('column') && errMsg.includes('work_preferences'))) {
+            setSchemaError({ msg: errMsg, type: 'COLUMN' });
+            return true;
+        }
+        if (errMsg.includes('row-level security') || errMsg.includes('policy')) {
+            setSchemaError({ msg: errMsg, type: 'RLS' });
+            return true;
+        }
+        return false;
+    };
+
     const loadData = async () => {
-        const [reqs, prefs] = await Promise.all([
-            db.fetchLeaveRequests(),
-            db.fetchWorkPreferences()
-        ]);
-        setRequests(reqs);
-        setPreferences(prefs);
+        try {
+            const [reqs, prefs] = await Promise.all([
+                db.fetchLeaveRequests(),
+                db.fetchWorkPreferences()
+            ]);
+            setRequests(reqs);
+            setPreferences(prefs);
+            setSchemaError(null);
+        } catch (e: any) {
+            if (!checkForDbErrors(e)) {
+                setMessage({ text: "Erreur chargement données. Vérifiez la console.", type: 'error' });
+            }
+        }
     };
 
     // Filtered Employees
@@ -151,7 +158,22 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
 
     const handleCreateOrUpdate = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!currentUser.employeeId || !startDate || !endDate) return;
+        
+        if (!startDate || !endDate) {
+             setMessage({ text: "Veuillez sélectionner les dates de début et de fin.", type: 'warning' });
+             return;
+        }
+
+        if (!currentUser.employeeId) {
+             setMessage({ text: "Erreur : Compte utilisateur non lié à une fiche employé.", type: 'error' });
+             return;
+        }
+
+        const me = employees.find(e => e.id === currentUser.employeeId);
+        if (!me) {
+             setMessage({ text: "Erreur : Fiche employé introuvable. Veuillez contacter l'administrateur.", type: 'error' });
+             return;
+        }
 
         const isSickLeave = leaveType === 'NT';
         if (!isSickLeave && conflictWarning) {
@@ -162,7 +184,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
 
         setIsLoading(true);
         try {
-            const me = employees.find(e => e.id === currentUser.employeeId);
             let initialStatus: LeaveRequestStatus = 'PENDING_CADRE';
             let recipientRole: UserRole | 'DG' = 'CADRE';
             
@@ -170,13 +191,13 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                 initialStatus = 'VALIDATED'; 
                 recipientRole = 'CADRE'; 
             } else {
-                if (me?.role === 'Infirmier' || me?.role === 'Aide-Soignant') {
+                if (me.role === 'Infirmier' || me.role === 'Aide-Soignant') {
                     initialStatus = 'PENDING_CADRE';
                     recipientRole = 'CADRE';
-                } else if (me?.role === 'Cadre' || me?.role === 'Manager') {
+                } else if (me.role === 'Cadre' || me.role === 'Manager') {
                     initialStatus = 'PENDING_DIRECTOR';
                     recipientRole = 'DIRECTOR';
-                } else if (me?.role === 'Directeur') {
+                } else if (me.role === 'Directeur') {
                     initialStatus = 'PENDING_DG';
                     recipientRole = 'DG';
                 }
@@ -189,11 +210,11 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                     endDate,
                     status: initialStatus
                 });
-                setMessage({ text: "Demande mise à jour.", type: 'success' });
+                setMessage({ text: "Demande mise à jour avec succès.", type: 'success' });
             } else {
                 const req = await db.createLeaveRequest({
-                    employeeId: me!.id,
-                    employeeName: me!.name,
+                    employeeId: me.id,
+                    employeeName: me.name,
                     type: leaveType as ShiftCode,
                     startDate,
                     endDate,
@@ -202,15 +223,15 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                 await db.createNotification({
                     recipientRole: recipientRole === 'DG' ? 'ADMIN' : recipientRole,
                     title: isSickLeave ? 'Arrêt Maladie' : 'Demande de Congés',
-                    message: `${me!.name} : ${leaveType} du ${startDate} au ${endDate}`,
+                    message: `${me.name} : ${leaveType} du ${startDate} au ${endDate}`,
                     type: isSickLeave ? 'warning' : 'info',
                     actionType: isSickLeave ? undefined : 'LEAVE_VALIDATION', 
                     entityId: req.id
                 });
 
                 if (isSickLeave) {
-                    await db.saveLeaveRange(me!.id, startDate, endDate, 'NT');
-                    setMessage({ text: "Arrêt maladie enregistré.", type: 'success' });
+                    await db.saveLeaveRange(me.id, startDate, endDate, 'NT');
+                    setMessage({ text: "Arrêt maladie enregistré et planning mis à jour.", type: 'success' });
                 } else {
                     setMessage({ text: "Demande envoyée pour validation.", type: 'success' });
                 }
@@ -223,7 +244,9 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
             loadData();
             onReload(); 
         } catch (err: any) {
-            setMessage({ text: err.message, type: 'error' });
+            if (!checkForDbErrors(err)) {
+                setMessage({ text: `Erreur: ${err.message}`, type: 'error' });
+            }
         } finally {
             setIsLoading(false);
         }
@@ -253,7 +276,9 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
             setPrefDays([]);
             loadData();
         } catch (e: any) {
-            setMessage({ text: e.message, type: 'error' });
+            if (!checkForDbErrors(e)) {
+                setMessage({ text: e.message, type: 'error' });
+            }
         } finally {
             setIsLoading(false);
         }
@@ -364,7 +389,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
         reader.onload = async (evt) => {
             const text = evt.target?.result as string;
             if (text) {
-                setMessage({ text: "Import simulé.", type: 'success' });
+                setMessage({ text: "Import simulé (Fonctionnalité complète requiert Backend).", type: 'info' });
             }
         };
         reader.readAsText(file);
@@ -382,8 +407,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
 
     const prefsToValidate = preferences.filter(p => p.status === 'PENDING' && (currentUser.role === 'CADRE' || currentUser.role === 'ADMIN'));
     
-    // History grouping logic skipped for brevity, keeping existing structure
-
     // DAYS UI HELPER
     const daysOfWeek = [
         { id: 1, label: 'Lun' }, { id: 2, label: 'Mar' }, { id: 3, label: 'Mer' }, { id: 4, label: 'Jeu' },
@@ -448,6 +471,37 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                 <input type="file" ref={fileInputRef} onChange={handleImportCSV} className="hidden" accept=".csv" />
             </div>
 
+            {/* SQL FIX ALERT */}
+            {schemaError && (
+                <div className="mb-6 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl p-4 shadow-sm animate-pulse">
+                    <div className="flex items-start gap-3">
+                        <div className="mt-1 flex-shrink-0 text-red-600 dark:text-red-500">
+                            {schemaError.type === 'COLUMN' ? <Database className="w-6 h-6" /> : <Lock className="w-6 h-6" />}
+                        </div>
+                        <div className="flex-1">
+                            <h3 className="font-bold text-red-800 dark:text-red-400 mb-1 flex items-center gap-2">
+                                {schemaError.type === 'COLUMN' ? 'Configuration Base de Données Incomplète' : 'Problème de Droits (Row-Level Security)'}
+                            </h3>
+                            <p className="text-sm text-red-700 dark:text-red-300 mb-3">
+                                {schemaError.type === 'COLUMN' 
+                                    ? `Une colonne manquante empêche le fonctionnement des préférences.` 
+                                    : `Les règles de sécurité de la base de données bloquent l'écriture.`}
+                                <br/>Veuillez exécuter la commande suivante dans l'éditeur SQL de Supabase :
+                            </p>
+                            <div className="relative">
+                                <pre className="bg-slate-800 text-green-400 p-3 rounded font-mono text-xs overflow-x-auto select-all border border-slate-600">
+                                    {schemaError.type === 'COLUMN' 
+                                        ? `ALTER TABLE public.work_preferences ADD COLUMN IF NOT EXISTS recurring_days integer[];`
+                                        : `CREATE POLICY "Allow all operations" ON public.work_preferences FOR ALL USING (true) WITH CHECK (true);`
+                                    }
+                                </pre>
+                            </div>
+                        </div>
+                        <button onClick={() => setSchemaError(null)} className="text-red-400 hover:text-red-600"><X className="w-5 h-5"/></button>
+                    </div>
+                </div>
+            )}
+
             {/* TABS */}
             <div className="flex gap-4 mb-6 border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
                 <button onClick={() => setMode('my_requests')} className={`pb-3 px-4 text-sm font-medium border-b-2 whitespace-nowrap ${mode === 'my_requests' ? 'border-blue-600 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 dark:text-slate-400'}`}>
@@ -508,15 +562,15 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                                     </div>
                                 </div>
                                 {conflictWarning && leaveType !== 'NT' && <div className="bg-yellow-50 text-yellow-800 text-xs p-2 rounded">{conflictWarning}</div>}
-                                <button type="submit" disabled={isLoading} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 flex justify-center gap-2 items-center font-medium">
-                                    {isLoading && <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>}
+                                <button type="submit" disabled={isLoading} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 flex justify-center gap-2 items-center font-medium shadow-sm transition-colors">
+                                    {isLoading ? <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span> : <Send className="w-4 h-4"/>}
                                     {editingRequestId ? 'Mettre à jour' : 'Envoyer'}
                                 </button>
                             </form>
                         </div>
                         <div>
                             <h3 className="font-bold text-lg mb-4 text-slate-800 dark:text-white">Historique</h3>
-                            {myRequests.map(req => {
+                            {myRequests.length === 0 ? <p className="text-slate-400 italic">Aucune demande.</p> : myRequests.map(req => {
                                 const isPending = req.status.startsWith('PENDING');
                                 return (
                                     <div key={req.id} className="border border-slate-200 dark:border-slate-700 p-3 rounded-lg flex flex-col mb-2 bg-slate-50 dark:bg-slate-900/50">
@@ -534,6 +588,12 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, onReload,
                                                     req.status === 'PENDING_DIRECTOR' ? 'En attente Direction' : 
                                                     req.status === 'PENDING_DG' ? 'En attente DG' : req.status}
                                                 </span>
+                                                {isPending && (
+                                                    <div className="flex gap-2">
+                                                        <button onClick={() => handleEditRequest(req)} className="text-blue-500 hover:underline text-xs"><Edit2 className="w-3 h-3"/></button>
+                                                        <button onClick={() => handleDeleteRequest(req.id)} className="text-red-500 hover:underline text-xs"><Trash2 className="w-3 h-3"/></button>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>

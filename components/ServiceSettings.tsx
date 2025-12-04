@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { Service, Skill, Employee, ServiceAssignment, EquityConfig } from '../types';
-import { Save, Loader2, CheckCircle2, ShieldCheck, Users, Plus, Trash2, Store, Search, XCircle, AlertTriangle, X, Database, ChevronDown, ChevronUp, Pencil } from 'lucide-react';
+import { Service, Skill, Employee, ServiceAssignment, EquityConfig, SkillRequirement } from '../types';
+import { Save, Loader2, CheckCircle2, ShieldCheck, Users, Plus, Trash2, Store, Search, XCircle, AlertTriangle, X, Database, ChevronDown, ChevronUp, Pencil, Clock } from 'lucide-react';
 import * as db from '../services/db';
 
 interface ServiceSettingsProps {
@@ -10,7 +10,8 @@ interface ServiceSettingsProps {
 }
 
 const SQL_SCHEMA = `
-CREATE TABLE public.service_assignments (
+-- 1. SERVICE ASSIGNMENTS
+CREATE TABLE IF NOT EXISTS public.service_assignments (
     id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     service_id uuid REFERENCES public.services(id) ON DELETE CASCADE,
@@ -18,9 +19,19 @@ CREATE TABLE public.service_assignments (
     start_date date NOT NULL,
     end_date date
 );
--- Constraint to prevent duplicates
+ALTER TABLE ONLY public.service_assignments
+    DROP CONSTRAINT IF EXISTS service_assignments_service_id_employee_id_key;
 ALTER TABLE ONLY public.service_assignments
     ADD CONSTRAINT service_assignments_service_id_employee_id_key UNIQUE (service_id, employee_id, start_date);
+
+-- 2. WORK PREFERENCES FIX (Missing Column)
+ALTER TABLE public.work_preferences 
+ADD COLUMN IF NOT EXISTS recurring_days integer[];
+
+-- 3. WORK PREFERENCES RLS (Security)
+ALTER TABLE public.work_preferences ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all operations" ON public.work_preferences
+FOR ALL USING (true) WITH CHECK (true);
 `;
 
 export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) => {
@@ -37,7 +48,8 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) =>
     // Config State
     const [editName, setEditName] = useState('');
     const [openDays, setOpenDays] = useState<number[]>([]);
-    const [requiredSkills, setRequiredSkills] = useState<string[]>([]);
+    const [requiredSkills, setRequiredSkills] = useState<string[]>([]); // Simple list (legacy/compat)
+    const [skillRequirements, setSkillRequirements] = useState<SkillRequirement[]>([]); // Detailed list
     
     // Equity State
     const [equityRules, setEquityRules] = useState<EquityConfig>({
@@ -74,6 +86,7 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) =>
                 setEditName(svc.name);
                 setOpenDays(svc.config.openDays || [1,2,3,4,5,6]);
                 setRequiredSkills(svc.config.requiredSkills || []);
+                setSkillRequirements(svc.config.skillRequirements || []);
                 setEquityRules(svc.config.equityRules || { targetSaturdayPercentage: 50, targetHolidayPercentage: 50, targetNightPercentage: 33 });
                 setMaxConsecutiveDays(svc.config.maxConsecutiveDays || 3);
                 setIsCreating(false);
@@ -131,7 +144,8 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) =>
             await db.updateService(selectedServiceId, editName);
             await db.updateServiceConfig(selectedServiceId, { 
                 openDays, 
-                requiredSkills,
+                requiredSkills, // Keep for legacy
+                skillRequirements, // Save detailed config
                 equityRules,
                 maxConsecutiveDays
             });
@@ -221,8 +235,30 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) =>
     const toggleDay = (dayId: number) => {
         setOpenDays(prev => prev.includes(dayId) ? prev.filter(d => d !== dayId) : [...prev, dayId]);
     };
+
+    // Toggle skill in both Simple List and Detailed List
     const toggleSkill = (skillCode: string) => {
+        // Update simple list
         setRequiredSkills(prev => prev.includes(skillCode) ? prev.filter(s => s !== skillCode) : [...prev, skillCode]);
+        
+        // Update detailed list
+        setSkillRequirements(prev => {
+            if (prev.some(req => req.skillCode === skillCode)) {
+                return prev.filter(req => req.skillCode !== skillCode);
+            } else {
+                // Add default requirement
+                return [...prev, { skillCode, minStaff: 1, startTime: '08:00', endTime: '16:00' }];
+            }
+        });
+    };
+
+    const updateSkillReq = (skillCode: string, field: keyof SkillRequirement, value: string | number) => {
+        setSkillRequirements(prev => prev.map(req => {
+            if (req.skillCode === skillCode) {
+                return { ...req, [field]: value };
+            }
+            return req;
+        }));
     };
 
     return (
@@ -363,7 +399,7 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) =>
 
                             <div className="flex-1 overflow-y-auto p-8">
                                 {activeTab === 'config' && (
-                                    <div className="space-y-10 max-w-3xl">
+                                    <div className="space-y-10 max-w-4xl">
                                         <section>
                                             <div className="flex items-center gap-2 text-green-600 font-bold mb-4">
                                                 <CheckCircle2 className="w-5 h-5" /> Jours d'ouverture
@@ -376,19 +412,77 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) =>
                                         </section>
                                         <section>
                                             <div className="flex items-center gap-2 text-purple-700 font-bold mb-4">
-                                                <ShieldCheck className="w-5 h-5" /> Compétences Requises
+                                                <ShieldCheck className="w-5 h-5" /> Compétences & Amplitudes
                                             </div>
-                                            <div className="bg-slate-50 p-6 rounded-xl border border-slate-200">
-                                                <div className="flex flex-wrap gap-3">
-                                                    {availableSkills.map(s => {
-                                                        const isSelected = requiredSkills.includes(s.code);
-                                                        return (
-                                                            <button key={s.id} onClick={() => toggleSkill(s.code)} className={`px-4 py-1.5 rounded-full text-sm font-medium border flex items-center gap-2 transition-all ${isSelected ? 'bg-purple-100 text-purple-800 border-purple-200 shadow-sm' : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'}`}>
-                                                                {s.code} {isSelected && <CheckCircle2 className="w-3.5 h-3.5" />}
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
+                                            
+                                            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                                                <table className="w-full text-sm text-left">
+                                                    <thead className="bg-slate-50 text-slate-500 uppercase font-medium">
+                                                        <tr>
+                                                            <th className="p-3 w-10">Actif</th>
+                                                            <th className="p-3">Compétence</th>
+                                                            <th className="p-3 w-32">Effectif Min</th>
+                                                            <th className="p-3 w-40">Début</th>
+                                                            <th className="p-3 w-40">Fin</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100">
+                                                        {availableSkills.map(s => {
+                                                            const isSelected = requiredSkills.includes(s.code);
+                                                            const req = skillRequirements.find(r => r.skillCode === s.code);
+                                                            
+                                                            return (
+                                                                <tr key={s.id} className={isSelected ? 'bg-purple-50/50' : ''}>
+                                                                    <td className="p-3 text-center">
+                                                                        <input 
+                                                                            type="checkbox" 
+                                                                            checked={isSelected} 
+                                                                            onChange={() => toggleSkill(s.code)}
+                                                                            className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
+                                                                        />
+                                                                    </td>
+                                                                    <td className="p-3 font-medium text-slate-700">
+                                                                        {s.label} <span className="text-slate-400 text-xs">({s.code})</span>
+                                                                    </td>
+                                                                    <td className="p-3">
+                                                                        <input 
+                                                                            type="number" 
+                                                                            min="0"
+                                                                            disabled={!isSelected}
+                                                                            value={req?.minStaff || 0}
+                                                                            onChange={(e) => updateSkillReq(s.code, 'minStaff', parseInt(e.target.value))}
+                                                                            className="w-full p-1.5 border rounded text-center disabled:bg-slate-100 disabled:text-slate-400"
+                                                                        />
+                                                                    </td>
+                                                                    <td className="p-3">
+                                                                        <div className="relative">
+                                                                            <Clock className="w-3 h-3 text-slate-400 absolute left-2 top-2.5"/>
+                                                                            <input 
+                                                                                type="time" 
+                                                                                disabled={!isSelected}
+                                                                                value={req?.startTime || '00:00'}
+                                                                                onChange={(e) => updateSkillReq(s.code, 'startTime', e.target.value)}
+                                                                                className="w-full pl-6 p-1.5 border rounded text-xs disabled:bg-slate-100 disabled:text-slate-400"
+                                                                            />
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="p-3">
+                                                                        <div className="relative">
+                                                                            <Clock className="w-3 h-3 text-slate-400 absolute left-2 top-2.5"/>
+                                                                            <input 
+                                                                                type="time" 
+                                                                                disabled={!isSelected}
+                                                                                value={req?.endTime || '00:00'}
+                                                                                onChange={(e) => updateSkillReq(s.code, 'endTime', e.target.value)}
+                                                                                className="w-full pl-6 p-1.5 border rounded text-xs disabled:bg-slate-100 disabled:text-slate-400"
+                                                                            />
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
                                             </div>
                                         </section>
                                         <div className="flex justify-end pt-6">

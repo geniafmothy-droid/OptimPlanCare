@@ -61,6 +61,8 @@ function App() {
 
   // Sidebar Mobile State
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  // Sidebar Desktop Collapse State
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Modal States
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -516,104 +518,140 @@ function App() {
       </header>
       
       <div className="flex-1 flex overflow-hidden relative">
-        <aside className={`fixed lg:static inset-y-0 left-0 z-50 w-72 bg-slate-900 text-white border-r border-slate-700 flex flex-col overflow-y-auto transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'} no-print lg:shadow-none`}>
-          <nav className="p-4 space-y-2 border-b border-slate-700">
-            <button onClick={() => setActiveTab('planning')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'planning' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><Calendar className="w-5 h-5" /> {currentUser.role === 'INFIRMIER' || currentUser.role === 'AIDE_SOIGNANT' ? 'Mon Planning' : 'Planning Global'}</button>
+        <aside className={`fixed lg:static inset-y-0 left-0 z-50 bg-slate-900 text-white border-r border-slate-700 flex flex-col overflow-y-auto transition-all duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'} ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-72'} w-72 no-print lg:shadow-none`}>
+          
+          <div className="hidden lg:flex justify-end p-2 border-b border-slate-800">
+             <button onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
+                 {isSidebarCollapsed ? <ChevronRight className="w-5 h-5"/> : <ChevronLeft className="w-5 h-5"/>}
+             </button>
+          </div>
+
+          <nav className="p-2 space-y-2 border-b border-slate-700">
+            <button onClick={() => setActiveTab('planning')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'planning' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Planning" : ""}>
+                <Calendar className="w-5 h-5 flex-shrink-0" /> 
+                {!isSidebarCollapsed && <span>{currentUser.role === 'INFIRMIER' || currentUser.role === 'AIDE_SOIGNANT' ? 'Mon Planning' : 'Planning Global'}</span>}
+            </button>
+            
             {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP' || currentUser.role === 'MANAGER') && (
                 <>
-                <button onClick={() => setActiveTab('scenarios')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'scenarios' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><Wand2 className="w-5 h-5" /> Scénarios & IA</button>
-                <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><LayoutDashboard className="w-5 h-5" /> Carnet de Bord</button>
-                <button onClick={() => setActiveTab('attractivity')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'attractivity' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><Heart className="w-5 h-5" /> Attractivité & QVT</button>
-                <button onClick={() => setActiveTab('stats')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'stats' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><BarChart3 className="w-5 h-5" /> Statistiques</button>
-                <button onClick={() => setActiveTab('team')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'team' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><Users className="w-5 h-5" /> Équipe</button>
+                <button onClick={() => setActiveTab('scenarios')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'scenarios' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Scénarios" : ""}>
+                    <Wand2 className="w-5 h-5 flex-shrink-0" /> 
+                    {!isSidebarCollapsed && <span>Scénarios & IA</span>}
+                </button>
+                <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Tableau de bord" : ""}>
+                    <LayoutDashboard className="w-5 h-5 flex-shrink-0" /> 
+                    {!isSidebarCollapsed && <span>Carnet de Bord</span>}
+                </button>
+                <button onClick={() => setActiveTab('attractivity')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'attractivity' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Attractivité" : ""}>
+                    <Heart className="w-5 h-5 flex-shrink-0" /> 
+                    {!isSidebarCollapsed && <span>Attractivité & QVT</span>}
+                </button>
+                <button onClick={() => setActiveTab('stats')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'stats' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Statistiques" : ""}>
+                    <BarChart3 className="w-5 h-5 flex-shrink-0" /> 
+                    {!isSidebarCollapsed && <span>Statistiques</span>}
+                </button>
+                <button onClick={() => setActiveTab('team')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'team' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Équipe" : ""}>
+                    <Users className="w-5 h-5 flex-shrink-0" /> 
+                    {!isSidebarCollapsed && <span>Équipe</span>}
+                </button>
                 </>
             )}
-            <button onClick={() => setActiveTab('leaves')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'leaves' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><Coffee className="w-5 h-5" /> Gestion des Congés</button>
+            
+            <button onClick={() => setActiveTab('leaves')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'leaves' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Congés" : ""}>
+                <Coffee className="w-5 h-5 flex-shrink-0" /> 
+                {!isSidebarCollapsed && <span>Gestion des Congés</span>}
+            </button>
+            
             {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP') && (
-                <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><Settings className="w-5 h-5" /> Paramètres</button>
+                <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Paramètres" : ""}>
+                    <Settings className="w-5 h-5 flex-shrink-0" /> 
+                    {!isSidebarCollapsed && <span>Paramètres</span>}
+                </button>
             )}
           </nav>
           
-          <div className="p-4 space-y-6">
-              <div>
-                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2"><Store className="w-3 h-3" /> Service</h3>
-                  <select value={activeServiceId} onChange={(e) => setActiveServiceId(e.target.value)} className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium text-slate-200 outline-none focus:ring-2 focus:ring-blue-500">
-                      {servicesList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      <option value="">Vue Globale (Tous)</option>
-                  </select>
-                  {activeService && (
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                          <div className="bg-slate-800 p-2 rounded border border-slate-700 text-center">
-                              <div className="text-xs text-blue-400 font-medium">Effectifs</div>
-                              <div className="text-lg font-bold text-blue-300">{assignmentsList.filter(a => a.serviceId === activeServiceId).length}</div>
-                          </div>
-                          <div className="bg-slate-800 p-2 rounded border border-slate-700 text-center">
-                              <div className="text-xs text-purple-400 font-medium">Compétences</div>
-                              <div className="text-lg font-bold text-purple-300">{activeService.config?.requiredSkills?.length || 0}</div>
-                          </div>
-                      </div>
-                  )}
-              </div>
-              
-              {/* FILTERS */}
-              <div className="space-y-4">
-                  {/* ROLES */}
+          {!isSidebarCollapsed && (
+              <div className="p-4 space-y-6 animate-in fade-in duration-300">
                   <div>
-                      <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><Briefcase className="w-3 h-3" /> Rôles</h3>
-                      <div className="space-y-1">
-                          {['Infirmier', 'Aide-Soignant', 'Cadre', 'Cadre Supérieur', 'Manager', 'Directeur'].map(role => (
-                              <label key={role} className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white">
-                                  <input type="checkbox" checked={selectedRoles.includes(role)} onChange={() => toggleRoleFilter(role)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />
-                                  {role}
-                              </label>
-                          ))}
-                      </div>
-                  </div>
-
-                  {/* COMPETENCES */}
-                  <div>
-                      <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><CheckSquare className="w-3 h-3" /> Compétences</h3>
-                      <select value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} className="w-full p-2 bg-slate-800 border border-slate-700 rounded text-sm mb-2 text-slate-200 outline-none">
-                          <option value="all">Toutes</option>
-                          {skillsList.map(s => <option key={s.id} value={s.code}>{s.code} - {s.label}</option>)}
+                      <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2"><Store className="w-3 h-3" /> Service</h3>
+                      <select value={activeServiceId} onChange={(e) => setActiveServiceId(e.target.value)} className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium text-slate-200 outline-none focus:ring-2 focus:ring-blue-500">
+                          {servicesList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          <option value="">Vue Globale (Tous)</option>
                       </select>
-                      <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white">
-                          <input type="checkbox" checked={showQualifiedOnly} onChange={(e) => setShowQualifiedOnly(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />
-                          Qualifiés uniquement
-                      </label>
+                      {activeService && (
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                              <div className="bg-slate-800 p-2 rounded border border-slate-700 text-center">
+                                  <div className="text-xs text-blue-400 font-medium">Effectifs</div>
+                                  <div className="text-lg font-bold text-blue-300">{assignmentsList.filter(a => a.serviceId === activeServiceId).length}</div>
+                              </div>
+                              <div className="bg-slate-800 p-2 rounded border border-slate-700 text-center">
+                                  <div className="text-xs text-purple-400 font-medium">Compétences</div>
+                                  <div className="text-lg font-bold text-purple-300">{activeService.config?.requiredSkills?.length || 0}</div>
+                              </div>
+                          </div>
+                      )}
                   </div>
-
-                  {/* STATUT */}
-                  <div>
-                      <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Statut (Période)</h3>
-                      <div className="flex flex-wrap gap-1">
-                          <button onClick={() => setStatusFilter('all')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'all' ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>
-                              <Users className="w-3 h-3" /> Tous
-                          </button>
-                          <button onClick={() => setStatusFilter('present')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'present' ? 'bg-green-600 text-white border-green-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>
-                              <UserCheck className="w-3 h-3" /> Présents
-                          </button>
-                          <button onClick={() => setStatusFilter('absent')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'absent' ? 'bg-red-600 text-white border-red-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>
-                              <UserX className="w-3 h-3" /> Absents
-                          </button>
-                          <button onClick={() => setStatusFilter('holiday')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'holiday' ? 'bg-amber-500 text-white border-amber-500' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>
-                              <Flag className="w-3 h-3" /> Fériés
-                          </button>
+                  
+                  {/* FILTERS */}
+                  <div className="space-y-4">
+                      {/* ROLES */}
+                      <div>
+                          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><Briefcase className="w-3 h-3" /> Rôles</h3>
+                          <div className="space-y-1">
+                              {['Infirmier', 'Aide-Soignant', 'Cadre', 'Cadre Supérieur', 'Manager', 'Directeur'].map(role => (
+                                  <label key={role} className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white">
+                                      <input type="checkbox" checked={selectedRoles.includes(role)} onChange={() => toggleRoleFilter(role)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />
+                                      {role}
+                                  </label>
+                              ))}
+                          </div>
                       </div>
-                  </div>
 
-                  {/* ABSENCE TYPES */}
-                  <div>
-                      <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Type d'absence</h3>
-                      <div className="flex flex-wrap gap-1">
-                          <button onClick={() => setAbsenceTypeFilter('all')} className={`px-2 py-1 rounded-full text-xs border ${absenceTypeFilter === 'all' ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>Tous</button>
-                          {['CA', 'RTT', 'NT', 'RH', 'RC', 'HS', 'FO', 'F'].map(code => (
-                              <button key={code} onClick={() => setAbsenceTypeFilter(code)} className={`px-2 py-1 rounded-full text-xs border ${absenceTypeFilter === code ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>{code}</button>
-                          ))}
+                      {/* COMPETENCES */}
+                      <div>
+                          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><CheckSquare className="w-3 h-3" /> Compétences</h3>
+                          <select value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} className="w-full p-2 bg-slate-800 border border-slate-700 rounded text-sm mb-2 text-slate-200 outline-none">
+                              <option value="all">Toutes</option>
+                              {skillsList.map(s => <option key={s.id} value={s.code}>{s.code} - {s.label}</option>)}
+                          </select>
+                          <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white">
+                              <input type="checkbox" checked={showQualifiedOnly} onChange={(e) => setShowQualifiedOnly(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />
+                              Qualifiés uniquement
+                          </label>
+                      </div>
+
+                      {/* STATUT */}
+                      <div>
+                          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Statut (Période)</h3>
+                          <div className="flex flex-wrap gap-1">
+                              <button onClick={() => setStatusFilter('all')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'all' ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>
+                                  <Users className="w-3 h-3" /> Tous
+                              </button>
+                              <button onClick={() => setStatusFilter('present')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'present' ? 'bg-green-600 text-white border-green-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>
+                                  <UserCheck className="w-3 h-3" /> Présents
+                              </button>
+                              <button onClick={() => setStatusFilter('absent')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'absent' ? 'bg-red-600 text-white border-red-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>
+                                  <UserX className="w-3 h-3" /> Absents
+                              </button>
+                              <button onClick={() => setStatusFilter('holiday')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'holiday' ? 'bg-amber-500 text-white border-amber-500' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>
+                                  <Flag className="w-3 h-3" /> Fériés
+                              </button>
+                          </div>
+                      </div>
+
+                      {/* ABSENCE TYPES */}
+                      <div>
+                          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Type d'absence</h3>
+                          <div className="flex flex-wrap gap-1">
+                              <button onClick={() => setAbsenceTypeFilter('all')} className={`px-2 py-1 rounded-full text-xs border ${absenceTypeFilter === 'all' ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>Tous</button>
+                              {['CA', 'RTT', 'NT', 'RH', 'RC', 'HS', 'FO', 'F'].map(code => (
+                                  <button key={code} onClick={() => setAbsenceTypeFilter(code)} className={`px-2 py-1 rounded-full text-xs border ${absenceTypeFilter === code ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>{code}</button>
+                              ))}
+                          </div>
                       </div>
                   </div>
               </div>
-          </div>
+          )}
         </aside>
 
         <main className="flex-1 overflow-hidden flex flex-col relative bg-slate-50/50 dark:bg-slate-900/50">
