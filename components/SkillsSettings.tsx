@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Skill } from '../types';
-import { Plus, Trash2, Tag, Save, Loader2, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
+import { Plus, Trash2, Tag, Save, Loader2, CheckCircle2, AlertCircle, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import * as db from '../services/db';
 
 interface SkillsSettingsProps {
@@ -10,6 +10,7 @@ interface SkillsSettingsProps {
 }
 
 export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload }) => {
+    const [isExpanded, setIsExpanded] = useState(true);
     const [newCode, setNewCode] = useState('');
     const [newLabel, setNewLabel] = useState('');
     const [newDuration, setNewDuration] = useState<string>('7.5');
@@ -30,7 +31,6 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
 
         setIsLoading(true);
         try {
-            // Note: In a real app we would pass duration/break to DB. Mocking support here.
             await db.createSkill(newCode.trim(), newLabel.trim());
             setNewCode('');
             setNewLabel('');
@@ -56,14 +56,17 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
     };
 
     return (
-        <div className="bg-white rounded-xl shadow border border-slate-200 overflow-hidden">
-            <div className="p-6 border-b border-slate-200 bg-white">
+        <div className={`bg-white rounded-xl shadow border border-slate-200 overflow-hidden flex flex-col transition-all ${isExpanded ? 'max-h-[800px]' : 'h-16'}`}>
+            <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
                 <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                     <Tag className="w-5 h-5 text-blue-600" /> Paramétrage des Compétences & Horaires
                 </h3>
+                <div className="text-slate-400 hover:text-slate-600">
+                    {isExpanded ? <ChevronUp className="w-5 h-5"/> : <ChevronDown className="w-5 h-5"/>}
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 lg:divide-x divide-slate-200">
+            <div className={`grid grid-cols-1 lg:grid-cols-3 gap-0 lg:divide-x divide-slate-200 overflow-hidden ${!isExpanded && 'hidden'}`}>
                 {/* Form */}
                 <div className="p-6 bg-slate-50">
                     <h4 className="font-semibold text-slate-800 mb-4 flex items-center gap-2"><Plus className="w-4 h-4" /> Ajouter</h4>
@@ -112,7 +115,6 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                                     <td className="px-6 py-3">{skill.label}</td>
                                     <td className="px-6 py-3 text-slate-500 flex items-center gap-2">
                                         <Clock className="w-3 h-3"/> 
-                                        {/* Mocking default values for existing items since DB schema update is simulated */}
                                         {skill.defaultDuration || '7.5'}h / {skill.defaultBreak || '0.5'}h
                                     </td>
                                     <td className="px-6 py-3 text-right">

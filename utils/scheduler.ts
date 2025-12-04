@@ -214,6 +214,10 @@ export const generateMonthlySchedule = async (
                    score += sCount * 20; 
               }
 
+              // IMPORTANT: Add Randomness to create different scenarios
+              // Small random float to break ties and shuffle distribution
+              score += Math.random() * 50; 
+
               return { emp, score };
           });
 

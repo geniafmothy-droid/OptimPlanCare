@@ -6,6 +6,7 @@ import { checkConstraints } from '../utils/validation';
 import { Wand2, Copy, Save, CheckCircle2, RotateCcw, ArrowRightLeft, Users, AlertTriangle, Play, Plus, Clock } from 'lucide-react';
 import { ScheduleGrid } from './ScheduleGrid';
 import { ConstraintChecker } from './ConstraintChecker';
+import { StaffingSummary } from './StaffingSummary';
 
 interface ScenarioPlannerProps {
     employees: Employee[];
@@ -31,6 +32,8 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
     const handleCreateScenario = async () => {
         setIsOptimizing(true);
         // Simulate generation
+        // Note: The generateMonthlySchedule function has been updated to include randomness
+        // allowing different outcomes on subsequent calls.
         const newEmps = await generateMonthlySchedule(
             employees, 
             currentDate.getFullYear(), 
@@ -44,7 +47,7 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
             description: 'Génération automatique basée sur les contraintes.',
             createdAt: new Date().toISOString(),
             employeesSnapshot: newEmps,
-            score: 85 // Mock score
+            score: Math.floor(Math.random() * (95 - 80) + 80) // Mock score variance
         };
 
         setScenarios([...scenarios, newScenario]);
@@ -261,6 +264,14 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
                                         onCellClick={() => {}} 
                                         onRangeSelect={handleRangeSelect}
                                     />
+                                    {/* STAFFING SUMMARY EMBEDDED IN SCENARIO */}
+                                    <div className="mt-auto border-t border-slate-200 dark:border-slate-700">
+                                        <StaffingSummary 
+                                            employees={draftScenario.employeesSnapshot} 
+                                            startDate={new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)} 
+                                            days={new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate()}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Right: Comparison (if enabled) */}
@@ -284,7 +295,7 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
                             </div>
                             
                             {/* Validation / Alerts for Scenario */}
-                            <div className="h-40 border-t border-slate-200 dark:border-slate-700">
+                            <div className="h-32 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-y-auto">
                                 <ConstraintChecker 
                                     employees={draftScenario.employeesSnapshot} 
                                     startDate={new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)} 

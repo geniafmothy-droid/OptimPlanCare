@@ -123,7 +123,7 @@ export interface ConstraintViolation {
   severity: 'warning' | 'error';
 }
 
-export type ViewMode = 'month' | 'week' | 'workweek' | 'day' | 'hourly';
+export type ViewMode = 'month' | 'week' | 'workweek' | 'workweek6' | 'day' | 'hourly';
 
 export interface EquityConfig {
     targetSaturdayPercentage: number; // e.g., 50%
