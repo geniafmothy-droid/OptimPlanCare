@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
@@ -107,12 +108,25 @@ function App() {
 
   const loadNotifications = async () => {
       const allNotifs = await db.fetchNotifications();
-      const myNotifs = allNotifs.filter(n => 
-          n.recipientRole === 'ALL' || 
-          n.recipientRole === currentUser?.role ||
-          (n.recipientId && n.recipientId === currentUser?.employeeId)
-      );
-      setAppNotifications(myNotifs);
+      // Filter logic: Remove processed notifications older than 24h
+      const now = new Date().getTime();
+      const filtered = allNotifs.filter(n => {
+          // Is targeted?
+          const isTarget = n.recipientRole === 'ALL' || 
+                           n.recipientRole === currentUser?.role ||
+                           (n.recipientId && n.recipientId === currentUser?.employeeId);
+          if (!isTarget) return false;
+
+          // If processed (actionType done or read and not actionable), check 24h
+          if (n.isRead) {
+              const notifTime = new Date(n.date).getTime();
+              const diffHours = (now - notifTime) / (1000 * 60 * 60);
+              // Hide if read and older than 24h
+              if (diffHours > 24) return false;
+          }
+          return true;
+      });
+      setAppNotifications(filtered);
   };
 
   const handleLogin = (role: UserRole, employee?: Employee) => {

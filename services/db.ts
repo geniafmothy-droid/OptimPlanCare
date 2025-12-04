@@ -1,3 +1,4 @@
+
 import { supabase } from '../lib/supabase';
 import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus, WorkPreference } from '../types';
 import { MOCK_EMPLOYEES } from '../constants';
@@ -547,7 +548,9 @@ export const fetchWorkPreferences = async (): Promise<WorkPreference[]> => {
     return data.map((p: any) => ({
         id: p.id,
         employeeId: p.employee_id,
-        date: p.date,
+        startDate: p.start_date || p.date, 
+        endDate: p.end_date || p.date,
+        recurringDays: p.recurring_days,
         type: p.type,
         reason: p.reason,
         status: p.status,
@@ -560,7 +563,9 @@ export const createWorkPreference = async (pref: Omit<WorkPreference, 'id' | 'st
         .from('work_preferences')
         .insert([{
             employee_id: pref.employeeId,
-            date: pref.date,
+            start_date: pref.startDate,
+            end_date: pref.endDate,
+            recurring_days: pref.recurringDays,
             type: pref.type,
             reason: pref.reason,
             status: 'PENDING'
