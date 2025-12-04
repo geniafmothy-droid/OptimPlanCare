@@ -157,9 +157,11 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                                 <tr key={skill.id} className="hover:bg-slate-50">
                                     <td className="px-6 py-3 font-medium"><span className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs">{skill.code}</span></td>
                                     <td className="px-6 py-3">{skill.label}</td>
-                                    <td className="px-6 py-3 text-slate-500 flex items-center gap-2">
-                                        <Clock className="w-3 h-3"/> 
-                                        {skill.defaultDuration || '7.5'}h / {skill.defaultBreak || '0.5'}h
+                                    <td className="px-6 py-3 text-slate-500">
+                                        <div className="flex items-center gap-2">
+                                            <Clock className="w-3 h-3"/> 
+                                            {skill.defaultDuration || '7.5'}h / {skill.defaultBreak || '0.5'}h
+                                        </div>
                                     </td>
                                     <td className="px-6 py-3 text-right">
                                         <div className="flex justify-end gap-2">

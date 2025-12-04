@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import { Employee, ConstraintViolation, ServiceConfig } from '../types';
 import { checkConstraints } from '../utils/validation';
-import { Users, AlertTriangle, CheckCircle2, TrendingUp, AlertOctagon, ShieldAlert, Calendar, CalendarDays, LayoutList, Wand2, Eye } from 'lucide-react';
+import { Users, AlertTriangle, CheckCircle2, TrendingUp, AlertOctagon, ShieldAlert, Calendar, CalendarDays, LayoutList, Wand2, Eye, Clock } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 interface DashboardProps {
@@ -16,7 +16,7 @@ interface DashboardProps {
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
 
 export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, serviceConfig, onNavigateToPlanning, onNavigateToScenarios }) => {
-  const [filter, setFilter] = useState<'month' | 'week' | 'day'>('month');
+  const [filter, setFilter] = useState<'month' | 'week' | 'day' | 'hourly'>('month');
 
   // 1. Calculate effective Date Range based on local filter
   const { startDate, days, label } = useMemo(() => {
@@ -25,6 +25,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
     if (filter === 'day') {
         const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
         return { startDate: d, days: 1, label: dateStr };
+    }
+
+    if (filter === 'hourly') {
+        const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+        return { startDate: d, days: 1, label: `${dateStr} (Vue Horaire)` };
     }
     
     if (filter === 'week') {
@@ -138,6 +143,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
                         className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${filter === 'day' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                         <LayoutList className="w-4 h-4" /> Jour
+                    </button>
+                    <button 
+                        onClick={() => setFilter('hourly')}
+                        className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${filter === 'hourly' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <Clock className="w-4 h-4" /> Horaire
                     </button>
                 </div>
             </div>
