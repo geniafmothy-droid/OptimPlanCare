@@ -16,7 +16,7 @@ import { Dashboard } from './components/Dashboard';
 import { LoginScreen } from './components/LoginScreen';
 import { ScenarioPlanner } from './components/ScenarioPlanner';
 import { SHIFT_TYPES } from './constants';
-import { Employee, ShiftCode, ViewMode, Skill, Service, LeaveData, ServiceAssignment, LeaveCounters, UserRole, AppNotification } from './types';
+import { Employee, ShiftCode, ViewMode, Skill, Service, LeaveData, ServiceAssignment, LeaveCounters, UserRole, AppNotification, ConstraintViolation } from './types';
 import { generateMonthlySchedule } from './utils/scheduler';
 import { parseScheduleCSV } from './utils/csvImport';
 import { exportScheduleToCSV } from './utils/csvExport';
@@ -37,6 +37,9 @@ function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [highlightNight, setHighlightNight] = useState(false);
   
+  // Highlight Violations State
+  const [violationHighlights, setViolationHighlights] = useState<ConstraintViolation[]>([]);
+
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [skillsList, setSkillsList] = useState<Skill[]>([]);
   const [servicesList, setServicesList] = useState<Service[]>([]);
@@ -93,6 +96,14 @@ function App() {
       if (isDarkMode) document.documentElement.classList.add('dark');
       else document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
+
+  // Clear highlights when leaving planning or changing date
+  useEffect(() => {
+      if (activeTab !== 'planning') {
+          // Keep highlights in memory if switching from Dashboard to Planning, but maybe clear if going elsewhere?
+          // For now, we only clear if explicitly navigating away from planning context logic.
+      }
+  }, [activeTab]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -244,6 +255,15 @@ function App() {
 
   const toggleRoleFilter = (role: string) => {
       setSelectedRoles(prev => prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role]);
+  };
+
+  // --- Violation Navigation ---
+  const handleViewPlanningWithHighlights = (violations: ConstraintViolation[]) => {
+      setViolationHighlights(violations);
+      setActiveTab('planning');
+      // Optional: Force view mode to month to see context
+      setViewMode('month');
+      setToast({ message: "Violations mises en évidence.", type: 'warning' });
   };
 
   // --- Filter Logic ---
@@ -653,6 +673,7 @@ function App() {
                         onCellClick={handleCellClick} 
                         onRangeSelect={handleRangeSelect}
                         highlightNight={highlightNight} 
+                        highlightedViolations={violationHighlights}
                      />
                   </div>
                   {(viewMode !== 'hourly' && viewMode !== 'day') && <div className="mt-4"><StaffingSummary employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} /></div>}
@@ -667,7 +688,7 @@ function App() {
            )}
 
            {activeTab === 'scenarios' && <ScenarioPlanner employees={filteredEmployees} currentDate={currentDate} service={activeService} onApplySchedule={loadData} />}
-           {activeTab === 'dashboard' && <Dashboard employees={employees} currentDate={currentDate} serviceConfig={activeService?.config} />}
+           {activeTab === 'dashboard' && <Dashboard employees={employees} currentDate={currentDate} serviceConfig={activeService?.config} onNavigateToPlanning={handleViewPlanningWithHighlights} onNavigateToScenarios={() => setActiveTab('scenarios')} />}
            {activeTab === 'attractivity' && <AttractivityPanel />}
            {activeTab === 'stats' && <StatsPanel employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />}
            {activeTab === 'team' && <TeamManager employees={employees} allSkills={skillsList} currentUser={currentUser} onReload={loadData} />}

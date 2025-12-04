@@ -1,18 +1,21 @@
+
 import React, { useMemo, useState } from 'react';
 import { Employee, ConstraintViolation, ServiceConfig } from '../types';
 import { checkConstraints } from '../utils/validation';
-import { Users, AlertTriangle, CheckCircle2, TrendingUp, AlertOctagon, ShieldAlert, Calendar, CalendarDays, LayoutList } from 'lucide-react';
+import { Users, AlertTriangle, CheckCircle2, TrendingUp, AlertOctagon, ShieldAlert, Calendar, CalendarDays, LayoutList, Wand2, Eye } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 interface DashboardProps {
   employees: Employee[];
   currentDate: Date; // Reference date for calculation
   serviceConfig?: ServiceConfig;
+  onNavigateToPlanning?: (violations: ConstraintViolation[]) => void;
+  onNavigateToScenarios?: () => void;
 }
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
 
-export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, serviceConfig }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, serviceConfig, onNavigateToPlanning, onNavigateToScenarios }) => {
   const [filter, setFilter] = useState<'month' | 'week' | 'day'>('month');
 
   // 1. Calculate effective Date Range based on local filter
@@ -105,26 +108,38 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
                 <p className="text-slate-500">Analyse de la conformité : <span className="font-semibold text-slate-700 capitalize">{label}</span></p>
             </div>
             
-            {/* Filter Buttons */}
-            <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-                <button 
-                    onClick={() => setFilter('month')}
-                    className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${filter === 'month' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                    <Calendar className="w-4 h-4" /> Mois
-                </button>
-                <button 
-                    onClick={() => setFilter('week')}
-                    className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${filter === 'week' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                    <CalendarDays className="w-4 h-4" /> Semaine
-                </button>
-                <button 
-                    onClick={() => setFilter('day')}
-                    className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${filter === 'day' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                    <LayoutList className="w-4 h-4" /> Jour
-                </button>
+            <div className="flex items-center gap-3">
+                {/* IMPROVEMENT BUTTON */}
+                {onNavigateToScenarios && (
+                    <button 
+                        onClick={onNavigateToScenarios}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium shadow-sm hover:bg-purple-700 flex items-center gap-2"
+                    >
+                        <Wand2 className="w-4 h-4" /> Optimiser le Planning
+                    </button>
+                )}
+
+                {/* Filter Buttons */}
+                <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                    <button 
+                        onClick={() => setFilter('month')}
+                        className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${filter === 'month' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <Calendar className="w-4 h-4" /> Mois
+                    </button>
+                    <button 
+                        onClick={() => setFilter('week')}
+                        className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${filter === 'week' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <CalendarDays className="w-4 h-4" /> Semaine
+                    </button>
+                    <button 
+                        onClick={() => setFilter('day')}
+                        className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${filter === 'day' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <LayoutList className="w-4 h-4" /> Jour
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -250,13 +265,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
                     {violations.filter(v => v.severity === 'error').slice(0, 6).map((v, idx) => (
                         <div key={idx} className="bg-white p-3 rounded border border-red-100 shadow-sm flex items-start gap-3">
                             <div className="w-1.5 h-1.5 rounded-full bg-red-500 mt-2 flex-shrink-0"></div>
-                            <div>
+                            <div className="flex-1">
                                 <div className="text-xs text-red-400 font-mono mb-0.5">{v.date}</div>
                                 <div className="text-sm font-medium text-slate-800">
                                     {getEmpName(v.employeeId)}
                                 </div>
                                 <div className="text-xs text-slate-600">{v.message}</div>
                             </div>
+                            {/* HIGHLIGHT BUTTON */}
+                            {onNavigateToPlanning && (
+                                <button 
+                                    onClick={() => onNavigateToPlanning([v])} 
+                                    title="Voir dans le planning"
+                                    className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded transition-colors"
+                                >
+                                    <Eye className="w-4 h-4" />
+                                </button>
+                            )}
                         </div>
                     ))}
                     {stats.criticalErrors > 6 && (

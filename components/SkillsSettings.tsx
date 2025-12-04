@@ -161,9 +161,11 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                                         <Clock className="w-3 h-3"/> 
                                         {skill.defaultDuration || '7.5'}h / {skill.defaultBreak || '0.5'}h
                                     </td>
-                                    <td className="px-6 py-3 text-right flex justify-end gap-2">
-                                        <button onClick={() => handleEditClick(skill)} className="text-slate-400 hover:text-blue-600 p-1 rounded hover:bg-blue-50"><Pencil className="w-4 h-4" /></button>
-                                        <button onClick={() => handleDelete(skill.id, skill.code)} className="text-slate-400 hover:text-red-600 p-1 rounded hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
+                                    <td className="px-6 py-3 text-right">
+                                        <div className="flex justify-end gap-2">
+                                            <button onClick={() => handleEditClick(skill)} className="text-slate-400 hover:text-blue-600 p-1 rounded hover:bg-blue-50"><Pencil className="w-4 h-4" /></button>
+                                            <button onClick={() => handleDelete(skill.id, skill.code)} className="text-slate-400 hover:text-red-600 p-1 rounded hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}

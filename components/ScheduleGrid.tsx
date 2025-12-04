@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { Employee, ShiftCode, ViewMode } from '../types';
+import { Employee, ShiftCode, ViewMode, ConstraintViolation } from '../types';
 import { SHIFT_TYPES } from '../constants';
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getHolidayName } from '../utils/holidays';
@@ -13,6 +13,7 @@ interface ScheduleGridProps {
   onCellClick: (employeeId: string, date: string) => void;
   onRangeSelect?: (employeeId: string, startDate: string, endDate: string, forcedCode?: ShiftCode) => void;
   highlightNight?: boolean;
+  highlightedViolations?: ConstraintViolation[];
 }
 
 export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ 
@@ -22,7 +23,8 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
   viewMode, 
   onCellClick,
   onRangeSelect,
-  highlightNight = false
+  highlightNight = false,
+  highlightedViolations = []
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   
@@ -122,6 +124,12 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
       if (start > end) { [start, end] = [end, start]; }
 
       return dateObj >= start && dateObj <= end;
+  };
+
+  const isViolation = (empId: string, dateStr: string) => {
+      return highlightedViolations.some(v => 
+          (v.employeeId === 'ALL' || v.employeeId === empId) && v.date === dateStr
+      );
   };
 
   // --- MODE HORAIRE (HOURLY) ---
@@ -300,6 +308,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                   const shiftCode = emp.shifts[d.str] || 'OFF';
                   const shiftDef = SHIFT_TYPES[shiftCode];
                   const selected = isCellSelected(emp.id, d.obj);
+                  const isHighlighted = isViolation(emp.id, d.str);
                   
                   const isNight = shiftCode === 'S';
                   let opacityClass = 'opacity-100';
@@ -311,6 +320,12 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                       } else {
                           opacityClass = 'opacity-20';
                       }
+                  }
+
+                  // Violation Highlight override
+                  let violationClass = '';
+                  if (isHighlighted) {
+                      violationClass = 'ring-2 ring-red-500 z-20 animate-pulse bg-red-50';
                   }
 
                   return (
@@ -331,6 +346,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                           ${shiftDef.color} ${shiftDef.textColor}
                           ${shiftCode === 'OFF' ? 'opacity-0 hover:opacity-100 border border-dashed border-slate-300 dark:border-slate-600' : ''}
                           ${opacityClass} ${spotlightClass}
+                          ${violationClass}
                         `}
                       >
                         {shiftCode !== 'OFF' ? shiftCode : '+'}
