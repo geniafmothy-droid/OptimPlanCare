@@ -1,7 +1,6 @@
 
-
 import React, { useState, useMemo } from 'react';
-import { Employee, Service, PlanningScenario } from '../types';
+import { Employee, Service, PlanningScenario, ShiftCode } from '../types';
 import { generateMonthlySchedule } from '../utils/scheduler';
 import { checkConstraints } from '../utils/validation';
 import { Wand2, Copy, Save, CheckCircle2, RotateCcw, ArrowRightLeft, Users, AlertTriangle, Play, Plus, Clock } from 'lucide-react';
@@ -60,34 +59,62 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
         // 1. Clone current scenario employees
         const emps = JSON.parse(JSON.stringify(draftScenario.employeesSnapshot)) as Employee[];
         
-        // 2. Identify Gaps (using validation logic)
-        // This is a simplified "gap filling" logic. 
-        // In a real app, this would use the `violations` output to target specific days/slots.
-        
         const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
         let interimCount = 0;
+
+        // Configuration defaults
+        const defaultConfig = {
+            targets: { 'IT': 4, 'T5': 1, 'T6': 1 } as Record<string, number>,
+            openDays: [1,2,3,4,5,6] // Mon-Sat
+        };
+        
+        // Use service config if available
+        const currentServiceConfig = service?.config || {};
+        const openDays = currentServiceConfig.openDays || defaultConfig.openDays;
 
         for(let day=1; day<=daysInMonth; day++) {
             const d = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
             const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-            
-            // Check staffing (Example: need 4 IT)
-            const countIT = emps.filter(e => e.shifts[dateStr] === 'IT').length;
-            if (countIT < 4) {
-                // Add Interim
-                const interim: Employee = {
-                    id: `INT-${Date.now()}-${interimCount}`,
-                    matricule: `INT${interimCount}`,
-                    name: `Intérimaire #${interimCount+1}`,
-                    role: 'Intérimaire',
-                    fte: 1,
-                    leaveBalance: 0,
-                    leaveCounters: { CA:0, RTT:0, HS:0, RC:0 },
-                    skills: ['IT'],
-                    shifts: { [dateStr]: 'IT' }
-                };
-                emps.push(interim);
-                interimCount++;
+            const dayOfWeek = d.getDay();
+
+            if (!openDays.includes(dayOfWeek)) continue;
+
+            // Determine targets for this day
+            let dayTargets = { ...defaultConfig.targets };
+            if (currentServiceConfig.shiftTargets && currentServiceConfig.shiftTargets[dayOfWeek]) {
+                dayTargets = { ...currentServiceConfig.shiftTargets[dayOfWeek] };
+            } else {
+                 // Hardcoded logic from scheduler if no specific config
+                 if ([1,3,5].includes(dayOfWeek)) dayTargets['S'] = 2; // Mon/Wed/Fri need 2 S
+            }
+
+            // Check and Fill
+            for (const [code, target] of Object.entries(dayTargets)) {
+                // Count existing shifts for this code
+                const currentCount = emps.filter(e => e.shifts[dateStr] === code).length;
+                const needed = target - currentCount;
+                
+                if (needed > 0) {
+                    for(let i=0; i<needed; i++) {
+                         // Create Interim
+                        interimCount++;
+                        const interimId = `INT-${Date.now()}-${interimCount}`;
+                        const interim: Employee = {
+                            id: interimId,
+                            matricule: `INT${String(interimCount).padStart(3,'0')}`,
+                            name: `Intérimaire ${code} #${interimCount}`,
+                            role: 'Intérimaire',
+                            fte: 1,
+                            leaveBalance: 0,
+                            leaveCounters: { CA:0, RTT:0, HS:0, RC:0 },
+                            skills: [code], // Skill matches the needed shift
+                            shifts: {} 
+                        };
+                        // Initialize shifts empty, then set this day
+                        interim.shifts[dateStr] = code as any; 
+                        emps.push(interim);
+                    }
+                }
             }
         }
 
@@ -95,8 +122,8 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
         const updatedScenario = {
             ...draftScenario,
             employeesSnapshot: emps,
-            description: draftScenario.description + ' (Optimisé Intérim)',
-            name: draftScenario.name + ' + Intérim'
+            description: draftScenario.description + ' ( + Intérimaires ajoutés)',
+            name: draftScenario.name + ' (Optimisé)'
         };
 
         setScenarios(scenarios.map(s => s.id === activeScenarioId ? updatedScenario : s));
@@ -107,9 +134,34 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
         if (!draftScenario) return;
         if (confirm("Appliquer ce scénario au planning RÉEL ? Cette action est irréversible.")) {
             // In a real app, this would call bulkSaveSchedule with draftScenario.employeesSnapshot
-            alert("Scénario appliqué avec succès (Simulation).");
+            // For now we simulate
+            alert("Scénario appliqué avec succès (Simulation). Le planning réel n'est pas modifié dans cette démo sans backend complet.");
             onApplySchedule();
         }
+    };
+
+    // Handle range selection inside the scenario (Local state update)
+    const handleRangeSelect = (empId: string, start: string, end: string, forcedCode?: ShiftCode) => {
+        if (!activeScenarioId || !forcedCode) return;
+        
+        setScenarios(prev => prev.map(s => {
+            if (s.id !== activeScenarioId) return s;
+            
+            const updatedEmps = s.employeesSnapshot.map(e => {
+                if (e.id !== empId) return e;
+                const newShifts = { ...e.shifts };
+                
+                const dStart = new Date(start);
+                const dEnd = new Date(end);
+                
+                for (let d = new Date(dStart); d <= dEnd; d.setDate(d.getDate() + 1)) {
+                     const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                     newShifts[dateStr] = forcedCode;
+                }
+                return { ...e, shifts: newShifts };
+            });
+            return { ...s, employeesSnapshot: updatedEmps };
+        }));
     };
 
     return (
@@ -207,6 +259,7 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
                                         days={new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate()} 
                                         viewMode="month" 
                                         onCellClick={() => {}} 
+                                        onRangeSelect={handleRangeSelect}
                                     />
                                 </div>
 

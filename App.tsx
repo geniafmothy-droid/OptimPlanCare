@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
@@ -11,6 +10,7 @@ import { SkillsSettings } from './components/SkillsSettings';
 import { ServiceSettings } from './components/ServiceSettings';
 import { Dashboard } from './components/Dashboard';
 import { LoginScreen } from './components/LoginScreen';
+import { ScenarioPlanner } from './components/ScenarioPlanner';
 import { SHIFT_TYPES } from './constants';
 import { Employee, ShiftCode, ViewMode, Skill, Service, LeaveData, ServiceAssignment, LeaveCounters, UserRole, AppNotification } from './types';
 import { generateMonthlySchedule } from './utils/scheduler';
@@ -26,7 +26,7 @@ function App() {
   const [currentUser, setCurrentUser] = useState<{ role: UserRole, employeeId?: string, name?: string } | null>(null);
 
   // --- APP STATES ---
-  const [activeTab, setActiveTab] = useState<'planning' | 'stats' | 'team' | 'leaves' | 'settings' | 'dashboard'>('planning');
+  const [activeTab, setActiveTab] = useState<'planning' | 'stats' | 'team' | 'leaves' | 'settings' | 'dashboard' | 'scenarios'>('planning');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   
@@ -196,7 +196,7 @@ function App() {
 
       try {
           if (actionModal.type === 'GENERATE') {
-               const newEmps = generateMonthlySchedule(employees, actionYear, actionMonth, activeService?.config);
+               const newEmps = await generateMonthlySchedule(employees, actionYear, actionMonth, activeService?.config);
                await db.bulkSaveSchedule(newEmps);
                await loadData();
                setToast({ message: `Planning de ${monthName} généré avec succès`, type: "success" });
@@ -341,6 +341,36 @@ function App() {
     }
   };
 
+  const handleRangeSelect = async (empId: string, startDate: string, endDate: string, forcedCode?: ShiftCode) => {
+    if (currentUser?.role !== 'ADMIN' && currentUser?.role !== 'CADRE' && currentUser?.role !== 'CADRE_SUP' && currentUser?.role !== 'DIRECTOR') {
+        setToast({ message: "Modification de masse non autorisée.", type: "warning" });
+        return;
+    }
+
+    if (!forcedCode) return; // Ignore drag from empty cells for now
+
+    try {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const dates: string[] = [];
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            dates.push(d.toISOString().split('T')[0]);
+        }
+        
+        // Bulk upsert
+        await db.bulkUpsertShifts(dates.map(date => ({
+            employee_id: empId,
+            date,
+            shift_code: forcedCode
+        })));
+        
+        setToast({ message: "Plage mise à jour avec succès", type: "success" });
+        loadData();
+    } catch (e: any) {
+        setToast({ message: "Erreur: " + e.message, type: "error" });
+    }
+  };
+
   const handleNotificationAction = (notif: AppNotification) => {
       db.markNotificationRead(notif.id).then(() => {
           loadNotifications();
@@ -397,7 +427,7 @@ function App() {
         
         <div className="flex items-center gap-2 md:gap-4">
            {/* Date Nav */}
-           {(activeTab === 'planning' || activeTab === 'dashboard' || activeTab === 'leaves') && (
+           {(activeTab === 'planning' || activeTab === 'dashboard' || activeTab === 'leaves' || activeTab === 'scenarios') && (
                <div className="flex items-center gap-2">
                    <h2 className="text-lg font-bold text-slate-700 capitalize hidden md:block w-40 text-right">
                        {currentDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
@@ -489,6 +519,7 @@ function App() {
             
             {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP' || currentUser.role === 'MANAGER') && (
                 <>
+                <button onClick={() => setActiveTab('scenarios')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'scenarios' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}><Wand2 className="w-5 h-5" /> Scénarios & IA</button>
                 <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'dashboard' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}><LayoutDashboard className="w-5 h-5" /> Carnet de Bord</button>
                 <button onClick={() => setActiveTab('stats')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'stats' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}><BarChart3 className="w-5 h-5" /> Statistiques</button>
                 <button onClick={() => setActiveTab('team')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${activeTab === 'team' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}><Users className="w-5 h-5" /> Équipe</button>
@@ -717,6 +748,14 @@ function App() {
              </>
            )}
 
+           {activeTab === 'scenarios' && (
+               <ScenarioPlanner 
+                   employees={filteredEmployees} 
+                   currentDate={currentDate} 
+                   service={activeService} 
+                   onApplySchedule={loadData} 
+               />
+           )}
            {activeTab === 'dashboard' && <Dashboard employees={employees} currentDate={currentDate} serviceConfig={activeService?.config} />}
            {activeTab === 'stats' && <StatsPanel employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />}
            {activeTab === 'team' && <TeamManager employees={employees} allSkills={skillsList} currentUser={currentUser} onReload={loadData} />}
