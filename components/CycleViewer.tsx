@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Employee, ShiftCode } from '../types';
 import { SHIFT_TYPES, SHIFT_HOURS } from '../constants';
-import { Calendar, Clock, User, ArrowRight, Calculator, CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, Clock, User, ArrowRight, Calculator, CalendarClock, ChevronLeft, ChevronRight, Briefcase, Tag } from 'lucide-react';
 
 interface CycleViewerProps {
     employees: Employee[];
@@ -144,6 +144,37 @@ export const CycleViewer: React.FC<CycleViewerProps> = ({ employees }) => {
                     </select>
                 </div>
             </div>
+
+            {/* EMPLOYEE INFO */}
+            {selectedEmp && (
+                <div className="flex flex-wrap items-center gap-4 mb-6 animate-in fade-in slide-in-from-top-2">
+                    <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm">
+                        <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                            <Briefcase className="w-4 h-4" />
+                        </div>
+                        <div>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quotité</div>
+                            <div className="text-sm font-bold text-slate-800">{Math.round(selectedEmp.fte * 100)}%</div>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm">
+                        <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
+                            <Tag className="w-4 h-4" />
+                        </div>
+                        <div>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Compétences</div>
+                            <div className="flex flex-wrap gap-1">
+                                {selectedEmp.skills.length > 0 ? selectedEmp.skills.map(s => (
+                                    <span key={s} className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-medium rounded border border-slate-200">
+                                        {s}
+                                    </span>
+                                )) : <span className="text-xs text-slate-400 italic">Aucune</span>}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* STATS SUMMARY */}
             {cycleData && (
