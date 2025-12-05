@@ -86,12 +86,15 @@ export const generateMonthlySchedule = async (
       employees.forEach(emp => {
           const existing = emp.shifts[dateStr];
 
-          // A. Clean up regeneratable shifts (RH, OFF or Auto-generated work if re-running)
+          // A. Clean up regeneratable shifts (RH, NT, OFF or Auto-generated work if re-running)
+          // Note: added 'RH' and 'NT' to be cleanable unless they are specific leave requests (which are usually CA/NT/RC handled by LOCKED_CODES)
+          // If 'NT' was manually set as "Maladie", it should be in LOCKED_CODES. 
+          // If 'NT' was generated previously, we clear it to regenerate.
           if (!LOCKED_CODES.includes(existing)) {
               delete emp.shifts[dateStr]; 
           }
 
-          // B. Apply Desiderata (NO_WORK -> RH)
+          // B. Apply Desiderata (NO_WORK -> RH or NT depending on day)
           // Only if slot is empty (don't overwrite CA)
           if (!emp.shifts[dateStr]) {
               const empPrefs = preferences.filter(p => p.employeeId === emp.id);
@@ -99,7 +102,8 @@ export const generateMonthlySchedule = async (
                   if (dateStr >= pref.startDate && dateStr <= pref.endDate) {
                       if (pref.recurringDays && pref.recurringDays.length > 0 && !pref.recurringDays.includes(dayOfWeek)) continue;
                       if (pref.type === 'NO_WORK') {
-                          emp.shifts[dateStr] = 'RH'; // Lock as RH based on preference
+                          // Rule: RH only for Sat(6)/Sun(0), NT for Weekdays
+                          emp.shifts[dateStr] = (dayOfWeek === 0 || dayOfWeek === 6) ? 'RH' : 'NT';
                       }
                   }
               }
@@ -132,10 +136,9 @@ export const generateMonthlySchedule = async (
       if (dayOfWeek === 0) continue;
 
       // 1. Determine Needs
-      // Priority: Use specific Dialysis targets if config not provided or generic
+      // FALLBACK LOGIC: If serviceConfig exists but is empty for this day, default to DIALYSIS_TARGETS
       let targets = { ...DIALYSIS_TARGETS[dayOfWeek] };
       
-      // If Service Config exists and has specific targets, use them (Flexibility)
       if (serviceConfig?.shiftTargets && serviceConfig.shiftTargets[dayOfWeek] && Object.keys(serviceConfig.shiftTargets[dayOfWeek]).length > 0) {
           targets = { ...serviceConfig.shiftTargets[dayOfWeek] };
       }
@@ -161,7 +164,7 @@ export const generateMonthlySchedule = async (
               // Already assigned?
               if (emp.shifts[dateStr]) return false;
 
-              // HARD 1: S -> RH (If yesterday was S, today MUST be rest, so cannot work)
+              // HARD 1: S -> RH/NT (If yesterday was S, today MUST be rest, so cannot work)
               if (emp.shifts[prevDateStr] === 'S') return false;
 
               // HARD 2: Max 48h / 7 sliding days
@@ -180,10 +183,17 @@ export const generateMonthlySchedule = async (
                   if (prevShift && SHIFT_TYPES[prevShift]?.isWork) return false;
               }
 
-              // HARD 4: Preference NO_NIGHT or MORNING_ONLY vs S
-              // (Already filtered NO_WORK in Phase 1)
-              // We check simpler preferences here if not fully handled
-              // (Skipped for brevity, assume "Valid" prefs handled)
+              // HARD 4: Check if strict "NO_NIGHT" constraint exists and trying to assign S
+              if (shiftType === 'S') {
+                  const empPrefs = preferences.filter(p => p.employeeId === emp.id);
+                  const hasNoNight = empPrefs.some(p => 
+                      p.type === 'NO_NIGHT' && 
+                      dateStr >= p.startDate && 
+                      dateStr <= p.endDate &&
+                      (!p.recurringDays || p.recurringDays.includes(dayOfWeek))
+                  );
+                  if (hasNoNight) return false;
+              }
 
               return true;
           });
@@ -215,11 +225,6 @@ export const generateMonthlySchedule = async (
               }
 
               // FACTOR D: Golden Weekend Protection (3 days off)
-              // We want to AVOID working if it ruins a potential 3-day rest block.
-              // Logic: If I am about to assign work on Monday, check if Sat/Sun were OFF. If so, penalty.
-              // Logic: If I am about to assign work on Friday, check if Sat/Sun will be OFF (Hard to know future).
-              // Simplified: Reward people who have worked a lot of Fridays/Mondays recently to let others rest?
-              // No, simpler: 
               if (dayOfWeek === 1) { // Monday
                   const sun = new Date(currentDate); sun.setDate(sun.getDate() - 1);
                   const sat = new Date(currentDate); sat.setDate(sat.getDate() - 2);
@@ -262,15 +267,20 @@ export const generateMonthlySchedule = async (
   }
 
   // --- PHASE 3: FILL HOLES & COMPENSATORY REST ---
-  // Fill remaining empty slots with RH
+  // Fill remaining empty slots with NT (Weekdays) or RH (Weekends)
   employees.forEach(emp => {
       for (let day = 1; day <= numDays; day++) {
           const d = new Date(year, month, day);
           const dateStr = toLocalISOString(d);
+          const dayOfWeek = getDayOfWeek(d);
           
           if (!emp.shifts[dateStr]) {
-              // If empty, it's a Rest Day
-              emp.shifts[dateStr] = 'RH';
+              // Rule: RH only for Sat(6)/Sun(0), NT for Weekdays
+              if (dayOfWeek === 0 || dayOfWeek === 6) {
+                  emp.shifts[dateStr] = 'RH';
+              } else {
+                  emp.shifts[dateStr] = 'NT';
+              }
           }
       }
   });

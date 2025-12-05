@@ -16,7 +16,7 @@ import { Dashboard } from './components/Dashboard';
 import { LoginScreen } from './components/LoginScreen';
 import { ScenarioPlanner } from './components/ScenarioPlanner';
 import { SHIFT_TYPES } from './constants';
-import { Employee, ShiftCode, ViewMode, Skill, Service, LeaveData, ServiceAssignment, LeaveCounters, UserRole, AppNotification, ConstraintViolation } from './types';
+import { Employee, ShiftCode, ViewMode, Skill, Service, LeaveData, ServiceAssignment, LeaveCounters, UserRole, AppNotification, ConstraintViolation, WorkPreference } from './types';
 import { generateMonthlySchedule } from './utils/scheduler';
 import { parseScheduleCSV } from './utils/csvImport';
 import { exportScheduleToCSV } from './utils/csvExport';
@@ -44,6 +44,7 @@ function App() {
   const [skillsList, setSkillsList] = useState<Skill[]>([]);
   const [servicesList, setServicesList] = useState<Service[]>([]);
   const [assignmentsList, setAssignmentsList] = useState<ServiceAssignment[]>([]);
+  const [preferences, setPreferences] = useState<WorkPreference[]>([]);
   const [activeServiceId, setActiveServiceId] = useState<string>('');
   
   const [selectedCell, setSelectedCell] = useState<{empId: string, date: string} | null>(null);
@@ -110,16 +111,18 @@ function App() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [empData, skillsData, servicesData, assignData] = await Promise.all([
+      const [empData, skillsData, servicesData, assignData, prefsData] = await Promise.all([
           db.fetchEmployeesWithShifts(),
           db.fetchSkills(),
           db.fetchServices(),
-          db.fetchServiceAssignments()
+          db.fetchServiceAssignments(),
+          db.fetchWorkPreferences()
       ]);
       setEmployees(empData);
       setSkillsList(skillsData);
       setServicesList(servicesData);
       setAssignmentsList(assignData);
+      setPreferences(prefsData.filter(p => p.status === 'VALIDATED')); // Only active preferences
       
       if (servicesData.length > 0 && !activeServiceId) {
           setActiveServiceId(servicesData[0].id);
@@ -456,6 +459,7 @@ function App() {
       
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
 
+      {/* HEADER ... (rest of header identical) */}
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 h-16 flex items-center justify-between px-4 md:px-6 shadow-sm sticky top-0 z-40 no-print">
         {/* ... Header Content ... */}
         <div className="flex items-center gap-3">
@@ -478,13 +482,14 @@ function App() {
                    </div>
                </div>
            )}
-           {/* ... rest of header ... */}
+           {/* ... rest of header buttons ... */}
            <div className="h-6 w-px bg-slate-300 dark:bg-slate-600 mx-1 hidden md:block"></div>
            <div className="flex items-center gap-3">
              <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 text-slate-600 dark:text-yellow-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">
                  {isDarkMode ? <Sun className="w-5 h-5"/> : <Moon className="w-5 h-5"/>}
              </button>
              
+             {/* Notifs etc */}
              <div className="relative">
                  <button onClick={() => setIsNotifOpen(!isNotifOpen)} className="p-2 relative rounded-full hover:bg-slate-100 dark:hover:bg-slate-700">
                      <Bell className="w-5 h-5 text-slate-600 dark:text-slate-300" />
@@ -529,6 +534,7 @@ function App() {
       </header>
       
       <div className="flex-1 flex overflow-hidden relative">
+        {/* SIDEBAR ... (identical) */}
         <aside className={`fixed lg:static inset-y-0 left-0 z-50 bg-slate-900 text-white border-r border-slate-700 flex flex-col overflow-y-auto transition-all duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'} ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-72'} w-72 no-print lg:shadow-none`}>
           {/* ... Sidebar Navigation ... */}
           <div className="hidden lg:flex justify-end p-2 border-b border-slate-800">
@@ -542,7 +548,7 @@ function App() {
                 <Calendar className="w-5 h-5 flex-shrink-0" /> 
                 {!isSidebarCollapsed && <span>{currentUser.role === 'INFIRMIER' || currentUser.role === 'AIDE_SOIGNANT' ? 'Mon Planning' : 'Planning Global'}</span>}
             </button>
-            
+            {/* ... other tabs ... */}
             {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP' || currentUser.role === 'MANAGER') && (
                 <>
                 <button onClick={() => setActiveTab('scenarios')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'scenarios' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Scénarios" : ""}>
@@ -567,12 +573,10 @@ function App() {
                 </button>
                 </>
             )}
-            
             <button onClick={() => setActiveTab('leaves')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'leaves' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Congés" : ""}>
                 <Coffee className="w-5 h-5 flex-shrink-0" /> 
                 {!isSidebarCollapsed && <span>Gestion des Congés</span>}
             </button>
-            
             {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP') && (
                 <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Paramètres" : ""}>
                     <Settings className="w-5 h-5 flex-shrink-0" /> 
@@ -581,6 +585,7 @@ function App() {
             )}
           </nav>
           
+          {/* ... Sidebar Filters ... (Same as original) */}
           {!isSidebarCollapsed && (
               <div className="p-4 space-y-6 animate-in fade-in duration-300">
                   <div>
@@ -724,6 +729,7 @@ function App() {
                         onRangeSelect={handleRangeSelect}
                         highlightNight={highlightNight} 
                         highlightedViolations={violationHighlights}
+                        preferences={preferences} // Pass preferences for visual cues
                      />
                   </div>
                   {(viewMode !== 'hourly' && viewMode !== 'day') && <div className="mt-4"><StaffingSummary employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} /></div>}

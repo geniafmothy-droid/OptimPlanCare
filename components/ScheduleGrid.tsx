@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { Employee, ShiftCode, ViewMode, ConstraintViolation } from '../types';
+import { Employee, ShiftCode, ViewMode, ConstraintViolation, WorkPreference } from '../types';
 import { SHIFT_TYPES } from '../constants';
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getHolidayName } from '../utils/holidays';
@@ -14,6 +14,7 @@ interface ScheduleGridProps {
   onRangeSelect?: (employeeId: string, startDate: string, endDate: string, forcedCode?: ShiftCode) => void;
   highlightNight?: boolean;
   highlightedViolations?: ConstraintViolation[];
+  preferences?: WorkPreference[]; // New Prop
 }
 
 export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ 
@@ -24,7 +25,8 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
   onCellClick,
   onRangeSelect,
   highlightNight = false,
-  highlightedViolations = []
+  highlightedViolations = [],
+  preferences = []
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   
@@ -84,7 +86,8 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
         dayNameFull: d.toLocaleDateString('fr-FR', { weekday: 'long' }),
         dayNum: d.getDate(),
         month: d.toLocaleDateString('fr-FR', { month: 'short' }),
-        holiday
+        holiday,
+        dayIndex: d.getDay() // 0=Sun...
       });
     }
     return result;
@@ -129,6 +132,16 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
   const isViolation = (empId: string, dateStr: string) => {
       return highlightedViolations.some(v => 
           (v.employeeId === 'ALL' || v.employeeId === empId) && v.date === dateStr
+      );
+  };
+
+  // Helper to find specific constraint for a cell
+  const getCellPreference = (empId: string, dateStr: string, dayOfWeek: number) => {
+      return preferences.find(p => 
+          p.employeeId === empId && 
+          dateStr >= p.startDate && 
+          dateStr <= p.endDate &&
+          (!p.recurringDays || p.recurringDays.includes(dayOfWeek))
       );
   };
 
@@ -309,11 +322,15 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                   const shiftDef = SHIFT_TYPES[shiftCode];
                   const selected = isCellSelected(emp.id, d.obj);
                   const isHighlighted = isViolation(emp.id, d.str);
+                  const pref = getCellPreference(emp.id, d.str, d.dayIndex);
                   
                   const isNight = shiftCode === 'S';
                   let opacityClass = 'opacity-100';
                   let spotlightClass = '';
+                  let specialStyle = '';
+                  let overlayIcon = null;
                   
+                  // HIGHLIGHT NIGHT MODE
                   if (highlightNight) {
                       if (isNight) {
                           spotlightClass = 'scale-110 shadow-lg ring-2 ring-indigo-500 z-10';
@@ -322,10 +339,31 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                       }
                   }
 
-                  // Violation Highlight override
+                  // VIOLATION HIGHLIGHT
                   let violationClass = '';
                   if (isHighlighted) {
                       violationClass = 'ring-2 ring-red-500 z-20 animate-pulse bg-red-50';
+                  }
+
+                  // VISUALIZING PREFERENCES (DESIDERATA)
+                  if (pref) {
+                      if (pref.type === 'NO_WORK') {
+                          // If preference is NO_WORK and assigned shift is NT or RH (respected),
+                          // make the cell BLACK with White text.
+                          if (shiftCode === 'NT' || shiftCode === 'RH') {
+                              specialStyle = '!bg-black !text-white !border-black'; 
+                          }
+                      } else if (pref.type === 'NO_NIGHT') {
+                          // If NO_NIGHT, show a crossed-out S badge
+                          overlayIcon = (
+                              <div className="absolute bottom-0 right-0 bg-white rounded-tl border-t border-l border-slate-200 px-0.5 text-[8px] leading-none text-red-600 font-bold z-10" title="Pas de Nuit demandé">
+                                  <span className="relative">
+                                      S
+                                      <span className="absolute top-1/2 left-0 w-full h-[1px] bg-red-600 -translate-y-1/2 rotate-45"></span>
+                                  </span>
+                              </div>
+                          );
+                      }
                   }
 
                   return (
@@ -347,9 +385,11 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                           ${shiftCode === 'OFF' ? 'opacity-0 hover:opacity-100 border border-dashed border-slate-300 dark:border-slate-600' : ''}
                           ${opacityClass} ${spotlightClass}
                           ${violationClass}
+                          ${specialStyle}
                         `}
                       >
                         {shiftCode !== 'OFF' ? shiftCode : '+'}
+                        {overlayIcon}
                       </div>
                     </td>
                   );
