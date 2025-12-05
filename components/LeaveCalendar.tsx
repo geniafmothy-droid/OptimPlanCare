@@ -1,9 +1,9 @@
 
-import React, { useMemo } from 'react';
-import { Employee, LeaveRequestWorkflow, WorkPreference } from '../types';
+import React, { useMemo, useRef } from 'react';
+import { Employee, LeaveRequestWorkflow, WorkPreference, ServiceConfig } from '../types';
 import { SHIFT_TYPES } from '../constants';
 import { getHolidayName } from '../utils/holidays';
-import { Heart, Clock, AlertCircle } from 'lucide-react';
+import { Heart, Clock, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface LeaveCalendarProps {
   employees: Employee[];
@@ -11,10 +11,12 @@ interface LeaveCalendarProps {
   days: number;
   pendingRequests?: LeaveRequestWorkflow[]; // Optional: For Forecast View
   preferences?: WorkPreference[]; // Optional: For Global View with Desiderata
+  serviceConfig?: ServiceConfig; // For calculating targets
 }
 
-export const LeaveCalendar: React.FC<LeaveCalendarProps> = ({ employees, startDate, days, pendingRequests = [], preferences = [] }) => {
-  
+export const LeaveCalendar: React.FC<LeaveCalendarProps> = ({ employees, startDate, days, pendingRequests = [], preferences = [], serviceConfig }) => {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
   // Prepare dates header
   const dates = useMemo(() => {
       const arr = [];
@@ -28,10 +30,12 @@ export const LeaveCalendar: React.FC<LeaveCalendarProps> = ({ employees, startDa
           const dateStr = `${year}-${month}-${day}`;
           
           arr.push({ 
+              dateObj: d,
               dateStr, 
               dayNum: d.getDate(), 
               dayName: d.toLocaleDateString('fr-FR', {weekday: 'short'}),
               isWeekend: d.getDay() === 0 || d.getDay() === 6,
+              dayOfWeek: d.getDay(), // 0=Sun, 1=Mon...
               holiday: getHolidayName(d)
           });
       }
@@ -41,9 +45,49 @@ export const LeaveCalendar: React.FC<LeaveCalendarProps> = ({ employees, startDa
   // Helper to check if a date is within a range
   const isWithin = (dateStr: string, start: string, end: string) => dateStr >= start && dateStr <= end;
 
+  // DIALYSIS SPECIFIC FALLBACK TARGETS (If no config provided)
+  const getDialysisTarget = (dayOfWeek: number) => {
+      if (dayOfWeek === 0) return 0; // Sunday Closed
+      // Lundi (1), Mercredi (3), Vendredi (5) => 8 (4 IT + 1 T5 + 1 T6 + 2 S)
+      if ([1, 3, 5].includes(dayOfWeek)) return 8; 
+      // Mardi (2), Jeudi (4), Samedi (6) => 7 (4 IT + 1 T5 + 1 T6 + 1 S)
+      return 7;
+  };
+
+  const handleScroll = (direction: 'left' | 'right') => {
+      if (scrollContainerRef.current) {
+          const scrollAmount = 300;
+          scrollContainerRef.current.scrollBy({
+              left: direction === 'left' ? -scrollAmount : scrollAmount,
+              behavior: 'smooth'
+          });
+      }
+  };
+
   return (
-    <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col h-full">
-        <div className="overflow-auto flex-1 relative">
+    <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col h-full relative group">
+        
+        {/* Navigation Buttons (Visible on Hover) */}
+        {days > 7 && (
+            <>
+                <button 
+                    onClick={() => handleScroll('left')}
+                    className="absolute left-[210px] top-12 z-40 p-1.5 bg-white/90 border border-slate-300 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-all hover:bg-slate-50 text-slate-600 hover:scale-110"
+                    title="Défiler à gauche"
+                >
+                    <ChevronLeft className="w-5 h-5" />
+                </button>
+                <button 
+                    onClick={() => handleScroll('right')}
+                    className="absolute right-4 top-12 z-40 p-1.5 bg-white/90 border border-slate-300 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-all hover:bg-slate-50 text-slate-600 hover:scale-110"
+                    title="Défiler à droite"
+                >
+                    <ChevronRight className="w-5 h-5" />
+                </button>
+            </>
+        )}
+
+        <div className="overflow-auto flex-1 relative scroll-smooth" ref={scrollContainerRef}>
             <table className="w-max min-w-full text-xs border-collapse">
                 <thead className="sticky top-0 z-20 shadow-sm">
                     <tr>
@@ -115,10 +159,6 @@ export const LeaveCalendar: React.FC<LeaveCalendarProps> = ({ employees, startDa
                                     );
                                 } else if (pref) {
                                     // DESIDERATA RENDERING
-                                    // Only show if no work is scheduled (or override depending on rule, but usually desire appears on empty slots)
-                                    // If employee is working on a day they asked not to, maybe highlight conflict? 
-                                    // For now, simple rendering.
-                                    
                                     const isConflict = def && def.isWork && pref.type === 'NO_WORK';
                                     
                                     if (isConflict) {
@@ -146,11 +186,11 @@ export const LeaveCalendar: React.FC<LeaveCalendarProps> = ({ employees, startDa
                         </tr>
                     ))}
                 </tbody>
-                {/* FOOTER DES TOTAUX */}
+                {/* FOOTER DES TOTAUX ET CIBLES */}
                 <tfoot className="sticky bottom-0 z-20 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]">
                     <tr className="bg-orange-50 font-bold border-t border-orange-100">
                         <td className="p-2 border-r border-orange-200 text-orange-800 text-right sticky left-0 bg-orange-50 z-30 text-[10px] uppercase">
-                            Absences (Validées + Prév.)
+                            Absences (Total)
                         </td>
                         {dates.map(d => {
                             const count = employees.reduce((acc, emp) => {
@@ -167,6 +207,51 @@ export const LeaveCalendar: React.FC<LeaveCalendarProps> = ({ employees, startDa
                             return (
                                 <td key={`abs-${d.dateStr}`} className="p-1 border-r border-orange-200 text-center text-orange-700 bg-orange-50">
                                     {count > 0 ? count : ''}
+                                </td>
+                            );
+                        })}
+                    </tr>
+                    
+                    {/* LIGNE EFFECTIF THEORIQUE (CIBLE) */}
+                    <tr className="bg-slate-100 font-bold border-t border-slate-200">
+                        <td className="p-2 border-r border-slate-300 text-slate-800 text-right sticky left-0 bg-slate-100 z-30 text-[10px] uppercase">
+                            Effectif / Cible
+                        </td>
+                        {dates.map(d => {
+                            // 1. CALCULATE PROJECTED PRESENCE
+                            let presentCount = 0;
+                            employees.forEach(emp => {
+                                const c = emp.shifts[d.dateStr];
+                                // Is normally scheduled to work?
+                                if (c && SHIFT_TYPES[c]?.isWork) {
+                                    // Check if they have a pending request overlapping this day
+                                    const hasPendingRequest = pendingRequests.some(r => r.employeeId === emp.id && isWithin(d.dateStr, r.startDate, r.endDate));
+                                    if (!hasPendingRequest) {
+                                        presentCount++;
+                                    }
+                                }
+                            });
+
+                            // 2. DETERMINE TARGET
+                            // Use Service Config if available (generic sum of minStaff), else use Dialysis Fallback logic
+                            let target = getDialysisTarget(d.dayOfWeek);
+                            
+                            // If user provided a custom config with shiftTargets, calculate sum
+                            if (serviceConfig?.shiftTargets && serviceConfig.shiftTargets[d.dayOfWeek]) {
+                                const dayTargets = serviceConfig.shiftTargets[d.dayOfWeek];
+                                target = (Object.values(dayTargets) as number[]).reduce((a, b) => a + b, 0);
+                            } else if (serviceConfig?.openDays && !serviceConfig.openDays.includes(d.dayOfWeek)) {
+                                target = 0; // Closed based on generic openDays
+                            }
+
+                            // 3. DETERMINE STATUS
+                            const isClosed = target === 0;
+                            const isBelow = presentCount < target;
+                            const statusClass = isClosed ? 'bg-slate-200 text-slate-400' : (isBelow ? 'bg-red-100 text-red-700 border-red-200' : 'bg-green-100 text-green-700 border-green-200');
+
+                            return (
+                                <td key={`tgt-${d.dateStr}`} className={`p-1 border-r border-b border-slate-300 text-center text-[10px] ${statusClass}`}>
+                                    {isClosed ? '-' : `${presentCount} / ${target}`}
                                 </td>
                             );
                         })}

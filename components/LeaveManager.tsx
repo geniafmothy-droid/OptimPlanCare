@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Employee, ShiftCode, LeaveRequestWorkflow, UserRole, ServiceAssignment, WorkPreference, LeaveRequestStatus } from '../types';
+import { Employee, ShiftCode, LeaveRequestWorkflow, UserRole, ServiceAssignment, WorkPreference, LeaveRequestStatus, ServiceConfig } from '../types';
 import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, Trash2, Save, Send, XCircle, Check, AlertOctagon, Edit2, X, Heart, FolderClock, ChevronDown, Clock, Database, Lock, Moon, Sun, Coffee, List, Eye, CalendarDays } from 'lucide-react';
 import * as db from '../services/db';
 import { SHIFT_TYPES } from '../constants';
@@ -13,9 +13,10 @@ interface LeaveManagerProps {
     currentUser: { role: UserRole, employeeId?: string, name?: string };
     activeServiceId?: string;
     assignmentsList?: ServiceAssignment[];
+    serviceConfig?: ServiceConfig;
 }
 
-export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredEmployees, onReload, currentUser, activeServiceId, assignmentsList }) => {
+export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredEmployees, onReload, currentUser, activeServiceId, assignmentsList, serviceConfig }) => {
     // Determine default mode based on role
     const defaultMode = (currentUser.role === 'INFIRMIER' || currentUser.role === 'AIDE_SOIGNANT') ? 'my_requests' : 'validation';
 
@@ -51,6 +52,10 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
     const [validationModal, setValidationModal] = useState<{ isOpen: boolean, req: LeaveRequestWorkflow | null, isApprove: boolean } | null>(null);
     const [selectedRequest, setSelectedRequest] = useState<LeaveRequestWorkflow | null>(null); // For Comparison View
     const [refusalReason, setRefusalReason] = useState('');
+    
+    // Validation Filters
+    const [valFilterStart, setValFilterStart] = useState('');
+    const [valFilterEnd, setValFilterEnd] = useState('');
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -117,6 +122,12 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         return requests.filter(r => r.status.startsWith('PENDING'));
     }, [requests]);
 
+    // --- CONTEXT PENDING REQUESTS (For Validation View) ---
+    // Includes all pending requests EXCEPT the currently selected one (which is simulated as full shift)
+    const contextPendingRequests = useMemo(() => {
+        return requests.filter(r => r.status.startsWith('PENDING') && r.id !== selectedRequest?.id);
+    }, [requests, selectedRequest]);
+
     // --- SIMULATION LOGIC (For Single Request Validation) ---
     const employeesWithSimulation = useMemo(() => {
         if (!selectedRequest) return viewableEmployees;
@@ -174,6 +185,31 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
             console.warn("Error checking conflicts", e);
         }
         return null;
+    };
+
+    // --- CHECK N-1 OVERLAP (HISTORY) ---
+    const checkN1Overlap = (req: LeaveRequestWorkflow) => {
+        // Only makes sense if we have history. Using 'requests' as source of truth.
+        if (requests.length === 0) return false;
+
+        const currentStart = new Date(req.startDate);
+        const targetStart = new Date(currentStart);
+        targetStart.setFullYear(currentStart.getFullYear() - 1);
+        targetStart.setDate(targetStart.getDate() - 5); // Window -5 days (fuzzy match)
+
+        const currentEnd = new Date(req.endDate);
+        const targetEnd = new Date(currentEnd);
+        targetEnd.setFullYear(currentEnd.getFullYear() - 1);
+        targetEnd.setDate(targetEnd.getDate() + 5); // Window +5 days
+
+        // Look for validated requests from the same employee in the calculated range N-1
+        return requests.some(r =>
+            r.employeeId === req.employeeId &&
+            r.status === 'VALIDATED' &&
+            r.id !== req.id && 
+            new Date(r.startDate) <= targetEnd &&
+            new Date(r.endDate) >= targetStart
+        );
     };
 
     useEffect(() => {
@@ -481,12 +517,27 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
     const myRequests = requests.filter(r => r.employeeId === currentUser.employeeId);
     const myPreferences = preferences.filter(p => p.employeeId === currentUser.employeeId);
     
-    const requestsToValidate = requests.filter(r => {
-        if (currentUser.role === 'CADRE') return r.status === 'PENDING_CADRE';
-        if (currentUser.role === 'DIRECTOR') return r.status === 'PENDING_DIRECTOR';
-        if (currentUser.role === 'ADMIN') return true; 
-        return false;
-    });
+    // --- FILTER & SORT LOGIC FOR VALIDATION ---
+    const requestsToValidate = useMemo(() => {
+        let filtered = requests.filter(r => {
+            if (currentUser.role === 'CADRE') return r.status === 'PENDING_CADRE';
+            if (currentUser.role === 'DIRECTOR') return r.status === 'PENDING_DIRECTOR';
+            if (currentUser.role === 'ADMIN') return true; 
+            return false;
+        });
+
+        // DATE RANGE FILTER (overlap check)
+        if (valFilterStart) {
+            filtered = filtered.filter(r => r.endDate >= valFilterStart);
+        }
+        if (valFilterEnd) {
+            filtered = filtered.filter(r => r.startDate <= valFilterEnd);
+        }
+
+        // SORT BY CREATION DATE (OLDEST FIRST - FIFO)
+        // Ensure oldest request is at the top
+        return filtered.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    }, [requests, currentUser, valFilterStart, valFilterEnd]);
 
     const prefsToValidate = preferences.filter(p => p.status === 'PENDING' && (currentUser.role === 'CADRE' || currentUser.role === 'ADMIN'));
     
@@ -563,6 +614,10 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
             default: return type;
         }
     };
+
+    // ROLES & PERMISSIONS
+    const isManager = ['ADMIN', 'DIRECTOR', 'CADRE', 'CADRE_SUP'].includes(currentUser.role);
+    const canAccessForecast = isManager; // Explicit definition
 
     return (
         <div className="p-4 md:p-8 max-w-7xl mx-auto h-full flex flex-col relative">
@@ -674,9 +729,12 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                 <button onClick={() => setMode('calendar')} className={`pb-3 px-4 text-sm font-medium border-b-2 whitespace-nowrap ${mode === 'calendar' ? 'border-blue-600 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 dark:text-slate-400'}`}>
                     Planning Global (Absences & Souhaits)
                 </button>
-                <button onClick={() => setMode('forecast')} className={`pb-3 px-4 text-sm font-medium border-b-2 whitespace-nowrap flex items-center gap-2 ${mode === 'forecast' ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-slate-500 dark:text-slate-400'}`}>
-                    <CalendarDays className="w-4 h-4" /> Prévisionnel
-                </button>
+                
+                {canAccessForecast && (
+                    <button onClick={() => setMode('forecast')} className={`pb-3 px-4 text-sm font-medium border-b-2 whitespace-nowrap flex items-center gap-2 ${mode === 'forecast' ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-slate-500 dark:text-slate-400'}`}>
+                        <CalendarDays className="w-4 h-4" /> Prévisionnel
+                    </button>
+                )}
             </div>
 
             <div ref={containerRef} className="bg-white dark:bg-slate-800 rounded-xl shadow border border-slate-200 dark:border-slate-700 p-6 flex-1 overflow-y-auto min-h-[600px] flex flex-col">
@@ -788,6 +846,8 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                                 Ces demandes sont prises en compte par le moteur de planification après validation.
                             </div>
                             <form onSubmit={handleSubmitDesiderata} className="space-y-4 bg-slate-50 dark:bg-slate-900 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
+                                {/* ... form contents ... */}
+                                {/* Re-using existing desiderata form code */}
                                 <div className="grid grid-cols-2 gap-2">
                                     <div>
                                         <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">Du</label>
@@ -872,9 +932,11 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                     </div>
                 )}
 
+                {/* ... (rest of Desiderata Summary, Validation Mode, Calendar Mode same as previous) ... */}
                 {/* --- DESIDERATA SUMMARY (NEW) --- */}
                 {mode === 'desiderata_summary' && (
                     <div className="flex flex-col h-full">
+                        {/* Copy existing Desiderata Summary render */}
                         <div className="flex justify-between items-center mb-6">
                             <div>
                                 <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
@@ -946,46 +1008,77 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                     </div>
                 )}
 
-                {/* --- VALIDATION MODE: SPLIT VIEW (List + Calendar) --- */}
                 {mode === 'validation' && (
                     <div className="flex flex-col lg:flex-row h-full gap-6">
                          {/* LEFT COLUMN: LIST */}
                          <div className="lg:w-1/3 flex flex-col gap-6 overflow-hidden">
+                             {/* ... validation list ... */}
                              <div className="flex-shrink-0">
                                  <h3 className="font-bold text-lg mb-2 border-b border-slate-200 dark:border-slate-700 pb-2 text-slate-800 dark:text-white">
                                      Congés à valider
                                  </h3>
+                                 
+                                 {/* FILTERS */}
+                                 <div className="mb-3 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+                                     <div className="flex gap-2 text-xs">
+                                         <div className="flex-1">
+                                             <label className="block text-slate-500 dark:text-slate-400 mb-1">Début &gt;</label>
+                                             <input type="date" className="w-full border rounded p-1 dark:bg-slate-800 dark:border-slate-600 dark:text-white" value={valFilterStart} onChange={e => setValFilterStart(e.target.value)} />
+                                         </div>
+                                         <div className="flex-1">
+                                             <label className="block text-slate-500 dark:text-slate-400 mb-1">Fin &lt;</label>
+                                             <input type="date" className="w-full border rounded p-1 dark:bg-slate-800 dark:border-slate-600 dark:text-white" value={valFilterEnd} onChange={e => setValFilterEnd(e.target.value)} />
+                                         </div>
+                                     </div>
+                                 </div>
+
                                  <div className="overflow-y-auto max-h-[40vh] pr-1">
                                      {requestsToValidate.length === 0 ? (
                                          <p className="text-slate-400 text-sm italic">Aucune demande en attente.</p>
                                      ) : (
-                                         requestsToValidate.map(req => (
-                                             <div 
-                                                key={req.id} 
-                                                onClick={() => handleSelectRequestForComparison(req)}
-                                                className={`border p-3 rounded-lg mb-2 cursor-pointer transition-all hover:shadow-md ${selectedRequest?.id === req.id ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-300 dark:bg-blue-900/30 dark:border-blue-600' : 'bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-700'}`}
-                                             >
-                                                 <div className="flex justify-between items-start">
-                                                     <div>
-                                                         <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">{req.employeeName}</div>
-                                                         <div className="text-xs text-slate-600 dark:text-slate-400 font-medium mt-0.5">{req.type}</div>
-                                                         <div className="text-xs text-slate-500 dark:text-slate-500">{new Date(req.startDate).toLocaleDateString()} ➜ {new Date(req.endDate).toLocaleDateString()}</div>
+                                         requestsToValidate.map(req => {
+                                             // Check history overlap for managers
+                                             const hasN1Overlap = isManager ? checkN1Overlap(req) : false;
+
+                                             return (
+                                                 <div 
+                                                    key={req.id} 
+                                                    onClick={() => handleSelectRequestForComparison(req)}
+                                                    className={`border p-3 rounded-lg mb-2 cursor-pointer transition-all hover:shadow-md ${selectedRequest?.id === req.id ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-300 dark:bg-blue-900/30 dark:border-blue-600' : 'bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-700'}`}
+                                                 >
+                                                     <div className="flex justify-between items-start">
+                                                         <div>
+                                                             <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">{req.employeeName}</div>
+                                                             <div className="text-xs text-slate-600 dark:text-slate-400 font-medium mt-0.5">{req.type}</div>
+                                                             <div className="text-xs text-slate-500 dark:text-slate-500">{new Date(req.startDate).toLocaleDateString()} ➜ {new Date(req.endDate).toLocaleDateString()}</div>
+                                                             <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+                                                                 <Clock className="w-3 h-3"/> Demandé le {new Date(req.createdAt).toLocaleString()}
+                                                             </div>
+                                                             {/* HISTORY ALERT */}
+                                                             {isManager && hasN1Overlap && (
+                                                                 <div className="mt-2 p-1.5 bg-purple-50 border border-purple-200 rounded text-[10px] text-purple-700 flex items-center gap-1 font-medium animate-pulse dark:bg-purple-900/30 dark:border-purple-700 dark:text-purple-300">
+                                                                     <History className="w-3 h-3" />
+                                                                     Année N-1 même période
+                                                                 </div>
+                                                             )}
+                                                         </div>
+                                                         {selectedRequest?.id === req.id && <Eye className="w-4 h-4 text-blue-500" />}
                                                      </div>
-                                                     {selectedRequest?.id === req.id && <Eye className="w-4 h-4 text-blue-500" />}
+                                                     <div className="flex gap-2 mt-3 pt-2 border-t border-slate-100 dark:border-slate-700">
+                                                         <button onClick={(e) => {e.stopPropagation(); openValidationModal(req, false)}} className="flex-1 px-2 py-1 bg-white border border-red-200 text-red-700 rounded text-xs hover:bg-red-50">Refuser</button>
+                                                         <button onClick={(e) => {e.stopPropagation(); openValidationModal(req, true)}} className="flex-1 px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 shadow-sm">
+                                                            {req.status === 'PENDING_CADRE' ? 'Pré-valider' : 'Valider'}
+                                                         </button>
+                                                     </div>
                                                  </div>
-                                                 <div className="flex gap-2 mt-3 pt-2 border-t border-slate-100 dark:border-slate-700">
-                                                     <button onClick={(e) => {e.stopPropagation(); openValidationModal(req, false)}} className="flex-1 px-2 py-1 bg-white border border-red-200 text-red-700 rounded text-xs hover:bg-red-50">Refuser</button>
-                                                     <button onClick={(e) => {e.stopPropagation(); openValidationModal(req, true)}} className="flex-1 px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 shadow-sm">
-                                                        {req.status === 'PENDING_CADRE' ? 'Pré-valider' : 'Valider'}
-                                                     </button>
-                                                 </div>
-                                             </div>
-                                         ))
+                                             );
+                                         })
                                      )}
                                  </div>
                              </div>
 
                              <div className="flex-1 flex flex-col overflow-hidden">
+                                 {/* ... desiderata validation list ... */}
                                  <h3 className="font-bold text-lg mb-2 border-b border-slate-200 dark:border-slate-700 pb-2 flex items-center gap-2 text-slate-800 dark:text-white">
                                      <Heart className="w-4 h-4 text-purple-600"/> Desiderata à valider
                                  </h3>
@@ -1042,6 +1135,9 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                                      employees={employeesWithSimulation} 
                                      startDate={new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1)} 
                                      days={getCalendarDays()} 
+                                     pendingRequests={contextPendingRequests} // Add pending context
+                                     preferences={preferences} // Add preferences context
+                                     serviceConfig={serviceConfig} // PASS CONFIG FOR VALIDATION
                                  />
                                  {selectedRequest && (
                                      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-800 shadow-lg border border-slate-200 dark:border-slate-600 p-3 rounded-xl flex gap-4 z-40 animate-in slide-in-from-bottom-4">
@@ -1053,6 +1149,11 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                                          <button onClick={() => openValidationModal(selectedRequest, true)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 shadow-sm">Valider</button>
                                      </div>
                                  )}
+                             </div>
+                             <div className="px-4 py-2 text-[10px] text-slate-500 bg-slate-50 border-t flex gap-4">
+                                <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-400 rounded-sm"></span> Validé / Simulé</span>
+                                <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-50 border border-dashed border-blue-400 rounded-sm"></span> En attente (Autre)</span>
+                                <span className="flex items-center gap-1"><Heart className="w-3 h-3 text-purple-400"/> Souhait</span>
                              </div>
                          </div>
                     </div>
@@ -1074,25 +1175,26 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                                 employees={viewableEmployees} 
                                 startDate={new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1)} 
                                 days={getCalendarDays()}
-                                preferences={preferences} // Show Desiderata overlay
+                                preferences={isManager ? preferences : myPreferences} // PRIVACY FILTER: Non-managers only see their own wishes overlay, but see ALL absences.
+                                serviceConfig={serviceConfig}
                             />
                         </div>
                         <div className="mt-2 text-xs text-slate-500 italic flex gap-4">
-                            <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-400 rounded-sm"></span> Congés Validés</span>
-                            <span className="flex items-center gap-1"><Heart className="w-3 h-3 text-purple-400"/> Souhaits</span>
+                            <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-400 rounded-sm"></span> Congés Validés (Toute l'équipe)</span>
+                            <span className="flex items-center gap-1"><Heart className="w-3 h-3 text-purple-400"/> {isManager ? 'Tous les Souhaits' : 'Mes Souhaits'}</span>
                         </div>
                     </div>
                 )}
 
                 {/* --- FORECAST VIEW (NEW) --- */}
-                {mode === 'forecast' && (
+                {mode === 'forecast' && canAccessForecast && (
                     <div className="h-full flex flex-col">
                         <div className="flex items-center justify-between mb-4">
                             <div>
                                 <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
                                     <CalendarDays className="w-5 h-5 text-orange-500" /> Planning Prévisionnel
                                 </h3>
-                                <p className="text-sm text-slate-500">Visualisation des congés validés ET en attente.</p>
+                                <p className="text-sm text-slate-500">Visualisation des congés validés ET en attente avec effectif cible.</p>
                             </div>
                             <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-700 p-1 rounded-lg border border-slate-200 dark:border-slate-600">
                                 <button onClick={() => navigateCalendar('prev')} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600"><ChevronLeft className="w-4 h-4 text-slate-600 dark:text-slate-300"/></button>
@@ -1106,12 +1208,15 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                                 employees={viewableEmployees} 
                                 startDate={new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1)} 
                                 days={getCalendarDays()} 
-                                pendingRequests={pendingRequests} 
+                                pendingRequests={pendingRequests}
+                                serviceConfig={serviceConfig} // IMPORTANT: Pass for calculation
                             />
                         </div>
-                        <div className="mt-2 text-xs text-slate-500 italic flex gap-4">
+                        <div className="mt-2 text-xs text-slate-500 italic flex gap-4 items-center">
                             <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-400 rounded-sm"></span> Congés Validés</span>
                             <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-50 border border-dashed border-blue-400 rounded-sm"></span> En attente de validation</span>
+                            <span className="ml-4 font-bold flex items-center gap-1"><span className="w-3 h-3 bg-green-100 border border-green-300"></span> Effectif OK</span>
+                            <span className="font-bold flex items-center gap-1"><span className="w-3 h-3 bg-red-100 border border-red-300"></span> Effectif Insuffisant</span>
                         </div>
                     </div>
                 )}

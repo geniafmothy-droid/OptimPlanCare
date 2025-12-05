@@ -301,14 +301,14 @@ function App() {
   }, [currentDate, viewMode]);
 
   const filteredEmployees = useMemo(() => {
-      // Pour l'onglet "Congés", on veut peut-être tout voir si on est Admin/Cadre, 
-      // donc on ne filtre par currentUser.id que pour le planning perso.
-      // Ici, filteredEmployees représente "L'ensemble du personnel affiché à l'écran".
-      
       return employees.filter(emp => {
+        // 1. Role Filter
         const roleMatch = selectedRoles.length === 0 || selectedRoles.includes(emp.role);
+        
+        // 2. Skill Filter
         const skillMatch = skillFilter === 'all' || emp.skills.includes(skillFilter);
         
+        // 3. Qualification Filter
         let qualificationMatch = true;
         if (showQualifiedOnly && activeService?.config) {
             const reqSkills = activeService.config.requiredSkills || [];
@@ -317,25 +317,24 @@ function App() {
             }
         }
 
+        // 4. Service Assignment Filter (Strict)
         let assignmentMatch = true;
-        if (activeServiceId && assignmentsList.length > 0) {
-            const empAssignments = assignmentsList.filter(a => a.employeeId === emp.id && a.serviceId === activeServiceId);
-            
-            if (empAssignments.length === 0) {
-                 assignmentMatch = false;
-                 // FIX: Ensure Cadres/Directors/Managers remain visible if they are not assigned to ANY service
-                 // This prevents them from disappearing when assignments exist for others but not them.
-                 const isAssignedAnywhere = assignmentsList.some(a => a.employeeId === emp.id);
-                 if (!isAssignedAnywhere && ['Cadre', 'Directeur', 'Manager', 'Cadre Supérieur'].includes(emp.role)) {
-                     assignmentMatch = true;
-                 }
+        if (activeServiceId) {
+            // STRICT MODE: Only show employees assigned to the selected service.
+            // This hides directors/cadres from other services unless they are explicitly assigned to this one.
+            const isAssigned = assignmentsList.some(a => a.employeeId === emp.id && a.serviceId === activeServiceId);
+            if (!isAssigned) {
+                assignmentMatch = false;
             }
+        } else {
+            // GLOBAL VIEW (No service selected): Show everyone
+            assignmentMatch = true;
         }
 
+        // 5. Status Filters (Period based)
         let statusMatch = true;
         let absenceTypeMatch = true;
         
-        // Complex filter on period content
         if (statusFilter !== 'all' || absenceTypeFilter !== 'all') {
             let hasWork = false;
             let hasSpecificAbsence = false;
@@ -348,7 +347,6 @@ function App() {
                 const dateStr = d.toISOString().split('T')[0];
                 const code = emp.shifts[dateStr];
                 
-                // Holiday check
                 if (getHolidayName(d)) {
                     if (code && SHIFT_TYPES[code]?.isWork) hasWorkOnHoliday = true;
                 }
@@ -490,7 +488,11 @@ function App() {
              <div className="relative">
                  <button onClick={() => setIsNotifOpen(!isNotifOpen)} className="p-2 relative rounded-full hover:bg-slate-100 dark:hover:bg-slate-700">
                      <Bell className="w-5 h-5 text-slate-600 dark:text-slate-300" />
-                     {unreadNotifs > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border border-white"></span>}
+                     {unreadNotifs > 0 && (
+                         <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border-2 border-white dark:border-slate-800 min-w-[18px] text-center flex items-center justify-center h-5">
+                             {unreadNotifs}
+                         </span>
+                     )}
                  </button>
                  {isNotifOpen && (
                      <div className="absolute top-full right-0 mt-2 w-80 bg-white dark:bg-slate-800 rounded-xl shadow-lg border dark:border-slate-700 z-50 overflow-hidden">
@@ -740,7 +742,7 @@ function App() {
            {activeTab === 'attractivity' && <AttractivityPanel />}
            {activeTab === 'stats' && <StatsPanel employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />}
            {activeTab === 'team' && <TeamManager employees={employees} allSkills={skillsList} currentUser={currentUser} onReload={loadData} />}
-           {activeTab === 'leaves' && <LeaveManager employees={employees} filteredEmployees={filteredEmployees} onReload={loadData} currentUser={currentUser} activeServiceId={activeServiceId} assignmentsList={assignmentsList} />}
+           {activeTab === 'leaves' && <LeaveManager employees={employees} filteredEmployees={filteredEmployees} onReload={loadData} currentUser={currentUser} activeServiceId={activeServiceId} assignmentsList={assignmentsList} serviceConfig={activeService?.config} />}
            {activeTab === 'settings' && (
                <div className="p-6 max-w-6xl mx-auto space-y-8 w-full overflow-y-auto">
                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Paramètres Généraux</h2>

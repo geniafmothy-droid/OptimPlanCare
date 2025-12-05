@@ -441,7 +441,14 @@ export const clearShiftsInRange = async (year: number, month: number, serviceId?
     const startStr = toLocalISOString(startDate);
     const endStr = toLocalISOString(endDate);
     
-    let query = supabase.from('shifts').delete().gte('date', startStr).lte('date', endStr);
+    // Codes to PRESERVE from deletion (Validated Absences & Leaves)
+    const PRESERVED_CODES = ['CA', 'NT', 'RC', 'HS', 'F', 'RTT', 'FO', 'CSS', 'PATER', 'MALADIE'];
+
+    let query = supabase.from('shifts')
+        .delete()
+        .gte('date', startStr)
+        .lte('date', endStr)
+        .not('shift_code', 'in', `(${PRESERVED_CODES.join(',')})`); // Preserve absences
 
     if (serviceId) {
         // Filter by employees in this service during the period
