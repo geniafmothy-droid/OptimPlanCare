@@ -1,10 +1,11 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Employee, ShiftCode, LeaveRequestWorkflow, UserRole, ServiceAssignment, WorkPreference, LeaveRequestStatus, ServiceConfig } from '../types';
-import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, Trash2, Save, Send, XCircle, Check, AlertOctagon, Edit2, X, Heart, FolderClock, ChevronDown, Clock, Database, Lock, Moon, Sun, Coffee, List, Eye, CalendarDays } from 'lucide-react';
+import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, Trash2, Save, Send, XCircle, Check, AlertOctagon, Edit2, X, Heart, FolderClock, ChevronDown, Clock, Database, Lock, Moon, Sun, Coffee, List, Eye, CalendarDays, Download } from 'lucide-react';
 import * as db from '../services/db';
 import { SHIFT_TYPES } from '../constants';
 import { LeaveCalendar } from './LeaveCalendar';
+import { exportLeavesToCSV } from '../utils/csvExport';
 
 interface LeaveManagerProps {
     employees: Employee[];
@@ -48,8 +49,11 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
     // Editing state
     const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
 
-    // Validation State
+    // Validation State (Leaves)
     const [validationModal, setValidationModal] = useState<{ isOpen: boolean, req: LeaveRequestWorkflow | null, isApprove: boolean } | null>(null);
+    // Validation State (Desiderata)
+    const [desiderataValidationModal, setDesiderataValidationModal] = useState<{ isOpen: boolean, pref: WorkPreference | null, isApprove: boolean } | null>(null);
+    
     const [selectedRequest, setSelectedRequest] = useState<LeaveRequestWorkflow | null>(null); // For Comparison View
     const [refusalReason, setRefusalReason] = useState('');
     
@@ -210,6 +214,21 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
             new Date(r.startDate) <= targetEnd &&
             new Date(r.endDate) >= targetStart
         );
+    };
+
+    // --- HELPER: CALCULATE EFFECTIVE DAYS ---
+    const getEffectiveDays = (startStr: string, endStr: string) => {
+        const start = new Date(startStr);
+        const end = new Date(endStr);
+        let count = 0;
+        // Iterate from start to end inclusive
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            // Count if NOT Sunday (generic assumption for RH/Non-working)
+            if (d.getDay() !== 0) {
+                count++;
+            }
+        }
+        return count;
     };
 
     useEffect(() => {
@@ -399,15 +418,37 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         }
     };
 
-    const handleValidationDesiderata = async (id: string, status: 'VALIDATED' | 'REFUSED') => {
-        if (status === 'REFUSED') {
-            const reason = prompt("Motif du refus :");
-            if (!reason) return;
-            await db.updateWorkPreferenceStatus(id, status, reason);
-        } else {
-            await db.updateWorkPreferenceStatus(id, status);
+    const openDesiderataValidationModal = (pref: WorkPreference, isApprove: boolean) => {
+        setRefusalReason('');
+        setDesiderataValidationModal({ isOpen: true, pref, isApprove });
+    };
+
+    const confirmDesiderataValidation = async () => {
+        if (!desiderataValidationModal || !desiderataValidationModal.pref) return;
+        const { pref, isApprove } = desiderataValidationModal;
+
+        if (!isApprove && !refusalReason.trim()) {
+            setMessage({ text: "Motif de refus obligatoire pour les desiderata.", type: 'error' });
+            return;
         }
-        loadData();
+
+        setIsLoading(true);
+        try {
+            const status = isApprove ? 'VALIDATED' : 'REFUSED';
+            if (!isApprove) {
+                await db.updateWorkPreferenceStatus(pref.id, status, refusalReason);
+            } else {
+                await db.updateWorkPreferenceStatus(pref.id, status);
+            }
+            
+            setMessage({ text: isApprove ? "Souhait accepté." : "Souhait refusé.", type: isApprove ? 'success' : 'warning' });
+            setDesiderataValidationModal(null);
+            loadData();
+        } catch (e: any) {
+            setMessage({ text: e.message, type: 'error' });
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const handleEditRequest = (req: LeaveRequestWorkflow) => {
@@ -512,6 +553,11 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
             if (evt.target?.result) setMessage({ text: "Import simulé.", type: 'info' });
         };
         reader.readAsText(file);
+    };
+
+    const handleExportCSV = () => {
+        exportLeavesToCSV(requests, employees);
+        setMessage({ text: "Export CSV généré.", type: 'success' });
     };
 
     const myRequests = requests.filter(r => r.employeeId === currentUser.employeeId);
@@ -622,7 +668,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
     return (
         <div className="p-4 md:p-8 max-w-7xl mx-auto h-full flex flex-col relative">
             
-            {/* VALIDATION MODAL */}
+            {/* VALIDATION MODAL (LEAVES) */}
             {validationModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
                     <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md p-6">
@@ -664,15 +710,63 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                 </div>
             )}
 
+            {/* VALIDATION MODAL (DESIDERATA) */}
+            {desiderataValidationModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+                    <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md p-6">
+                        <h3 className={`text-lg font-bold mb-4 flex items-center gap-2 ${desiderataValidationModal.isApprove ? 'text-green-600' : 'text-red-600'}`}>
+                            {desiderataValidationModal.isApprove ? <CheckCircle2 className="w-5 h-5"/> : <XCircle className="w-5 h-5"/>}
+                            {desiderataValidationModal.isApprove ? 'Accepter le Souhait' : 'Refuser le Souhait'}
+                        </h3>
+                        
+                        <div className="bg-purple-50 dark:bg-purple-900/20 p-3 rounded mb-4 text-sm text-purple-800 dark:text-purple-300">
+                            <p><strong>{getPrefLabel(desiderataValidationModal.pref?.type || '')}</strong></p>
+                            <p>{desiderataValidationModal.pref?.startDate} au {desiderataValidationModal.pref?.endDate}</p>
+                            {desiderataValidationModal.pref?.reason && <p className="italic mt-1">"{desiderataValidationModal.pref?.reason}"</p>}
+                        </div>
+
+                        {!desiderataValidationModal.isApprove && (
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Motif du refus (Obligatoire)</label>
+                                <textarea 
+                                    value={refusalReason}
+                                    onChange={(e) => setRefusalReason(e.target.value)}
+                                    className="w-full border rounded p-2 text-sm dark:bg-slate-900 dark:border-slate-600 dark:text-white"
+                                    rows={3}
+                                    placeholder="Ex: Équité de planning, besoins de service..."
+                                    autoFocus
+                                />
+                            </div>
+                        )}
+
+                        <div className="flex justify-end gap-3">
+                            <button onClick={() => setDesiderataValidationModal(null)} className="px-4 py-2 rounded border hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 dark:border-slate-600">Annuler</button>
+                            <button 
+                                onClick={confirmDesiderataValidation} 
+                                disabled={isLoading || (!desiderataValidationModal.isApprove && !refusalReason.trim())}
+                                className={`px-4 py-2 rounded text-white font-medium ${desiderataValidationModal.isApprove ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'} disabled:opacity-50`}
+                            >
+                                {isLoading ? 'Traitement...' : 'Confirmer'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
                     <Calendar className="w-6 h-6 text-blue-600" /> Gestion des Congés
                 </h2>
                 
                 {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE' || currentUser.role === 'DIRECTOR' || currentUser.role === 'MANAGER') && (
-                    <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm text-sm font-medium">
-                        <Upload className="w-4 h-4" /> Import CSV
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button onClick={handleExportCSV} className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm text-sm font-medium">
+                            <Download className="w-4 h-4" /> Export CSV
+                        </button>
+                        <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm text-sm font-medium">
+                            <Upload className="w-4 h-4" /> Import CSV
+                        </button>
+                    </div>
                 )}
                 <input type="file" ref={fileInputRef} onChange={handleImportCSV} className="hidden" accept=".csv" />
             </div>
@@ -802,11 +896,13 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                             <h3 className="font-bold text-lg mb-4 text-slate-800 dark:text-white">Historique</h3>
                             {myRequests.length === 0 ? <p className="text-slate-400 italic">Aucune demande.</p> : myRequests.map(req => {
                                 const isPending = req.status.startsWith('PENDING');
+                                const effectiveDays = getEffectiveDays(req.startDate, req.endDate);
+                                
                                 return (
                                     <div key={req.id} className="border border-slate-200 dark:border-slate-700 p-3 rounded-lg flex flex-col mb-2 bg-slate-50 dark:bg-slate-900/50">
                                         <div className="flex justify-between items-start">
                                             <div>
-                                                <div className="font-bold text-slate-700 dark:text-slate-200">{req.type}</div>
+                                                <div className="font-bold text-slate-700 dark:text-slate-200">{req.type} <span className="text-xs font-normal text-slate-500">({effectiveDays} jours)</span></div>
                                                 <div className="text-sm text-slate-500 dark:text-slate-400">{new Date(req.startDate).toLocaleDateString()} au {new Date(req.endDate).toLocaleDateString()}</div>
                                             </div>
                                             <div className="flex flex-col items-end gap-2">
@@ -1039,6 +1135,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                                          requestsToValidate.map(req => {
                                              // Check history overlap for managers
                                              const hasN1Overlap = isManager ? checkN1Overlap(req) : false;
+                                             const effectiveDays = getEffectiveDays(req.startDate, req.endDate);
 
                                              return (
                                                  <div 
@@ -1049,7 +1146,10 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                                                      <div className="flex justify-between items-start">
                                                          <div>
                                                              <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">{req.employeeName}</div>
-                                                             <div className="text-xs text-slate-600 dark:text-slate-400 font-medium mt-0.5">{req.type}</div>
+                                                             <div className="text-xs text-slate-600 dark:text-slate-400 font-medium mt-0.5">
+                                                                 {req.type} 
+                                                                 <span className="ml-1 text-slate-500 font-normal">({effectiveDays} jours hors RH)</span>
+                                                             </div>
                                                              <div className="text-xs text-slate-500 dark:text-slate-500">{new Date(req.startDate).toLocaleDateString()} ➜ {new Date(req.endDate).toLocaleDateString()}</div>
                                                              <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
                                                                  <Clock className="w-3 h-3"/> Demandé le {new Date(req.createdAt).toLocaleString()}
@@ -1099,8 +1199,8 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                                                          <div className="text-xs text-slate-500 italic mt-1">{pref.reason || 'Aucun motif'}</div>
                                                      </div>
                                                      <div className="flex gap-2 mt-2">
-                                                         <button onClick={() => handleValidationDesiderata(pref.id, 'REFUSED')} className="flex-1 px-2 py-1 bg-white border border-red-200 text-red-700 rounded text-xs hover:bg-red-50">Refuser</button>
-                                                         <button onClick={() => handleValidationDesiderata(pref.id, 'VALIDATED')} className="flex-1 px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700 shadow-sm">Valider</button>
+                                                         <button onClick={() => openDesiderataValidationModal(pref, false)} className="flex-1 px-2 py-1 bg-white border border-red-200 text-red-700 rounded text-xs hover:bg-red-50">Refuser</button>
+                                                         <button onClick={() => openDesiderataValidationModal(pref, true)} className="flex-1 px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700 shadow-sm">Valider</button>
                                                      </div>
                                                  </div>
                                              );

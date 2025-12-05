@@ -1,5 +1,5 @@
 
-import { Employee } from '../types';
+import { Employee, LeaveRequestWorkflow } from '../types';
 
 export const exportScheduleToCSV = (employees: Employee[], currentDate: Date) => {
   const year = currentDate.getFullYear();
@@ -56,19 +56,45 @@ export const exportScheduleToCSV = (employees: Employee[], currentDate: Date) =>
   });
   
   // 3. Déclencher le téléchargement
-  // Ajout du BOM (Byte Order Mark) pour qu'Excel ouvre correctement l'UTF-8
-  const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  
-  const link = document.createElement("a");
-  link.setAttribute("href", url);
-  const fileName = `Planning_${year}_${String(month + 1).padStart(2, '0')}.csv`;
-  link.setAttribute("download", fileName);
-  document.body.appendChild(link);
-  
-  link.click();
-  
-  // Nettoyage
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  downloadCSV(csvContent, `Planning_${year}_${String(month + 1).padStart(2, '0')}.csv`);
+};
+
+export const exportLeavesToCSV = (requests: LeaveRequestWorkflow[], employees: Employee[]) => {
+    // En-tête
+    let csvContent = "Matricule;Nom;Type;Début;Fin;Statut;Date Demande;Commentaire\n";
+
+    requests.forEach(req => {
+        const emp = employees.find(e => e.id === req.employeeId);
+        const matricule = emp ? emp.matricule : 'N/A';
+        // Formater les dates pour Excel (DD/MM/YYYY) si possible, sinon garder ISO YYYY-MM-DD
+        const startDate = req.startDate; 
+        const endDate = req.endDate;
+        const createdDate = new Date(req.createdAt).toLocaleDateString('fr-FR');
+        
+        // Nettoyer les commentaires des sauts de ligne pour ne pas casser le CSV
+        const safeComment = req.comments ? req.comments.replace(/(\r\n|\n|\r)/gm, " ") : "";
+
+        const row = `${matricule};${req.employeeName};${req.type};${startDate};${endDate};${req.status};${createdDate};${safeComment}`;
+        csvContent += row + "\n";
+    });
+
+    const dateStr = new Date().toISOString().split('T')[0];
+    downloadCSV(csvContent, `Export_Conges_${dateStr}.csv`);
+};
+
+const downloadCSV = (content: string, fileName: string) => {
+    // Ajout du BOM (Byte Order Mark) pour qu'Excel ouvre correctement l'UTF-8
+    const blob = new Blob(["\ufeff" + content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", fileName);
+    document.body.appendChild(link);
+    
+    link.click();
+    
+    // Nettoyage
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 };
