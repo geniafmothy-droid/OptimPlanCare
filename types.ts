@@ -1,4 +1,5 @@
 
+
 export type ShiftCode = 
   | 'M' | 'T5' | 'T6' | 'S' | 'IT' | 'NT' | 'CA' | 'RH' | 'FO' | 'ETP' | 'DP' | 'OFF' | 'RC' | 'HS' | 'F' | 'RTT' | 'INT'; 
 
@@ -104,7 +105,7 @@ export interface Employee {
   id: string;
   matricule: string;
   name: string;
-  role: 'Infirmier' | 'Aide-Soignant' | 'Cadre' | 'Manager' | 'Directeur' | 'Intérimaire' | 'Agent Administratif'; 
+  role: 'Infirmier' | 'Aide-Soignant' | 'Cadre' | 'Cadre Supérieur' | 'Manager' | 'Directeur' | 'Intérimaire' | 'Agent Administratif'; 
   systemRole?: UserRole; 
   fte: number; 
   leaveBalance: number; 

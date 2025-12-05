@@ -442,7 +442,8 @@ export const clearShiftsInRange = async (year: number, month: number, serviceId?
     const endStr = toLocalISOString(endDate);
     
     // Codes to PRESERVE from deletion (Validated Absences & Leaves)
-    const PRESERVED_CODES = ['CA', 'NT', 'RC', 'HS', 'F', 'RTT', 'FO', 'CSS', 'PATER', 'MALADIE'];
+    // NOTE: Removed 'NT' to ensure it gets cleared during reset
+    const PRESERVED_CODES = ['CA', 'RC', 'HS', 'F', 'RTT', 'FO', 'CSS', 'PATER', 'MALADIE'];
 
     let query = supabase.from('shifts')
         .delete()

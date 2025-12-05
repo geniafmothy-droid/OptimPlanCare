@@ -229,10 +229,15 @@ function App() {
       setIsLoading(true);
       try {
           if (actionModal.type === 'GENERATE') {
-               const newEmps = await generateMonthlySchedule(employees, actionYear, actionMonth, activeService?.config);
+               // IMPORTANT: Pass only the filtered employees to the generator if a service is selected
+               // This ensures we only generate for the relevant staff.
+               // If no service selected (Global view), generate for everyone.
+               const scopeEmployees = activeServiceId ? filteredEmployees : employees;
+               
+               const newEmps = await generateMonthlySchedule(scopeEmployees, actionYear, actionMonth, activeService?.config);
                await db.bulkSaveSchedule(newEmps);
                await loadData();
-               setToast({ message: `Planning de ${monthName} généré avec succès`, type: "success" });
+               setToast({ message: `Planning de ${monthName} généré avec succès pour ${scopeEmployees.length} employés.`, type: "success" });
           } else {
                await db.clearShiftsInRange(actionYear, actionMonth, activeServiceId || undefined);
                await loadData();
@@ -373,6 +378,8 @@ function App() {
       });
   }, [employees, selectedRoles, skillFilter, showQualifiedOnly, activeServiceId, assignmentsList, gridStartDate, gridDuration, statusFilter, absenceTypeFilter, activeService, currentUser]);
 
+  // ... (rest of App.tsx remains the same)
+  
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
 
   // --- Handlers ---
@@ -675,6 +682,7 @@ function App() {
              <>
                {/* Planning specific header and grid */}
                <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-2 flex items-center gap-2 justify-between flex-wrap no-print">
+                  {/* ... (View mode buttons) ... */}
                   <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700 p-1 rounded-lg">
                       <button onClick={() => setViewMode('month')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'month' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Mois</button>
                       <button onClick={() => setViewMode('week')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'week' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Semaine</button>
@@ -718,6 +726,7 @@ function App() {
                   </div>
                </div>
 
+               {/* ... (rest of App.tsx remains the same) ... */}
                <div className="flex-1 overflow-hidden flex flex-col p-4">
                   <div className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm overflow-hidden flex flex-col">
                      <ScheduleGrid 
