@@ -1,8 +1,8 @@
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Employee, ConstraintViolation, ServiceConfig } from '../types';
 import { checkConstraints } from '../utils/validation';
-import { Users, AlertTriangle, CheckCircle2, TrendingUp, AlertOctagon, ShieldAlert, Calendar, CalendarDays, LayoutList, Wand2, Eye, Clock } from 'lucide-react';
+import { Users, AlertTriangle, CheckCircle2, TrendingUp, AlertOctagon, ShieldAlert, Calendar, CalendarDays, LayoutList, Wand2, Eye, Clock, ArrowRight, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 interface DashboardProps {
@@ -17,6 +17,44 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
 
 export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, serviceConfig, onNavigateToPlanning, onNavigateToScenarios }) => {
   const [filter, setFilter] = useState<'month' | 'week' | 'day' | 'hourly'>('month');
+  const [customRange, setCustomRange] = useState<{start: string, end: string}>({ start: '', end: '' });
+
+  // Reset custom range when switching to week mode or when base date changes
+  useEffect(() => {
+      if (filter === 'week') {
+          const d = new Date(currentDate);
+          const day = d.getDay();
+          const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust to Monday
+          const monday = new Date(d);
+          monday.setDate(diff);
+          
+          const sunday = new Date(monday);
+          sunday.setDate(monday.getDate() + 6);
+          
+          setCustomRange({
+              start: monday.toISOString().split('T')[0],
+              end: sunday.toISOString().split('T')[0]
+          });
+      }
+  }, [currentDate, filter]);
+
+  // Handle Week Navigation
+  const handleWeekNavigate = (direction: 'prev' | 'next') => {
+      if (!customRange.start || !customRange.end) return;
+      
+      const offset = direction === 'next' ? 7 : -7;
+      
+      const newStart = new Date(customRange.start);
+      newStart.setDate(newStart.getDate() + offset);
+      
+      const newEnd = new Date(customRange.end);
+      newEnd.setDate(newEnd.getDate() + offset);
+      
+      setCustomRange({
+          start: newStart.toISOString().split('T')[0],
+          end: newEnd.toISOString().split('T')[0]
+      });
+  };
 
   // 1. Calculate effective Date Range based on local filter
   const { startDate, days, label } = useMemo(() => {
@@ -33,7 +71,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
     }
     
     if (filter === 'week') {
-        // Calculate Monday
+        // Use custom range if set
+        if (customRange.start && customRange.end) {
+             const start = new Date(customRange.start);
+             const end = new Date(customRange.end);
+             const diffTime = Math.abs(end.getTime() - start.getTime());
+             const dayCount = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+             
+             if (!isNaN(dayCount) && dayCount > 0) {
+                 return { 
+                     startDate: start, 
+                     days: dayCount, 
+                     label: `Période du ${start.toLocaleDateString('fr-FR')} au ${end.toLocaleDateString('fr-FR')}` 
+                 };
+             }
+        }
+
+        // Fallback default week
         const day = d.getDay();
         const diff = d.getDate() - day + (day === 0 ? -6 : 1);
         const monday = new Date(d);
@@ -52,7 +106,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
     const labelStr = startMonth.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
     
     return { startDate: startMonth, days: daysInMonth, label: labelStr };
-  }, [currentDate, filter]);
+  }, [currentDate, filter, customRange]);
   
   // 2. Compute Violations on the calculated range
   const violations = useMemo(() => {
@@ -64,6 +118,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
     const staffingIssues = violations.filter(v => v.employeeId === 'ALL').length;
     const ruleBreaks = violations.filter(v => v.employeeId !== 'ALL').length;
     const criticalErrors = violations.filter(v => v.severity === 'error').length;
+    const warnings = violations.filter(v => v.severity === 'warning').length;
     
     // Role Distribution (Global)
     const roles: Record<string, number> = {};
@@ -76,7 +131,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
     const daysWithIssues = new Set(violations.filter(v => v.employeeId === 'ALL').map(v => v.date)).size;
     const coverageRate = days > 0 ? Math.round(((days - daysWithIssues) / days) * 100) : 0;
 
-    return { staffingIssues, ruleBreaks, criticalErrors, roleData, coverageRate };
+    return { staffingIssues, ruleBreaks, criticalErrors, warnings, roleData, coverageRate };
   }, [employees, violations, days]);
 
   // 4. Top Recurring Violations
@@ -102,6 +157,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
       return emp ? emp.name : `Employé #${id.substring(0, 6)}`;
   };
 
+  const criticals = violations.filter(v => v.severity === 'error');
+  const warnings = violations.filter(v => v.severity === 'warning');
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -113,14 +171,39 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
                 <p className="text-slate-500">Analyse de la conformité : <span className="font-semibold text-slate-700 capitalize">{label}</span></p>
             </div>
             
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+                {/* Custom Period Inputs with Arrows */}
+                {filter === 'week' && (
+                    <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-1 shadow-sm animate-in fade-in slide-in-from-right-4">
+                        <button onClick={() => handleWeekNavigate('prev')} className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-700">
+                            <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <input 
+                            type="date" 
+                            value={customRange.start} 
+                            onChange={(e) => setCustomRange(prev => ({...prev, start: e.target.value}))}
+                            className="text-xs border border-slate-200 rounded px-1.5 py-1 text-slate-600 bg-slate-50 outline-none w-28 focus:border-blue-400 focus:bg-white transition-all"
+                        />
+                        <span className="text-slate-400"><ArrowRight className="w-3 h-3" /></span>
+                        <input 
+                            type="date" 
+                            value={customRange.end} 
+                            onChange={(e) => setCustomRange(prev => ({...prev, end: e.target.value}))}
+                            className="text-xs border border-slate-200 rounded px-1.5 py-1 text-slate-600 bg-slate-50 outline-none w-28 focus:border-blue-400 focus:bg-white transition-all"
+                        />
+                        <button onClick={() => handleWeekNavigate('next')} className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-700">
+                            <ChevronRight className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
+
                 {/* IMPROVEMENT BUTTON */}
                 {onNavigateToScenarios && (
                     <button 
                         onClick={onNavigateToScenarios}
                         className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium shadow-sm hover:bg-purple-700 flex items-center gap-2"
                     >
-                        <Wand2 className="w-4 h-4" /> Optimiser le Planning
+                        <Wand2 className="w-4 h-4" /> Optimiser
                     </button>
                 )}
 
@@ -136,7 +219,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
                         onClick={() => setFilter('week')}
                         className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${filter === 'week' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     >
-                        <CalendarDays className="w-4 h-4" /> Semaine
+                        <CalendarDays className="w-4 h-4" /> Semaine / Période
                     </button>
                     <button 
                         onClick={() => setFilter('day')}
@@ -265,42 +348,87 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
             </div>
         </div>
 
-        {/* Critical Alerts List */}
-        {stats.criticalErrors > 0 && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-6">
-                <h3 className="font-bold text-red-800 mb-4 flex items-center gap-2">
-                    <ShieldAlert className="w-5 h-5" />
-                    Actions Requises (Critiques)
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {violations.filter(v => v.severity === 'error').slice(0, 6).map((v, idx) => (
-                        <div key={idx} className="bg-white p-3 rounded border border-red-100 shadow-sm flex items-start gap-3">
-                            <div className="w-1.5 h-1.5 rounded-full bg-red-500 mt-2 flex-shrink-0"></div>
-                            <div className="flex-1">
-                                <div className="text-xs text-red-400 font-mono mb-0.5">{v.date}</div>
-                                <div className="text-sm font-medium text-slate-800">
-                                    {getEmpName(v.employeeId)}
+        {/* DETAILED ANOMALY CARDS (Errors & Warnings) */}
+        {violations.length > 0 && (
+            <div className="space-y-4">
+                
+                {/* 1. Critical Errors */}
+                {criticals.length > 0 && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-6">
+                        <h3 className="font-bold text-red-800 mb-4 flex items-center gap-2">
+                            <ShieldAlert className="w-5 h-5" />
+                            Erreurs Bloquantes ({criticals.length})
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {criticals.slice(0, 10).map((v, idx) => (
+                                <div key={`crit-${idx}`} className="bg-white p-3 rounded border border-red-100 shadow-sm flex items-start gap-3">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-red-500 mt-2 flex-shrink-0"></div>
+                                    <div className="flex-1">
+                                        <div className="text-xs text-red-400 font-mono mb-0.5">{v.date}</div>
+                                        <div className="text-sm font-medium text-slate-800">
+                                            {getEmpName(v.employeeId)}
+                                        </div>
+                                        <div className="text-xs text-slate-600">{v.message}</div>
+                                    </div>
+                                    {/* HIGHLIGHT BUTTON */}
+                                    {onNavigateToPlanning && (
+                                        <button 
+                                            onClick={() => onNavigateToPlanning([v])} 
+                                            title="Voir dans le planning"
+                                            className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded transition-colors"
+                                        >
+                                            <Eye className="w-4 h-4" />
+                                        </button>
+                                    )}
                                 </div>
-                                <div className="text-xs text-slate-600">{v.message}</div>
-                            </div>
-                            {/* HIGHLIGHT BUTTON */}
-                            {onNavigateToPlanning && (
-                                <button 
-                                    onClick={() => onNavigateToPlanning([v])} 
-                                    title="Voir dans le planning"
-                                    className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded transition-colors"
-                                >
-                                    <Eye className="w-4 h-4" />
-                                </button>
+                            ))}
+                            {criticals.length > 10 && (
+                                <div className="flex items-center justify-center text-sm text-red-600 font-medium col-span-full">
+                                    + {criticals.length - 10} autres erreurs...
+                                </div>
                             )}
                         </div>
-                    ))}
-                    {stats.criticalErrors > 6 && (
-                        <div className="flex items-center justify-center text-sm text-red-600 font-medium">
-                            + {stats.criticalErrors - 6} autres erreurs critiques...
+                    </div>
+                )}
+
+                {/* 2. Warnings */}
+                {warnings.length > 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-6">
+                        <h3 className="font-bold text-amber-800 mb-4 flex items-center gap-2">
+                            <AlertCircle className="w-5 h-5" />
+                            Avertissements & Points de Vigilance ({warnings.length})
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {warnings.slice(0, 10).map((v, idx) => (
+                                <div key={`warn-${idx}`} className="bg-white p-3 rounded border border-amber-100 shadow-sm flex items-start gap-3">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-2 flex-shrink-0"></div>
+                                    <div className="flex-1">
+                                        <div className="text-xs text-amber-600 font-mono mb-0.5">{v.date}</div>
+                                        <div className="text-sm font-medium text-slate-800">
+                                            {getEmpName(v.employeeId)}
+                                        </div>
+                                        <div className="text-xs text-slate-600">{v.message}</div>
+                                    </div>
+                                    {/* HIGHLIGHT BUTTON */}
+                                    {onNavigateToPlanning && (
+                                        <button 
+                                            onClick={() => onNavigateToPlanning([v])} 
+                                            title="Voir dans le planning"
+                                            className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-600 rounded transition-colors"
+                                        >
+                                            <Eye className="w-4 h-4" />
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                            {warnings.length > 10 && (
+                                <div className="flex items-center justify-center text-sm text-amber-700 font-medium col-span-full">
+                                    + {warnings.length - 10} autres avertissements...
+                                </div>
+                            )}
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
         )}
     </div>

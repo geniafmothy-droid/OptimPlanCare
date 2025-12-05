@@ -24,8 +24,6 @@ export const checkConstraints = (
         const dayOfWeek = getDayOfWeek(d); // 0=Sun, 1=Mon...
 
         // Check if service is open
-        // Default to [1,2,3,4,5,6] (Closed Sunday) if no config provided for backward compat, 
-        // OR rely on passed config. If config exists, use it.
         const isOpen = serviceConfig ? serviceConfig.openDays.includes(dayOfWeek) : dayOfWeek !== 0;
 
         // Si le service est FERMÉ ce jour-là
@@ -42,9 +40,7 @@ export const checkConstraints = (
                         severity: 'error'
                     });
                 } 
-                // Optionnel : Warning si pas de code de repos explicite ?
             });
-            // On saute les vérifications d'effectif minimum
             continue;
         }
 
@@ -112,11 +108,11 @@ export const checkConstraints = (
     // 2. Check Individual Patterns
     employees.forEach(emp => {
       
-      // A. S -> NT pattern
+      // A. S -> Work pattern (Forbidden)
+      // Updated logic: Check if next day is WORK. If it is Absence (CA, RTT, F...) or Rest, it is Valid.
       for (let i = 0; i < days - 1; i++) {
         const d = new Date(startDate);
         d.setDate(d.getDate() + i);
-        // FORCE LOCAL DATE STRING
         const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         
         const nextD = new Date(d);
@@ -125,12 +121,14 @@ export const checkConstraints = (
 
         if (emp.shifts[dateStr] === 'S') {
             const nextCode = emp.shifts[nextDateStr];
-            if (nextCode && nextCode !== 'NT' && nextCode !== 'RH' && nextCode !== 'RC' && nextCode !== 'CA') {
+            
+            // If there is a code assigned next day AND it is defined as WORK
+            if (nextCode && SHIFT_TYPES[nextCode]?.isWork) {
                 list.push({
                     employeeId: emp.id,
                     date: nextDateStr,
                     type: 'INVALID_ROTATION',
-                    message: `${emp.name}: Après un Soir (S), doit être en repos (NT/RH/RC)`,
+                    message: `${emp.name}: Enchaînement Soir (S) -> Travail interdit (Repos ou Absence requis)`,
                     severity: 'error'
                 });
             }
@@ -148,7 +146,10 @@ export const checkConstraints = (
               const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
               
               const code = emp.shifts[dateStr];
-              if (code === 'RH' || code === 'RC' || code === 'NT' || code === 'CA') rhCount++;
+              // Count all forms of Rest or Absences as "Non-Work" days for the 2-day rest rule
+              if (code && !SHIFT_TYPES[code]?.isWork && code !== 'OFF') {
+                  rhCount++;
+              }
               
               // Sum hours for 48h check
               totalHours += (SHIFT_HOURS[code] || 0);
@@ -163,7 +164,7 @@ export const checkConstraints = (
                   employeeId: emp.id,
                   date: dateLabel,
                   type: 'CONSECUTIVE_DAYS',
-                  message: `${emp.name}: Moins de 2 jours de repos sur 7 jours`,
+                  message: `${emp.name}: Moins de 2 jours de repos/absence sur 7 jours glissants`,
                   severity: 'warning'
               });
           }

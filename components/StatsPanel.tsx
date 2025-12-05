@@ -94,10 +94,12 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
 
   // Advanced Stats: Absenteeism & Interim
   const { absenteeismRate, interimRate } = React.useMemo(() => {
-      let totalWorkableDays = 0;
-      let absenceDays = 0;
+      let totalWorkableDays = 0; // The theoretical days they SHOULD have worked (Worked + Unplanned Absences)
+      let absenceDays = 0; // Strictly Unplanned (MAL, AT, ABS)
       let interimDays = 0;
       let totalWorkedDays = 0;
+
+      const STRICT_ABSENCE_CODES = ['MAL', 'AT', 'ABS'];
 
       employees.forEach(emp => {
           for(let i=0; i<days; i++) {
@@ -108,15 +110,19 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
               
               if (code && code !== 'OFF') {
                   const isWork = SHIFT_TYPES[code]?.isWork;
-                  const isAbsence = ['NT', 'Maladie'].includes(code); // Maladie pure
-                  const isInterim = emp.role === 'Intérimaire'; // Or check if code is INT
+                  const isStrictAbsence = STRICT_ABSENCE_CODES.includes(code);
 
-                  if (isWork || isAbsence) totalWorkableDays++;
-                  if (isAbsence) absenceDays++;
+                  // 1. Calculate Numerator (Strict Absence)
+                  if (isStrictAbsence) absenceDays++;
+                  
+                  // 2. Calculate Denominator (Workable Days)
+                  // Formula: Workable = Actual Work + Unplanned Absences
+                  // Note: NT, RH, CA, RTT are NOT included in Workable Days as they are scheduled non-work.
+                  if (isWork || isStrictAbsence) totalWorkableDays++;
                   
                   if (isWork) {
                       totalWorkedDays++;
-                      if (isInterim || code === 'INT') interimDays++;
+                      if (emp.role === 'Intérimaire' || code === 'INT') interimDays++;
                   }
               }
           }
@@ -147,14 +153,15 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
                 dataKey="value"
               >
                 {shiftDistribution.map((entry, index) => {
-                    // USE CONSTANT COLORS DIRECTLY
-                    // Hack: Use hardcoded mapping based on typical tailwind values for visual consistency.
                     let color = '#94a3b8'; // default slate-400
                     if (entry.name === 'IT') color = '#60a5fa'; // blue-400
                     if (entry.name === 'T5') color = '#fdba74'; // orange-300
                     if (entry.name === 'T6') color = '#fb923c'; // orange-400
                     if (entry.name === 'S') color = '#fde68a'; // amber-200
-                    if (entry.name === 'NT') color = '#e2e8f0'; // slate-200
+                    if (entry.name === 'NT') color = '#cbd5e1'; // slate-300
+                    if (entry.name === 'MAL') color = '#ef4444'; // red-500
+                    if (entry.name === 'AT') color = '#f87171'; // red-400
+                    if (entry.name === 'ABS') color = '#991b1b'; // red-800
                     if (entry.name === 'RH') color = '#bbf7d0'; // green-200
                     if (entry.name === 'CA') color = '#60a5fa'; // blue-400 (darker)
                     if (entry.name === 'RC') color = '#f1f5f9'; // gray-100
@@ -213,9 +220,9 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
           <div className="text-xs text-orange-400 mt-1">Pauses déduites</div>
         </div>
         <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-xl border border-purple-100 dark:border-purple-800">
-          <div className="text-sm text-purple-600 dark:text-purple-400 font-medium">Postes de Nuit/Repos</div>
+          <div className="text-sm text-purple-600 dark:text-purple-400 font-medium">Non Travaillés (NT/Cycle)</div>
           <div className="text-2xl font-bold text-purple-900 dark:text-purple-200">
-             {(shiftDistribution.find(x => x.name === 'NT')?.value || 0) + (shiftDistribution.find(x => x.name === 'RC')?.value || 0)}
+             {shiftDistribution.find(x => x.name === 'NT')?.value || 0}
           </div>
         </div>
         <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-xl border border-green-100 dark:border-green-800">
@@ -223,7 +230,7 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
            <div className="text-2xl font-bold text-green-900 dark:text-green-200">
              {(() => {
                const total = shiftDistribution.reduce((a, b) => a + b.value, 0);
-               const off = shiftDistribution.filter(x => ['CA', 'RH', 'NT', 'RC', 'OFF', 'HS'].includes(x.name)).reduce((a, b) => a + b.value, 0);
+               const off = shiftDistribution.filter(x => ['CA', 'RH', 'NT', 'RC', 'OFF', 'HS', 'RTT'].includes(x.name)).reduce((a, b) => a + b.value, 0);
                return total ? Math.round((off / total) * 100) : 0;
              })()}%
            </div>
@@ -233,14 +240,14 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({ employees, startDate, da
       {/* Advanced Stats */}
       <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-white dark:bg-slate-800 p-4 rounded-lg shadow border border-slate-200 dark:border-slate-700">
-              <h4 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Taux d'Absentéisme (Maladie)</h4>
+              <h4 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Taux d'Absentéisme</h4>
               <div className="flex items-center gap-4">
                   <div className="text-3xl font-bold text-slate-800 dark:text-white">{absenteeismRate.toFixed(1)}%</div>
                   <div className="h-2 flex-1 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                       <div className="h-full bg-red-500" style={{ width: `${Math.min(absenteeismRate, 100)}%` }}></div>
                   </div>
               </div>
-              <p className="text-xs text-slate-400 mt-1">Calculé sur les arrêts maladies (NT) vs jours ouvrés.</p>
+              <p className="text-xs text-slate-400 mt-1">Uniquement MAL, AT et ABS (Hors NT, CA, RTT).</p>
           </div>
 
           <div className="bg-white dark:bg-slate-800 p-4 rounded-lg shadow border border-slate-200 dark:border-slate-700">

@@ -51,7 +51,10 @@ export const SHIFT_TYPES: Record<ShiftCode, ShiftDefinition> = {
     duration: 6.5,
     breakDuration: 0.5 
   },
-  'NT': { code: 'NT', label: 'NT', color: 'bg-slate-200', textColor: 'text-slate-600', description: 'Non Travaillé / Maladie', isWork: false, duration: 0 },
+  'NT': { code: 'NT', label: 'NT', color: 'bg-slate-200', textColor: 'text-slate-600', description: 'Non Travaillé (Cycle)', isWork: false, duration: 0 },
+  'MAL': { code: 'MAL', label: 'MAL', color: 'bg-red-200', textColor: 'text-red-900', description: 'Arrêt Maladie', isWork: false, duration: 0 },
+  'AT': { code: 'AT', label: 'AT', color: 'bg-red-300', textColor: 'text-red-900', description: 'Accident de Travail', isWork: false, duration: 0 },
+  'ABS': { code: 'ABS', label: 'ABS', color: 'bg-red-600', textColor: 'text-white', description: 'Absence Injustifiée', isWork: false, duration: 0 },
   'RC': { code: 'RC', label: 'RC', color: 'bg-gray-100', textColor: 'text-gray-500', description: 'Repos Cycle', isWork: false, duration: 0 },
   'CA': { code: 'CA', label: 'CA', color: 'bg-blue-400', textColor: 'text-white', description: 'Congés Annuels', isWork: false, duration: 0 },
   'RH': { code: 'RH', label: 'RH', color: 'bg-green-200', textColor: 'text-green-900', description: 'Repos Hebdo', isWork: false, duration: 0 },

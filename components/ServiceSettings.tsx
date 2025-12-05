@@ -1,692 +1,547 @@
 
 import React, { useState, useEffect } from 'react';
-import { Service, Skill, Employee, ServiceAssignment, EquityConfig, SkillRequirement } from '../types';
-import { Save, Loader2, CheckCircle2, ShieldCheck, Users, Plus, Trash2, Store, Search, XCircle, AlertTriangle, X, Database, ChevronDown, ChevronUp, Pencil, Clock } from 'lucide-react';
+import { Service, Skill, SkillRequirement, Employee, ServiceAssignment } from '../types';
+import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X } from 'lucide-react';
 import * as db from '../services/db';
 
 interface ServiceSettingsProps {
-    service: Service | null; 
+    service: Service | null | undefined; // Passed for initial context, but we manage the list here
     onReload: () => void;
 }
 
-const SQL_SCHEMA = `
--- ⚠️ REINITIALISATION COMPLETE (DONNÉES PERDUES)
-DROP TABLE IF EXISTS public.shifts CASCADE;
-DROP TABLE IF EXISTS public.leave_requests CASCADE;
-DROP TABLE IF EXISTS public.work_preferences CASCADE;
-DROP TABLE IF EXISTS public.service_assignments CASCADE;
-DROP TABLE IF EXISTS public.employees CASCADE;
-DROP TABLE IF EXISTS public.services CASCADE;
-DROP TABLE IF EXISTS public.skills CASCADE;
-DROP TABLE IF EXISTS public.notifications CASCADE;
+type TabType = 'general' | 'rules' | 'members' | 'config';
 
--- 1. TABLES PRINCIPALES (IDs en TEXT pour compatibilité maximale)
-CREATE TABLE IF NOT EXISTS public.services (
-    id text DEFAULT gen_random_uuid()::text NOT NULL PRIMARY KEY,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    name text NOT NULL,
-    config jsonb DEFAULT '{}'::jsonb
-);
-
-CREATE TABLE IF NOT EXISTS public.employees (
-    id text NOT NULL PRIMARY KEY, -- TEXT pour supporter 'ide-100-0'
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    matricule text, -- Non unique strict pour éviter blocage import
-    name text NOT NULL,
-    role text NOT NULL,
-    fte numeric DEFAULT 1.0,
-    leave_balance numeric DEFAULT 0,
-    leave_data jsonb DEFAULT '{}'::jsonb,
-    skills text[] DEFAULT '{}'::text[]
-);
-
--- Note: Suppression des FKs strictes pour éviter les erreurs "Key is not present in table" avec les données mockées
-CREATE TABLE IF NOT EXISTS public.shifts (
-    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    employee_id text NOT NULL, 
-    date date NOT NULL,
-    shift_code text NOT NULL,
-    UNIQUE(employee_id, date)
-);
-
-CREATE TABLE IF NOT EXISTS public.skills (
-    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    code text NOT NULL UNIQUE,
-    label text NOT NULL,
-    default_duration numeric,
-    default_break numeric
-);
-
--- 2. TABLES FLUX DE TRAVAIL
-CREATE TABLE IF NOT EXISTS public.leave_requests (
-    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    employee_id text NOT NULL,
-    type text NOT NULL,
-    start_date date NOT NULL,
-    end_date date NOT NULL,
-    status text DEFAULT 'PENDING_CADRE',
-    comments text,
-    validation_date timestamp with time zone
-);
-
-CREATE TABLE IF NOT EXISTS public.work_preferences (
-    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    employee_id text NOT NULL,
-    start_date date NOT NULL,
-    end_date date NOT NULL,
-    type text NOT NULL,
-    recurring_days integer[],
-    reason text,
-    status text DEFAULT 'PENDING',
-    rejection_reason text
-);
-
-CREATE TABLE IF NOT EXISTS public.notifications (
-    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    date timestamp with time zone DEFAULT now() NOT NULL,
-    recipient_role text,
-    recipient_id text,
-    title text NOT NULL,
-    message text NOT NULL,
-    is_read boolean DEFAULT false,
-    type text DEFAULT 'info',
-    action_type text,
-    entity_id uuid
-);
-
-CREATE TABLE IF NOT EXISTS public.service_assignments (
-    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    service_id text NOT NULL,
-    employee_id text NOT NULL,
-    start_date date NOT NULL,
-    end_date date,
-    UNIQUE(service_id, employee_id, start_date)
-);
-
--- 3. SECURITE (RLS)
-ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all employees" ON public.employees FOR ALL USING (true) WITH CHECK (true);
-
-ALTER TABLE public.leave_requests ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all leave_requests" ON public.leave_requests FOR ALL USING (true) WITH CHECK (true);
-
-ALTER TABLE public.work_preferences ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all work_preferences" ON public.work_preferences FOR ALL USING (true) WITH CHECK (true);
-
-ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all notifications" ON public.notifications FOR ALL USING (true) WITH CHECK (true);
-
-ALTER TABLE public.service_assignments ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all service_assignments" ON public.service_assignments FOR ALL USING (true) WITH CHECK (true);
-
-ALTER TABLE public.shifts ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all shifts" ON public.shifts FOR ALL USING (true) WITH CHECK (true);
-
-ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all services" ON public.services FOR ALL USING (true) WITH CHECK (true);
-
-ALTER TABLE public.skills ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all skills" ON public.skills FOR ALL USING (true) WITH CHECK (true);
-`;
-
-export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) => {
-    const [isLoading, setIsLoading] = useState(false);
-    const [activeTab, setActiveTab] = useState<'config' | 'members' | 'equity'>('config');
-    const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
+export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initialService, onReload }) => {
+    // Global Data State
     const [services, setServices] = useState<Service[]>([]);
-    const [isExpanded, setIsExpanded] = useState(true);
-    const [showDbScript, setShowDbScript] = useState(false);
-    
-    // Creation State
-    const [isCreating, setIsCreating] = useState(false);
-    const [newServiceName, setNewServiceName] = useState('');
-
-    // Config State
-    const [editName, setEditName] = useState('');
-    const [openDays, setOpenDays] = useState<number[]>([]);
-    const [requiredSkills, setRequiredSkills] = useState<string[]>([]); // Simple list (legacy/compat)
-    const [skillRequirements, setSkillRequirements] = useState<SkillRequirement[]>([]); // Detailed list
-    
-    // Equity State
-    const [equityRules, setEquityRules] = useState<EquityConfig>({
-        targetSaturdayPercentage: 50,
-        targetHolidayPercentage: 50,
-        targetNightPercentage: 33
-    });
-    const [maxConsecutiveDays, setMaxConsecutiveDays] = useState<number>(3); 
-
-    // Reference Data
+    const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
+    const [allAssignments, setAllAssignments] = useState<ServiceAssignment[]>([]);
     const [availableSkills, setAvailableSkills] = useState<Skill[]>([]);
-    const [employees, setEmployees] = useState<Employee[]>([]);
-    const [assignments, setAssignments] = useState<ServiceAssignment[]>([]);
     
-    // Modal States
-    const [showAddMemberModal, setShowAddMemberModal] = useState(false);
-    const [showEditAssignmentModal, setShowEditAssignmentModal] = useState<{open: boolean, assignment: ServiceAssignment | null}>({open: false, assignment: null});
-    const [showConfirmRemoveModal, setShowConfirmRemoveModal] = useState<{open: boolean, empId: string, empName: string, assignmentId: string}>({open: false, empId: '', empName: '', assignmentId: ''});
-    const [infoModal, setInfoModal] = useState<{open: boolean, type: 'success' | 'error', message: string}>({open: false, type: 'success', message: ''});
-    
-    // Edit Assignment Temporary State
-    const [editStart, setEditStart] = useState('');
-    const [editEnd, setEditEnd] = useState('');
+    // UI State
+    const [selectedServiceId, setSelectedServiceId] = useState<string | null>(initialService?.id || null);
+    const [activeTab, setActiveTab] = useState<TabType>('general');
+    const [isLoading, setIsLoading] = useState(false);
+    const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
-    // Search member
-    const [memberSearch, setMemberSearch] = useState('');
+    // Editing State (Local Buffer)
+    const [editName, setEditName] = useState('');
+    const [config, setConfig] = useState<any>({});
+    const [members, setMembers] = useState<string[]>([]); // List of employee IDs
 
-    useEffect(() => { loadData(); }, []);
-
+    // --- INITIAL LOAD ---
     useEffect(() => {
-        if (selectedServiceId) {
-            const svc = services.find(s => s.id === selectedServiceId);
-            if (svc) {
-                setEditName(svc.name);
-                setOpenDays(svc.config.openDays || [1,2,3,4,5,6]);
-                setRequiredSkills(svc.config.requiredSkills || []);
-                setSkillRequirements(svc.config.skillRequirements || []);
-                setEquityRules(svc.config.equityRules || { targetSaturdayPercentage: 50, targetHolidayPercentage: 50, targetNightPercentage: 33 });
-                setMaxConsecutiveDays(svc.config.maxConsecutiveDays || 3);
-                setIsCreating(false);
-            }
-        }
-    }, [selectedServiceId, services]);
+        loadAllData();
+    }, []);
 
-    const loadData = async () => {
+    // When services load, select the first one if none selected
+    useEffect(() => {
+        if (services.length > 0 && !selectedServiceId) {
+            handleSelectService(services[0]);
+        } else if (services.length > 0 && selectedServiceId) {
+            // Refresh current selection data if needed
+            const s = services.find(x => x.id === selectedServiceId);
+            if (s) handleSelectService(s, false); // false = don't overwrite if dirty? Simplification: overwrite for now
+        }
+    }, [services]);
+
+    const loadAllData = async () => {
+        setIsLoading(true);
         try {
-            const [svcData, skillsData, empsData, assignData] = await Promise.all([
+            const [srvs, emps, assigns, skills] = await Promise.all([
                 db.fetchServices(),
-                db.fetchSkills(),
                 db.fetchEmployeesWithShifts(),
-                db.fetchServiceAssignments()
+                db.fetchServiceAssignments(),
+                db.fetchSkills()
             ]);
-            setServices(svcData);
-            setAvailableSkills(skillsData);
-            setEmployees(empsData);
-            setAssignments(assignData);
-            if (!selectedServiceId && svcData.length > 0) setSelectedServiceId(svcData[0].id);
-        } catch (err) { console.error(err); }
+            setServices(srvs);
+            setAllEmployees(emps);
+            setAllAssignments(assigns);
+            setAvailableSkills(skills);
+        } catch (e) {
+            console.error("Error loading settings data", e);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // --- SELECTION LOGIC ---
+    const handleSelectService = (s: Service, fullReset = true) => {
+        setSelectedServiceId(s.id);
+        if (fullReset) {
+            setEditName(s.name);
+            // Deep copy config
+            setConfig(JSON.parse(JSON.stringify(s.config || { openDays: [], requiredSkills: [], shiftTargets: {} })));
+            
+            // Filter members for this service
+            const currentMemberIds = allAssignments
+                .filter(a => a.serviceId === s.id)
+                .map(a => a.employeeId);
+            setMembers(currentMemberIds);
+            
+            setNotification(null);
+        }
     };
 
     const handleCreateService = async () => {
-        if (!newServiceName.trim()) return;
+        const name = prompt("Nom du nouveau service ?");
+        if (!name) return;
         setIsLoading(true);
         try {
-            await db.createService(newServiceName.trim());
-            setInfoModal({open: true, type: 'success', message: "Service créé avec succès."});
-            setNewServiceName('');
-            setIsCreating(false);
-            await loadData();
-            onReload();
-        } catch (e: any) { setInfoModal({open: true, type: 'error', message: e.message}); } 
-        finally { setIsLoading(false); }
+            await db.createService(name);
+            await loadAllData(); // Refresh list
+            setNotification({ type: 'success', message: "Service créé avec succès." });
+        } catch (e: any) {
+            setNotification({ type: 'error', message: e.message });
+        } finally {
+            setIsLoading(false);
+        }
     };
 
-    const handleDeleteService = async (id: string) => {
-        if (!confirm("Supprimer ? Irréversible.")) return;
+    const handleDeleteService = async () => {
+        if (!selectedServiceId) return;
+        if (!confirm("Supprimer ce service et toutes ses configurations ?")) return;
         setIsLoading(true);
         try {
-            await db.deleteService(id);
-            setInfoModal({open: true, type: 'success', message: "Service supprimé."});
+            await db.deleteService(selectedServiceId);
             setSelectedServiceId(null);
-            await loadData();
-            onReload();
-        } catch (e: any) { setInfoModal({open: true, type: 'error', message: e.message}); } 
-        finally { setIsLoading(false); }
+            await loadAllData();
+            setNotification({ type: 'success', message: "Service supprimé." });
+        } catch (e: any) {
+            setNotification({ type: 'error', message: e.message });
+        } finally {
+            setIsLoading(false);
+        }
     };
 
-    const handleSaveConfig = async () => {
+    const handleSave = async () => {
         if (!selectedServiceId) return;
         setIsLoading(true);
         try {
+            // 1. Update Service Name & Config
             await db.updateService(selectedServiceId, editName);
-            await db.updateServiceConfig(selectedServiceId, { 
-                openDays, 
-                requiredSkills, // Keep for legacy
-                skillRequirements, // Save detailed config
-                equityRules,
-                maxConsecutiveDays
-            });
-            setInfoModal({open: true, type: 'success', message: "Configuration sauvegardée avec succès."});
-            await loadData();
-            onReload();
-        } catch (error: any) { setInfoModal({open: true, type: 'error', message: error.message}); } 
-        finally { setIsLoading(false); }
-    };
+            await db.updateServiceConfig(selectedServiceId, config);
 
-    // --- MEMBERS LOGIC ---
-    
-    // Get members of current service
-    const currentMembers = assignments
-        .filter(a => a.serviceId === selectedServiceId)
-        .map(a => {
-            const emp = employees.find(e => e.id === a.employeeId);
-            return { assignment: a, emp };
-        })
-        .filter(item => item.emp !== undefined);
+            // 2. Update Members (Naive approach: delete all assignments for this service and recreate)
+            // Ideally we should diff, but for simplicity/robustness in this context:
+            // First, find current assignments for this service in DB (using state might be stale if others edited)
+            const currentDbAssignments = await db.fetchServiceAssignments();
+            const serviceAssignments = currentDbAssignments.filter(a => a.serviceId === selectedServiceId);
+            
+            // Determine to add and remove
+            const toRemove = serviceAssignments.filter(a => !members.includes(a.employeeId));
+            const toAdd = members.filter(mId => !serviceAssignments.some(a => a.employeeId === mId));
 
-    // Get non-members for adding
-    const nonMembers = employees.filter(e => !assignments.some(a => a.serviceId === selectedServiceId && a.employeeId === e.id));
+            // Execute batch operations (mocked via loops as DB helper might not have batch delete/insert for this specific case exposed)
+            for (const a of toRemove) await db.deleteServiceAssignment(a.id);
+            for (const empId of toAdd) await db.createServiceAssignment(empId, selectedServiceId, new Date().toISOString().split('T')[0]);
 
-    const handleAddMember = async (empId: string) => {
-        if (!selectedServiceId) return;
-        setIsLoading(true);
-        try {
-            await db.createServiceAssignment(empId, selectedServiceId, new Date().toISOString().split('T')[0]);
-            setShowAddMemberModal(false);
-            setInfoModal({open: true, type: 'success', message: "Agent affecté au service avec succès."});
-            await loadData();
+            await loadAllData();
+            onReload(); // Refresh parent app
+            setNotification({ type: 'success', message: "Configuration et membres enregistrés avec succès !" });
         } catch (e: any) {
-            setInfoModal({open: true, type: 'error', message: "Erreur lors de l'affectation."});
+            console.error(e);
+            setNotification({ type: 'error', message: "Échec de l'enregistrement : " + e.message });
         } finally {
             setIsLoading(false);
         }
     };
 
-    const confirmRemoveMember = (empId: string, empName: string, assignmentId: string) => {
-        setShowConfirmRemoveModal({ open: true, empId, empName, assignmentId });
+    // --- CONFIG HELPERS ---
+    const toggleOpenDay = (dayIndex: number) => {
+        const current: number[] = config.openDays || [];
+        const newDays = current.includes(dayIndex) 
+            ? current.filter(d => d !== dayIndex) 
+            : [...current, dayIndex].sort();
+        setConfig({ ...config, openDays: newDays });
     };
 
-    const handleRemoveMember = async () => {
-        const { assignmentId } = showConfirmRemoveModal;
-        if (!assignmentId) return;
-        setIsLoading(true);
-        try {
-            await db.deleteServiceAssignment(assignmentId);
-            setShowConfirmRemoveModal({open: false, empId: '', empName: '', assignmentId: ''});
-            setInfoModal({open: true, type: 'success', message: "Agent retiré de l'équipe."});
-            await loadData();
-        } catch (e: any) {
-            setInfoModal({open: true, type: 'error', message: "Erreur lors de la suppression."});
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const openEditAssignment = (assignment: ServiceAssignment) => {
-        setEditStart(assignment.startDate);
-        setEditEnd(assignment.endDate || '');
-        setShowEditAssignmentModal({open: true, assignment});
-    };
-
-    const handleUpdateAssignment = async () => {
-        const { assignment } = showEditAssignmentModal;
-        if (!assignment || !editStart) return;
-        setIsLoading(true);
-        try {
-            await db.updateServiceAssignment(assignment.id, assignment.employeeId, assignment.serviceId, editStart, editEnd);
-            setShowEditAssignmentModal({open: false, assignment: null});
-            setInfoModal({open: true, type: 'success', message: "Affectation mise à jour."});
-            await loadData();
-        } catch (e: any) {
-            setInfoModal({open: true, type: 'error', message: "Erreur de mise à jour."});
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const daysOfWeek = [
-        { id: 1, label: 'Lundi' }, { id: 2, label: 'Mardi' }, { id: 3, label: 'Mercredi' }, 
-        { id: 4, label: 'Jeudi' }, { id: 5, label: 'Vendredi' }, { id: 6, label: 'Samedi' }, { id: 0, label: 'Dimanche' },
-    ];
-
-    const toggleDay = (dayId: number) => {
-        setOpenDays(prev => prev.includes(dayId) ? prev.filter(d => d !== dayId) : [...prev, dayId]);
-    };
-
-    // Toggle skill in both Simple List and Detailed List
     const toggleSkill = (skillCode: string) => {
-        // Update simple list
-        setRequiredSkills(prev => prev.includes(skillCode) ? prev.filter(s => s !== skillCode) : [...prev, skillCode]);
+        const current: string[] = config.requiredSkills || [];
+        const newSkills = current.includes(skillCode) 
+            ? current.filter(s => s !== skillCode) 
+            : [...current, skillCode];
+        setConfig({ ...config, requiredSkills: newSkills });
+    };
+
+    const updateSkillReq = (skillCode: string, field: keyof SkillRequirement, value: any) => {
+        const currentReqs = config.skillRequirements || [];
+        const existingIndex = currentReqs.findIndex((r: SkillRequirement) => r.skillCode === skillCode);
+        let newReqs = [...currentReqs];
         
-        // Update detailed list
-        setSkillRequirements(prev => {
-            if (prev.some(req => req.skillCode === skillCode)) {
-                return prev.filter(req => req.skillCode !== skillCode);
-            } else {
-                // Add default requirement
-                return [...prev, { skillCode, minStaff: 1, startTime: '08:00', endTime: '16:00' }];
+        if (existingIndex >= 0) {
+            newReqs[existingIndex] = { ...newReqs[existingIndex], [field]: value };
+        } else {
+            const newReq: SkillRequirement = { skillCode, minStaff: 0, startTime: '00:00', endTime: '00:00' };
+            (newReq as any)[field] = value;
+            newReqs.push(newReq);
+        }
+        setConfig({ ...config, skillRequirements: newReqs });
+    };
+
+    const updateShiftTarget = (dayIndex: number, skillCode: string, count: number) => {
+        const currentTargets = config.shiftTargets || {};
+        const dayTargets = currentTargets[dayIndex] || {};
+        
+        const newDayTargets = { ...dayTargets, [skillCode]: count };
+        // Clean up if 0 to keep object clean? Optional.
+        
+        setConfig({
+            ...config,
+            shiftTargets: {
+                ...currentTargets,
+                [dayIndex]: newDayTargets
             }
         });
     };
 
-    const updateSkillReq = (skillCode: string, field: keyof SkillRequirement, value: string | number) => {
-        setSkillRequirements(prev => prev.map(req => {
-            if (req.skillCode === skillCode) {
-                return { ...req, [field]: value };
-            }
-            return req;
-        }));
+    const toggleMember = (empId: string) => {
+        setMembers(prev => prev.includes(empId) ? prev.filter(id => id !== empId) : [...prev, empId]);
     };
 
+    const daysOfWeek = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+
+    if (services.length === 0 && !isLoading) {
+        return (
+            <div className="p-8 text-center bg-white rounded-xl shadow">
+                <p className="mb-4 text-slate-500">Aucun service configuré.</p>
+                <button onClick={handleCreateService} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 mx-auto"><Plus className="w-4 h-4"/> Créer un service</button>
+            </div>
+        );
+    }
+
+    const selectedService = services.find(s => s.id === selectedServiceId);
+
     return (
-        <div className={`bg-white dark:bg-slate-800 rounded-xl shadow border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col transition-all ${isExpanded ? 'h-[700px]' : 'h-16'}`}>
-            {/* Header / Toggle Bar */}
-            <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex justify-between items-center cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
-                <div className="flex items-center gap-3">
-                    <div className="bg-blue-100 p-2 rounded-lg text-blue-700"><Store className="w-5 h-5" /></div>
-                    <h3 className="font-bold text-slate-800 dark:text-slate-200 text-lg">Services & Équipes</h3>
+        <div className="flex flex-col md:flex-row gap-6 h-[700px]">
+            {/* LEFT SIDEBAR: SERVICE LIST */}
+            <div className="w-full md:w-64 bg-white rounded-xl shadow border border-slate-200 flex flex-col overflow-hidden">
+                <div className="p-4 border-b border-slate-200 bg-slate-50">
+                    <button onClick={handleCreateService} className="w-full bg-white border border-blue-200 text-blue-600 px-3 py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-50 shadow-sm transition-colors">
+                        <Plus className="w-4 h-4" /> Nouveau Service
+                    </button>
                 </div>
-                <div className="text-slate-400 hover:text-slate-600">
-                    {isExpanded ? <ChevronUp className="w-5 h-5"/> : <ChevronDown className="w-5 h-5"/>}
+                <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                    {services.map(s => (
+                        <button
+                            key={s.id}
+                            onClick={() => handleSelectService(s)}
+                            className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
+                                selectedServiceId === s.id 
+                                ? 'bg-blue-600 text-white shadow-md' 
+                                : 'text-slate-600 hover:bg-slate-100'
+                            }`}
+                        >
+                            <span>{s.name}</span>
+                            {selectedServiceId === s.id && <Settings className="w-3.5 h-3.5 opacity-80" />}
+                        </button>
+                    ))}
+                </div>
+                <div className="p-3 border-t border-slate-200 bg-slate-50 text-center">
+                    <button className="text-xs text-red-500 hover:underline" onClick={() => {/* Placeholder for DB Repair */}}>
+                        Réparer Base
+                    </button>
                 </div>
             </div>
 
-            {/* Content (Only if Expanded) */}
-            <div className={`flex flex-1 overflow-hidden ${!isExpanded && 'hidden'}`}>
-                {/* Sidebar List */}
-                <div className="w-64 border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex flex-col">
-                    <div className="p-4 border-b space-y-2">
-                        <button onClick={() => { setIsCreating(true); setSelectedServiceId(null); }} className="w-full bg-white border border-slate-300 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 shadow-sm hover:bg-slate-50">
-                            <Plus className="w-4 h-4" /> Nouveau Service
-                        </button>
-                        <button 
-                            onClick={() => setShowDbScript(true)} 
-                            className="w-full bg-red-50 text-red-600 border border-red-200 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 hover:bg-red-100"
-                        >
-                            <Database className="w-3 h-3" /> Réparer Base
-                        </button>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                        {services.map(svc => (
-                            <button key={svc.id} onClick={() => { setSelectedServiceId(svc.id); setIsCreating(false); }} className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium flex items-center justify-between group transition-colors ${selectedServiceId === svc.id ? 'bg-blue-100 text-blue-800' : 'text-slate-600 hover:bg-slate-100'}`}>
-                                <span>{svc.name}</span>
-                                {selectedServiceId === svc.id && <Trash2 className="w-4 h-4 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100" onClick={(e) => { e.stopPropagation(); handleDeleteService(svc.id); }} />}
+            {/* MAIN CONTENT */}
+            <div className="flex-1 bg-white rounded-xl shadow border border-slate-200 flex flex-col overflow-hidden">
+                {!selectedService ? (
+                    <div className="flex-1 flex items-center justify-center text-slate-400">Sélectionnez un service</div>
+                ) : (
+                    <>
+                        {/* HEADER */}
+                        <div className="p-6 border-b border-slate-200 flex justify-between items-start bg-slate-50">
+                            <div className="flex-1">
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nom du Service</label>
+                                <input 
+                                    type="text" 
+                                    value={editName} 
+                                    onChange={(e) => setEditName(e.target.value)}
+                                    className="text-xl font-bold text-slate-800 bg-transparent border-b border-dashed border-slate-300 focus:border-blue-500 outline-none w-full max-w-md pb-1"
+                                />
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <button onClick={handleDeleteService} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Supprimer le service">
+                                    <Trash2 className="w-5 h-5" />
+                                </button>
+                                <button 
+                                    onClick={handleSave} 
+                                    disabled={isLoading}
+                                    className="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-sm font-bold transition-all disabled:opacity-50"
+                                >
+                                    {isLoading ? <span className="animate-spin">⌛</span> : <Save className="w-4 h-4" />}
+                                    Enregistrer
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* NOTIFICATION AREA */}
+                        {notification && (
+                            <div className={`px-6 py-3 text-sm font-medium flex items-center gap-2 ${notification.type === 'success' ? 'bg-green-50 text-green-700 border-b border-green-100' : 'bg-red-50 text-red-700 border-b border-red-100'}`}>
+                                {notification.type === 'success' ? <CheckCircle2 className="w-4 h-4"/> : <AlertCircle className="w-4 h-4"/>}
+                                {notification.message}
+                                <button onClick={() => setNotification(null)} className="ml-auto opacity-50 hover:opacity-100"><X className="w-4 h-4"/></button>
+                            </div>
+                        )}
+
+                        {/* TABS HEADER */}
+                        <div className="px-6 pt-4 border-b border-slate-200 flex gap-6 overflow-x-auto">
+                            <button onClick={() => setActiveTab('general')} className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'general' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+                                <Settings className="w-4 h-4" /> Général
                             </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Main Content */}
-                <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-slate-800 relative">
-                    
-                    {/* INFO MODAL */}
-                    {infoModal.open && (
-                        <div className="absolute top-4 right-4 z-50 animate-in slide-in-from-top-5">
-                            <div className={`p-4 rounded-lg shadow-lg border flex items-center gap-3 ${infoModal.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-                                {infoModal.type === 'success' ? <CheckCircle2 className="w-5 h-5"/> : <XCircle className="w-5 h-5"/>}
-                                <span className="font-medium text-sm">{infoModal.message}</span>
-                                <button onClick={() => setInfoModal({...infoModal, open: false})}><X className="w-4 h-4 opacity-50 hover:opacity-100"/></button>
-                            </div>
+                            <button onClick={() => setActiveTab('config')} className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'config' ? 'border-purple-600 text-purple-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+                                <LayoutGrid className="w-4 h-4" /> Compétences & Effectifs
+                            </button>
+                            <button onClick={() => setActiveTab('rules')} className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'rules' ? 'border-orange-600 text-orange-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+                                <Shield className="w-4 h-4" /> Règles & Équité
+                            </button>
+                            <button onClick={() => setActiveTab('members')} className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'members' ? 'border-green-600 text-green-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+                                <Users className="w-4 h-4" /> Membres ({members.length})
+                            </button>
                         </div>
-                    )}
 
-                    {/* DB SCRIPT MODAL */}
-                    {showDbScript && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-6">
-                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[80vh]">
-                                <div className="p-4 border-b flex justify-between items-center bg-slate-50 rounded-t-xl">
-                                    <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                                        <Database className="w-5 h-5 text-red-600"/> Installation / Réparation Base de Données
-                                    </h3>
-                                    <button onClick={() => setShowDbScript(false)}><X className="w-5 h-5 text-slate-400 hover:text-slate-600"/></button>
-                                </div>
-                                <div className="p-6 overflow-y-auto">
-                                    <p className="text-sm text-slate-600 mb-4 bg-yellow-50 p-3 rounded border border-yellow-200">
-                                        <strong>IMPORTANT :</strong> Pour que l'application fonctionne avec les données de démonstration (qui utilisent des identifiants textuels comme "ide-100"), la base de données doit être configurée pour accepter ces formats sans blocage strict.
-                                        <br/><br/>
-                                        Copiez le script ci-dessous et exécutez-le dans l'<strong>Éditeur SQL</strong> de votre projet Supabase.
-                                    </p>
-                                    <pre className="bg-slate-800 text-green-400 p-4 rounded-lg overflow-x-auto text-xs font-mono leading-relaxed select-all border border-slate-700 shadow-inner">
-                                        {SQL_SCHEMA}
-                                    </pre>
-                                </div>
-                                <div className="p-4 border-t bg-slate-50 flex justify-end">
-                                    <button onClick={() => setShowDbScript(false)} className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium">Fermer</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* ADD MEMBER MODAL */}
-                    {showAddMemberModal && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col max-h-[80vh]">
-                                <div className="p-4 border-b flex justify-between items-center">
-                                    <h3 className="font-bold text-slate-800">Ajouter un membre</h3>
-                                    <button onClick={() => setShowAddMemberModal(false)}><X className="w-5 h-5 text-slate-400 hover:text-slate-600"/></button>
-                                </div>
-                                <div className="p-4 border-b">
-                                    <div className="relative">
-                                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400"/>
-                                        <input type="text" placeholder="Rechercher..." value={memberSearch} onChange={e => setMemberSearch(e.target.value)} className="w-full pl-9 p-2 border rounded-lg text-sm" />
-                                    </div>
-                                </div>
-                                <div className="flex-1 overflow-y-auto p-2">
-                                    {nonMembers.filter(e => e.name.toLowerCase().includes(memberSearch.toLowerCase())).map(emp => (
-                                        <div key={emp.id} className="flex items-center justify-between p-3 hover:bg-slate-50 rounded-lg">
-                                            <div>
-                                                <div className="font-bold text-sm text-slate-800">{emp.name}</div>
-                                                <div className="text-xs text-slate-500">{emp.role}</div>
-                                            </div>
-                                            <button onClick={() => handleAddMember(emp.id)} className="bg-blue-100 text-blue-700 p-1.5 rounded-lg hover:bg-blue-200"><Plus className="w-4 h-4"/></button>
+                        {/* TAB CONTENT */}
+                        <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
+                            
+                            {/* 1. GENERAL TAB */}
+                            {activeTab === 'general' && (
+                                <div className="space-y-6 max-w-2xl">
+                                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                                        <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Calendar className="w-5 h-5 text-blue-500"/> Jours d'ouverture</h4>
+                                        <p className="text-sm text-slate-500 mb-4">Sélectionnez les jours où le service est actif. Les jours décochés seront automatiquement marqués en Repos Hebdo (RH) lors de la génération.</p>
+                                        <div className="flex gap-2 flex-wrap">
+                                            {[1, 2, 3, 4, 5, 6, 0].map(dayIdx => {
+                                                const isOpen = config.openDays?.includes(dayIdx);
+                                                return (
+                                                    <button
+                                                        key={dayIdx}
+                                                        onClick={() => toggleOpenDay(dayIdx)}
+                                                        className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${
+                                                            isOpen 
+                                                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
+                                                            : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'
+                                                        }`}
+                                                    >
+                                                        {daysOfWeek[dayIdx] === 'Dim' ? 'Dimanche' : daysOfWeek[dayIdx]}
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* EDIT ASSIGNMENT MODAL */}
-                    {showEditAssignmentModal.open && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
-                                <h3 className="text-lg font-bold text-slate-800 mb-4">Modifier l'affectation</h3>
-                                <div className="space-y-3 mb-6">
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">Date de début</label>
-                                        <input type="date" value={editStart} onChange={e => setEditStart(e.target.value)} className="w-full p-2 border rounded" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">Date de fin (Optionnel)</label>
-                                        <input type="date" value={editEnd} onChange={e => setEditEnd(e.target.value)} className="w-full p-2 border rounded" />
                                     </div>
                                 </div>
-                                <div className="flex gap-3 justify-end">
-                                    <button onClick={() => setShowEditAssignmentModal({open: false, assignment: null})} className="px-4 py-2 border rounded hover:bg-slate-50 text-sm">Annuler</button>
-                                    <button onClick={handleUpdateAssignment} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm">Enregistrer</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                            )}
 
-                    {/* CONFIRM REMOVE MODAL */}
-                    {showConfirmRemoveModal.open && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 text-center">
-                                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <AlertTriangle className="w-6 h-6 text-red-600"/>
-                                </div>
-                                <h3 className="text-lg font-bold text-slate-800 mb-2">Confirmer la suppression ?</h3>
-                                <p className="text-sm text-slate-500 mb-6">
-                                    Voulez-vous vraiment retirer <strong>{showConfirmRemoveModal.empName}</strong> de ce service ?
-                                </p>
-                                <div className="flex gap-3 justify-center">
-                                    <button onClick={() => setShowConfirmRemoveModal({open: false, empId: '', empName: '', assignmentId: ''})} className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-slate-50">Annuler</button>
-                                    <button onClick={handleRemoveMember} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 shadow-sm">Confirmer</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                            {/* 2. CONFIG TAB (SKILLS & TARGETS) */}
+                            {activeTab === 'config' && (
+                                <div className="space-y-8">
+                                    {/* Compétences Actives */}
+                                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                                        <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-purple-700">
+                                            <CheckCircle2 className="w-5 h-5" /> Compétences & Amplitude
+                                        </h4>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm text-left">
+                                                <thead className="bg-slate-50 text-slate-500 uppercase font-medium text-xs">
+                                                    <tr>
+                                                        <th className="p-3 w-10">Actif</th>
+                                                        <th className="p-3 w-20">Code</th>
+                                                        <th className="p-3">Compétence</th>
+                                                        <th className="p-3 w-32">Effectif Min (Défaut)</th>
+                                                        <th className="p-3 w-32">Début</th>
+                                                        <th className="p-3 w-32">Fin</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {availableSkills.map(s => {
+                                                        const isSelected = config.requiredSkills?.includes(s.code);
+                                                        const req = config.skillRequirements?.find((r: SkillRequirement) => r.skillCode === s.code);
+                                                        return (
+                                                            <tr key={s.id} className={isSelected ? 'bg-purple-50/30' : ''}>
+                                                                <td className="p-3 text-center">
+                                                                    <input type="checkbox" checked={!!isSelected} onChange={() => toggleSkill(s.code)} className="w-4 h-4 text-purple-600 rounded" />
+                                                                </td>
+                                                                <td className="p-3 font-mono font-bold text-xs">{s.code}</td>
+                                                                <td className="p-3 text-slate-700">{s.label}</td>
+                                                                <td className="p-3">
+                                                                    <input type="number" min="0" disabled={!isSelected} value={req?.minStaff || 0} onChange={(e) => updateSkillReq(s.code, 'minStaff', parseInt(e.target.value))} className="w-full p-1.5 border rounded text-center disabled:bg-slate-50" />
+                                                                </td>
+                                                                <td className="p-3">
+                                                                    <input type="time" disabled={!isSelected} value={req?.startTime || '00:00'} onChange={(e) => updateSkillReq(s.code, 'startTime', e.target.value)} className="w-full p-1.5 border rounded text-xs disabled:bg-slate-50" />
+                                                                </td>
+                                                                <td className="p-3">
+                                                                    <input type="time" disabled={!isSelected} value={req?.endTime || '00:00'} onChange={(e) => updateSkillReq(s.code, 'endTime', e.target.value)} className="w-full p-1.5 border rounded text-xs disabled:bg-slate-50" />
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
 
-                    {isCreating ? (
-                        <div className="p-8 max-w-md mx-auto w-full mt-10">
-                            <h3 className="text-xl font-bold mb-6">Nouveau Service</h3>
-                            <input type="text" value={newServiceName} onChange={(e) => setNewServiceName(e.target.value)} className="w-full p-2 border rounded-lg mb-4" placeholder="Nom du service" />
-                            <button onClick={handleCreateService} className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Créer</button>
-                        </div>
-                    ) : selectedServiceId ? (
-                        <div className="flex flex-col h-full">
-                            <div className="p-6 border-b flex justify-between items-start bg-slate-50">
-                                <div>
-                                    <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="text-3xl font-bold bg-transparent border-b border-transparent hover:border-slate-300 focus:outline-none text-slate-800" />
-                                </div>
-                                <div className="flex bg-white rounded-lg p-1 border shadow-sm">
-                                    <button onClick={() => setActiveTab('config')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${activeTab === 'config' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>Général</button>
-                                    <button onClick={() => setActiveTab('equity')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${activeTab === 'equity' ? 'bg-purple-50 text-purple-700' : 'text-slate-500 hover:text-slate-700'}`}>Règles & Équité</button>
-                                    <button onClick={() => setActiveTab('members')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${activeTab === 'members' ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>Membres ({currentMembers.length})</button>
-                                </div>
-                            </div>
-
-                            <div className="flex-1 overflow-y-auto p-8">
-                                {activeTab === 'config' && (
-                                    <div className="space-y-10 max-w-4xl">
-                                        <section>
-                                            <div className="flex items-center gap-2 text-green-600 font-bold mb-4">
-                                                <CheckCircle2 className="w-5 h-5" /> Jours d'ouverture
+                                    {/* Matrice des Objectifs Hebdomadaires */}
+                                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                                        <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-blue-700">
+                                            <LayoutGrid className="w-5 h-5" /> Objectifs Journaliers Spécifiques
+                                        </h4>
+                                        <p className="text-xs text-slate-500 mb-4">
+                                            Définissez ici les exceptions (ex: Le lundi, il faut 2 "S" au lieu de 0). 
+                                            Laissez vide pour utiliser l'effectif min par défaut défini ci-dessus.
+                                        </p>
+                                        
+                                        {(!config.requiredSkills || config.requiredSkills.length === 0) ? (
+                                            <div className="text-center p-4 bg-slate-50 text-slate-400 italic rounded">
+                                                Activez d'abord des compétences ci-dessus.
                                             </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                {daysOfWeek.map(day => (
-                                                    <button key={day.id} onClick={() => toggleDay(day.id)} className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all shadow-sm ${openDays.includes(day.id) ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{day.label}</button>
-                                                ))}
-                                            </div>
-                                        </section>
-                                        <section>
-                                            <div className="flex items-center gap-2 text-purple-700 font-bold mb-4">
-                                                <ShieldCheck className="w-5 h-5" /> Compétences & Amplitudes
-                                            </div>
-                                            
-                                            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                                                <table className="w-full text-sm text-left">
-                                                    <thead className="bg-slate-50 text-slate-500 uppercase font-medium">
+                                        ) : (
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-sm border-collapse">
+                                                    <thead>
                                                         <tr>
-                                                            <th className="p-3 w-10">Actif</th>
-                                                            <th className="p-3">Compétence</th>
-                                                            <th className="p-3 w-32">Effectif Min</th>
-                                                            <th className="p-3 w-40">Début</th>
-                                                            <th className="p-3 w-40">Fin</th>
+                                                            <th className="p-2 border bg-slate-100 text-left w-32">Jour</th>
+                                                            {config.requiredSkills.map((code: string) => (
+                                                                <th key={code} className="p-2 border bg-slate-50 text-center w-20">
+                                                                    {code}
+                                                                </th>
+                                                            ))}
                                                         </tr>
                                                     </thead>
-                                                    <tbody className="divide-y divide-slate-100">
-                                                        {availableSkills.map(s => {
-                                                            const isSelected = requiredSkills.includes(s.code);
-                                                            const req = skillRequirements.find(r => r.skillCode === s.code);
-                                                            
+                                                    <tbody>
+                                                        {[1, 2, 3, 4, 5, 6, 0].map(dayIdx => {
+                                                            const isOpen = config.openDays?.includes(dayIdx);
+                                                            if (!isOpen) return null; // Don't show closed days in matrix
+
                                                             return (
-                                                                <tr key={s.id} className={isSelected ? 'bg-purple-50/50' : ''}>
-                                                                    <td className="p-3 text-center">
-                                                                        <input 
-                                                                            type="checkbox" 
-                                                                            checked={isSelected} 
-                                                                            onChange={() => toggleSkill(s.code)}
-                                                                            className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
-                                                                        />
+                                                                <tr key={dayIdx}>
+                                                                    <td className="p-2 border font-medium text-slate-700">
+                                                                        {daysOfWeek[dayIdx] === 'Dim' ? 'Dimanche' : daysOfWeek[dayIdx]}
                                                                     </td>
-                                                                    <td className="p-3 font-medium text-slate-700">
-                                                                        {s.label} <span className="text-slate-400 text-xs">({s.code})</span>
-                                                                    </td>
-                                                                    <td className="p-3">
-                                                                        <input 
-                                                                            type="number" 
-                                                                            min="0"
-                                                                            disabled={!isSelected}
-                                                                            value={req?.minStaff || 0}
-                                                                            onChange={(e) => updateSkillReq(s.code, 'minStaff', parseInt(e.target.value))}
-                                                                            className="w-full p-1.5 border rounded text-center disabled:bg-slate-100 disabled:text-slate-400"
-                                                                        />
-                                                                    </td>
-                                                                    <td className="p-3">
-                                                                        <div className="relative">
-                                                                            <Clock className="w-3 h-3 text-slate-400 absolute left-2 top-2.5"/>
-                                                                            <input 
-                                                                                type="time" 
-                                                                                disabled={!isSelected}
-                                                                                value={req?.startTime || '00:00'}
-                                                                                onChange={(e) => updateSkillReq(s.code, 'startTime', e.target.value)}
-                                                                                className="w-full pl-6 p-1.5 border rounded text-xs disabled:bg-slate-100 disabled:text-slate-400"
-                                                                            />
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="p-3">
-                                                                        <div className="relative">
-                                                                            <Clock className="w-3 h-3 text-slate-400 absolute left-2 top-2.5"/>
-                                                                            <input 
-                                                                                type="time" 
-                                                                                disabled={!isSelected}
-                                                                                value={req?.endTime || '00:00'}
-                                                                                onChange={(e) => updateSkillReq(s.code, 'endTime', e.target.value)}
-                                                                                className="w-full pl-6 p-1.5 border rounded text-xs disabled:bg-slate-100 disabled:text-slate-400"
-                                                                            />
-                                                                        </div>
-                                                                    </td>
+                                                                    {config.requiredSkills.map((code: string) => {
+                                                                        const target = config.shiftTargets?.[dayIdx]?.[code];
+                                                                        const defaultVal = config.skillRequirements?.find((r:any) => r.skillCode === code)?.minStaff || 0;
+                                                                        
+                                                                        return (
+                                                                            <td key={`${dayIdx}-${code}`} className="p-1 border text-center relative group">
+                                                                                <input 
+                                                                                    type="number" 
+                                                                                    min="0"
+                                                                                    className={`w-full h-full text-center outline-none font-bold ${target !== undefined ? 'text-blue-600 bg-blue-50' : 'text-slate-400'}`}
+                                                                                    placeholder={defaultVal.toString()}
+                                                                                    value={target !== undefined ? target : ''}
+                                                                                    onChange={(e) => {
+                                                                                        const val = e.target.value === '' ? undefined : parseInt(e.target.value);
+                                                                                        // If val is defined, update. If empty, remove key to fallback to default
+                                                                                        if (val === undefined) {
+                                                                                            const newTargets = {...config.shiftTargets};
+                                                                                            if(newTargets[dayIdx]) {
+                                                                                                delete newTargets[dayIdx][code];
+                                                                                                setConfig({...config, shiftTargets: newTargets});
+                                                                                            }
+                                                                                        } else {
+                                                                                            updateShiftTarget(dayIdx, code, val);
+                                                                                        }
+                                                                                    }}
+                                                                                />
+                                                                            </td>
+                                                                        );
+                                                                    })}
                                                                 </tr>
                                                             );
                                                         })}
                                                     </tbody>
                                                 </table>
                                             </div>
-                                        </section>
-                                        <div className="flex justify-end pt-6">
-                                            <button onClick={handleSaveConfig} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold shadow-md hover:bg-blue-700 flex items-center gap-2"><Save className="w-5 h-5" /> Sauvegarder Configuration</button>
-                                        </div>
+                                        )}
                                     </div>
-                                )}
+                                </div>
+                            )}
 
-                                {activeTab === 'equity' && (
-                                    <div className="space-y-6 max-w-2xl">
-                                        <div className="bg-purple-50 p-6 rounded-xl border border-purple-100">
-                                            <h3 className="font-bold text-purple-900 mb-4">Taux d'Équité Cibles</h3>
-                                            <div className="space-y-6">
-                                                <div><label className="flex justify-between mb-2 text-sm font-medium text-purple-800"><span>Samedis Travaillés</span><span>{equityRules.targetSaturdayPercentage}%</span></label><input type="range" className="w-full accent-purple-600" min="0" max="100" value={equityRules.targetSaturdayPercentage} onChange={e => setEquityRules({...equityRules, targetSaturdayPercentage: parseInt(e.target.value)})} /></div>
-                                                <div><label className="flex justify-between mb-2 text-sm font-medium text-purple-800"><span>Jours Fériés Travaillés</span><span>{equityRules.targetHolidayPercentage}%</span></label><input type="range" className="w-full accent-purple-600" min="0" max="100" value={equityRules.targetHolidayPercentage} onChange={e => setEquityRules({...equityRules, targetHolidayPercentage: parseInt(e.target.value)})} /></div>
-                                                <div><label className="flex justify-between mb-2 text-sm font-medium text-purple-800"><span>Nuits / Soirées (S)</span><span>{equityRules.targetNightPercentage}%</span></label><input type="range" className="w-full accent-purple-600" min="0" max="100" value={equityRules.targetNightPercentage} onChange={e => setEquityRules({...equityRules, targetNightPercentage: parseInt(e.target.value)})} /></div>
-                                            </div>
-                                        </div>
+                            {/* 3. RULES TAB */}
+                            {activeTab === 'rules' && (
+                                <div className="space-y-6 max-w-2xl">
+                                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                                        <h4 className="font-bold text-slate-800 flex items-center gap-2"><Shield className="w-5 h-5 text-orange-600"/> Règles d'Équité</h4>
+                                        
                                         <div>
-                                            <h4 className="font-bold text-slate-800 flex items-center gap-2 mb-3">Règles de Planning</h4>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                <div className="p-3 border rounded-lg bg-slate-50"><label className="block text-xs font-bold uppercase text-slate-500 mb-1">Jours Consécutifs Max</label><input type="number" value={maxConsecutiveDays} onChange={(e) => setMaxConsecutiveDays(parseInt(e.target.value))} className="w-full p-2 border rounded" min={1} max={7} /></div>
-                                            </div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">Cible Samedis Travaillés (%)</label>
+                                            <input 
+                                                type="number" 
+                                                value={config.equityRules?.targetSaturdayPercentage || 50}
+                                                onChange={e => setConfig({...config, equityRules: {...config.equityRules, targetSaturdayPercentage: parseInt(e.target.value)}})}
+                                                className="w-full p-2 border rounded"
+                                            />
+                                            <p className="text-xs text-slate-500 mt-1">Ex: 50% = 1 samedi sur 2.</p>
                                         </div>
-                                        <button onClick={handleSaveConfig} className="bg-purple-600 text-white px-6 py-2 rounded-lg font-bold shadow hover:bg-purple-700">Enregistrer Règles</button>
-                                    </div>
-                                )}
 
-                                {activeTab === 'members' && (
-                                    <div>
-                                        <div className="flex justify-between items-center mb-6">
-                                            <h3 className="font-bold text-slate-800">Équipe affectée</h3>
-                                            <button onClick={() => setShowAddMemberModal(true)} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow hover:bg-green-700 flex items-center gap-2">
-                                                <Plus className="w-4 h-4" /> Ajouter Membre
-                                            </button>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">Cible Nuits (%)</label>
+                                            <input 
+                                                type="number" 
+                                                value={config.equityRules?.targetNightPercentage || 33}
+                                                onChange={e => setConfig({...config, equityRules: {...config.equityRules, targetNightPercentage: parseInt(e.target.value)}})}
+                                                className="w-full p-2 border rounded"
+                                            />
                                         </div>
-                                        <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-                                            <table className="w-full text-sm text-left">
-                                                <thead className="bg-slate-50 text-slate-500 uppercase font-medium">
-                                                    <tr>
-                                                        <th className="p-4">Nom</th>
-                                                        <th className="p-4">Début</th>
-                                                        <th className="p-4">Fin</th>
-                                                        <th className="p-4 text-right">Action</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y">
-                                                    {currentMembers.length === 0 ? (
-                                                        <tr><td colSpan={4} className="p-8 text-center text-slate-400 italic">Aucun membre affecté.</td></tr>
-                                                    ) : (
-                                                        currentMembers.map(item => (
-                                                            <tr key={item.assignment.id} className="hover:bg-slate-50">
-                                                                <td className="p-4 font-bold text-slate-700">{item.emp?.name} <span className="text-xs text-slate-400 font-normal">({item.emp?.role})</span></td>
-                                                                <td className="p-4">{item.assignment.startDate}</td>
-                                                                <td className="p-4 text-slate-500 italic">{item.assignment.endDate || '—'}</td>
-                                                                <td className="p-4 text-right flex justify-end gap-2">
-                                                                    <button onClick={() => openEditAssignment(item.assignment)} className="text-blue-400 hover:text-blue-600 p-2 rounded hover:bg-blue-50"><Pencil className="w-4 h-4" /></button>
-                                                                    <button onClick={() => item.emp && confirmRemoveMember(item.emp.id, item.emp.name, item.assignment.id)} className="text-red-400 hover:text-red-600 p-2 rounded hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
-                                                                </td>
-                                                            </tr>
-                                                        ))
-                                                    )}
-                                                </tbody>
-                                            </table>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">Jours consécutifs maximum</label>
+                                            <input 
+                                                type="number" 
+                                                value={config.maxConsecutiveDays || 5}
+                                                onChange={e => setConfig({...config, maxConsecutiveDays: parseInt(e.target.value)})}
+                                                className="w-full p-2 border rounded"
+                                            />
                                         </div>
                                     </div>
-                                )}
-                            </div>
+                                </div>
+                            )}
+
+                            {/* 4. MEMBERS TAB */}
+                            {activeTab === 'members' && (
+                                <div className="bg-white p-0 rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full max-h-[500px]">
+                                    <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
+                                        <h4 className="font-bold text-slate-800 flex items-center gap-2"><Users className="w-5 h-5 text-green-600"/> Affectation des membres</h4>
+                                        <div className="text-xs text-slate-500">{members.length} sélectionné(s)</div>
+                                    </div>
+                                    <div className="overflow-y-auto p-2">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                            {allEmployees.map(emp => {
+                                                const isSelected = members.includes(emp.id);
+                                                // Check if assigned elsewhere
+                                                const assignedOther = allAssignments.find(a => a.employeeId === emp.id && a.serviceId !== selectedServiceId);
+                                                
+                                                return (
+                                                    <div 
+                                                        key={emp.id} 
+                                                        onClick={() => toggleMember(emp.id)}
+                                                        className={`p-2 rounded border cursor-pointer flex items-center gap-3 transition-all ${
+                                                            isSelected 
+                                                            ? 'bg-green-50 border-green-200 ring-1 ring-green-200' 
+                                                            : 'bg-white border-slate-200 hover:bg-slate-50'
+                                                        }`}
+                                                    >
+                                                        <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${isSelected ? 'bg-green-500 border-green-500' : 'bg-white border-slate-300'}`}>
+                                                            {isSelected && <CheckCircle2 className="w-3 h-3 text-white" />}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className={`text-sm font-medium truncate ${isSelected ? 'text-green-800' : 'text-slate-700'}`}>{emp.name}</div>
+                                                            <div className="text-xs text-slate-500 flex justify-between">
+                                                                <span>{emp.role}</span>
+                                                                {assignedOther && <span className="text-orange-500 text-[10px] italic">Déjà affecté ailleurs</span>}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                         </div>
-                    ) : <div className="flex-1 flex items-center justify-center text-slate-400">Sélectionnez un service</div>}
-                </div>
+                    </>
+                )}
             </div>
         </div>
     );
