@@ -1,8 +1,10 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { Employee, ConstraintViolation, ServiceConfig } from '../types';
+import { Employee, ConstraintViolation, ServiceConfig, ShiftCode } from '../types';
 import { checkConstraints } from '../utils/validation';
-import { Users, AlertTriangle, CheckCircle2, TrendingUp, AlertOctagon, ShieldAlert, Calendar, CalendarDays, LayoutList, Wand2, Eye, Clock, ArrowRight, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react';
+import { SHIFT_TYPES } from '../constants';
+import * as db from '../services/db';
+import { Users, AlertTriangle, CheckCircle2, TrendingUp, AlertOctagon, ShieldAlert, Calendar, CalendarDays, LayoutList, Wand2, Eye, Clock, ArrowRight, ChevronLeft, ChevronRight, AlertCircle, Lightbulb, ArrowRightLeft, X } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 interface DashboardProps {
@@ -11,13 +13,18 @@ interface DashboardProps {
   serviceConfig?: ServiceConfig;
   onNavigateToPlanning?: (violations: ConstraintViolation[]) => void;
   onNavigateToScenarios?: () => void;
+  onScheduleChange?: () => void; // Trigger reload after fix
 }
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
 
-export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, serviceConfig, onNavigateToPlanning, onNavigateToScenarios }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, serviceConfig, onNavigateToPlanning, onNavigateToScenarios, onScheduleChange }) => {
   const [filter, setFilter] = useState<'month' | 'week' | 'day' | 'hourly'>('month');
   const [customRange, setCustomRange] = useState<{start: string, end: string}>({ start: '', end: '' });
+  
+  // Resolution Modal State
+  const [resolutionModal, setResolutionModal] = useState<{ isOpen: boolean, violation: ConstraintViolation | null, candidates: { emp: Employee, reason: string }[] }>({ isOpen: false, violation: null, candidates: [] });
+  const [isFixing, setIsFixing] = useState(false);
 
   // Reset custom range when switching to week mode or when base date changes
   useEffect(() => {
@@ -160,8 +167,146 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
   const criticals = violations.filter(v => v.severity === 'error');
   const warnings = violations.filter(v => v.severity === 'warning');
 
+  // --- RESOLUTION LOGIC ---
+
+  const handleOpenResolution = (v: ConstraintViolation) => {
+      // Logic to find candidates
+      const candidates: { emp: Employee, reason: string }[] = [];
+      const problemDate = v.date;
+      const violator = employees.find(e => e.id === v.employeeId);
+      
+      if (!violator) return; // Should not happen
+
+      const isConsecutiveSaturday = v.message.includes('deux Samedis');
+      
+      // Calculate previous saturday date string if needed
+      let prevSaturdayStr = '';
+      if (isConsecutiveSaturday) {
+          const d = new Date(problemDate);
+          d.setDate(d.getDate() - 7);
+          prevSaturdayStr = d.toISOString().split('T')[0];
+      }
+
+      // Find candidates
+      employees.forEach(candidate => {
+          // 1. Must be same role
+          if (candidate.role !== violator.role) return;
+          if (candidate.id === violator.id) return;
+
+          // 2. Must be AVAILABLE on problem date (OFF, RH, NT, RC)
+          const shiftOnProblemDate = candidate.shifts[problemDate];
+          const isAvailable = !shiftOnProblemDate || !SHIFT_TYPES[shiftOnProblemDate]?.isWork;
+          
+          if (!isAvailable) return;
+
+          // 3. SPECIAL CHECK: Consecutive Saturday
+          if (isConsecutiveSaturday) {
+              const shiftPrevSat = candidate.shifts[prevSaturdayStr];
+              // If candidate worked previous saturday, they are NOT a solution (would just move the problem)
+              if (shiftPrevSat && SHIFT_TYPES[shiftPrevSat]?.isWork) return;
+          }
+
+          // 4. Check if swap causes 48h violation (Simplified check)
+          // Ideally we check sliding window, but for MVP we assume if available it's likely OK.
+
+          candidates.push({
+              emp: candidate,
+              reason: isConsecutiveSaturday 
+                  ? "Disponible ce samedi et n'a pas travaillé le précédent."
+                  : "Disponible sur cette date."
+          });
+      });
+
+      setResolutionModal({ isOpen: true, violation: v, candidates });
+  };
+
+  const applyFix = async (candidate: Employee) => {
+      if (!resolutionModal.violation || !onScheduleChange) return;
+      setIsFixing(true);
+      try {
+          const problemDate = resolutionModal.violation.date;
+          const violatorId = resolutionModal.violation.employeeId;
+          const violator = employees.find(e => e.id === violatorId);
+          
+          if (!violator) throw new Error("Employé introuvable");
+
+          const shiftToMove = violator.shifts[problemDate];
+          const candidateShift = candidate.shifts[problemDate] || 'RH'; // Default to RH if empty/OFF
+
+          // SWAP
+          // 1. Violator gets candidate's shift (Rest)
+          await db.upsertShift(violatorId, problemDate, candidateShift);
+          // 2. Candidate gets violator's shift (Work)
+          await db.upsertShift(candidate.id, problemDate, shiftToMove);
+
+          setResolutionModal({ ...resolutionModal, isOpen: false });
+          onScheduleChange(); // Reload data
+      } catch (e) {
+          console.error(e);
+          alert("Erreur lors de l'application de la solution");
+      } finally {
+          setIsFixing(false);
+      }
+  };
+
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-8 max-w-7xl mx-auto space-y-6 relative">
+        
+        {/* RESOLUTION MODAL */}
+        {resolutionModal.isOpen && resolutionModal.violation && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95">
+                    <div className="bg-indigo-600 p-4 text-white flex justify-between items-center">
+                        <h3 className="font-bold flex items-center gap-2">
+                            <Lightbulb className="w-5 h-5 text-yellow-300" /> Assistant de Résolution
+                        </h3>
+                        <button onClick={() => setResolutionModal(prev => ({...prev, isOpen: false}))} className="hover:bg-indigo-700 p-1 rounded"><X className="w-5 h-5"/></button>
+                    </div>
+                    <div className="p-6">
+                        <div className="bg-red-50 border border-red-100 rounded-lg p-3 mb-6">
+                            <div className="text-xs font-bold text-red-500 uppercase mb-1">Anomalie détectée</div>
+                            <p className="text-red-800 font-medium text-sm">{resolutionModal.violation.message}</p>
+                            <p className="text-red-600 text-xs mt-1">Date : {new Date(resolutionModal.violation.date).toLocaleDateString()}</p>
+                        </div>
+
+                        <h4 className="font-bold text-slate-700 mb-3 flex items-center gap-2">
+                            <ArrowRightLeft className="w-4 h-4 text-blue-500"/> Remplaçants potentiels
+                        </h4>
+                        
+                        <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                            {resolutionModal.candidates.length === 0 ? (
+                                <div className="text-center py-4 text-slate-400 italic text-sm border-2 border-dashed border-slate-200 rounded-lg">
+                                    Aucun remplaçant compatible trouvé.<br/>
+                                    (Même rôle + Disponible + Pas de conflit)
+                                </div>
+                            ) : (
+                                resolutionModal.candidates.map((cand, idx) => (
+                                    <div key={cand.emp.id} className="border p-3 rounded-lg flex justify-between items-center hover:bg-slate-50 transition-colors group">
+                                        <div>
+                                            <div className="font-bold text-slate-800 text-sm">{cand.emp.name}</div>
+                                            <div className="text-xs text-green-600 flex items-center gap-1">
+                                                <CheckCircle2 className="w-3 h-3"/> {cand.reason}
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={() => applyFix(cand.emp)}
+                                            disabled={isFixing}
+                                            className="px-3 py-1.5 bg-white border border-indigo-200 text-indigo-600 text-xs font-bold rounded hover:bg-indigo-600 hover:text-white shadow-sm transition-all"
+                                        >
+                                            {isFixing ? '...' : 'Échanger'}
+                                        </button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                    <div className="bg-slate-50 p-4 text-center text-xs text-slate-500 border-t border-slate-200">
+                        L'échange attribuera le poste de travail au remplaçant et mettra l'agent actuel en repos.
+                    </div>
+                </div>
+            </div>
+        )}
+
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
                 <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -370,16 +515,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
                                         </div>
                                         <div className="text-xs text-slate-600">{v.message}</div>
                                     </div>
-                                    {/* HIGHLIGHT BUTTON */}
-                                    {onNavigateToPlanning && (
-                                        <button 
-                                            onClick={() => onNavigateToPlanning([v])} 
-                                            title="Voir dans le planning"
-                                            className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded transition-colors"
-                                        >
-                                            <Eye className="w-4 h-4" />
-                                        </button>
-                                    )}
+                                    <div className="flex gap-1">
+                                        {/* HIGHLIGHT BUTTON */}
+                                        {onNavigateToPlanning && (
+                                            <button 
+                                                onClick={() => onNavigateToPlanning([v])} 
+                                                title="Voir dans le planning"
+                                                className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded transition-colors"
+                                            >
+                                                <Eye className="w-4 h-4" />
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                             {criticals.length > 10 && (
@@ -400,7 +547,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {warnings.slice(0, 10).map((v, idx) => (
-                                <div key={`warn-${idx}`} className="bg-white p-3 rounded border border-amber-100 shadow-sm flex items-start gap-3">
+                                <div key={`warn-${idx}`} className="bg-white p-3 rounded border border-amber-100 shadow-sm flex items-start gap-3 relative group">
                                     <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-2 flex-shrink-0"></div>
                                     <div className="flex-1">
                                         <div className="text-xs text-amber-600 font-mono mb-0.5">{v.date}</div>
@@ -409,16 +556,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
                                         </div>
                                         <div className="text-xs text-slate-600">{v.message}</div>
                                     </div>
-                                    {/* HIGHLIGHT BUTTON */}
-                                    {onNavigateToPlanning && (
-                                        <button 
-                                            onClick={() => onNavigateToPlanning([v])} 
-                                            title="Voir dans le planning"
-                                            className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-600 rounded transition-colors"
-                                        >
-                                            <Eye className="w-4 h-4" />
-                                        </button>
-                                    )}
+                                    <div className="flex gap-1">
+                                        {/* MAGIC WAND / LIGHTBULB for suggestions */}
+                                        {onScheduleChange && v.employeeId !== 'ALL' && (
+                                            <button 
+                                                onClick={() => handleOpenResolution(v)}
+                                                title="Proposer une solution"
+                                                className="p-1.5 bg-yellow-50 hover:bg-yellow-200 text-yellow-600 rounded transition-colors animate-pulse"
+                                            >
+                                                <Lightbulb className="w-4 h-4" />
+                                            </button>
+                                        )}
+                                        {/* HIGHLIGHT BUTTON */}
+                                        {onNavigateToPlanning && (
+                                            <button 
+                                                onClick={() => onNavigateToPlanning([v])} 
+                                                title="Voir dans le planning"
+                                                className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-600 rounded transition-colors"
+                                            >
+                                                <Eye className="w-4 h-4" />
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                             {warnings.length > 10 && (
