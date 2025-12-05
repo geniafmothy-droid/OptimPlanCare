@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Employee, ShiftCode, LeaveRequestWorkflow, UserRole, ServiceAssignment, WorkPreference, LeaveRequestStatus, ServiceConfig } from '../types';
-import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, Trash2, Save, Send, XCircle, Check, AlertOctagon, Edit2, X, Heart, FolderClock, ChevronDown, Clock, Database, Lock, Moon, Sun, Coffee, List, Eye, CalendarDays, Download } from 'lucide-react';
+import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, Trash2, Save, Send, XCircle, Check, AlertOctagon, Edit2, X, Heart, FolderClock, ChevronDown, Clock, Database, Lock, Moon, Sun, Coffee, List, Eye, CalendarDays, Download, ShieldCheck } from 'lucide-react';
 import * as db from '../services/db';
 import { SHIFT_TYPES } from '../constants';
 import { LeaveCalendar } from './LeaveCalendar';
@@ -17,7 +17,7 @@ interface LeaveManagerProps {
     serviceConfig?: ServiceConfig;
 }
 
-export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredEmployees, onReload, currentUser, activeServiceId, assignmentsList, serviceConfig }) => {
+export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredEmployees, onReload, currentUser, activeServiceId, assignmentsList = [], serviceConfig }) => {
     // Determine default mode based on role
     const defaultMode = (currentUser.role === 'INFIRMIER' || currentUser.role === 'AIDE_SOIGNANT') ? 'my_requests' : 'validation';
 
@@ -109,44 +109,66 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         }
     };
 
-    // Use filtered employees for the global calendar view
+    // --- SCOPE & SECURITY LOGIC ---
+    
+    // 1. Determine which Service IDs the current user is assigned to
+    const userServiceIds = useMemo(() => {
+        if (!currentUser.employeeId) return [];
+        return assignmentsList
+            .filter(a => a.employeeId === currentUser.employeeId)
+            .map(a => a.serviceId);
+    }, [currentUser, assignmentsList]);
+
+    // 2. Check if an employee belongs to the user's scope
+    const isEmployeeInScope = (empId: string) => {
+        // ADMIN sees all
+        if (currentUser.role === 'ADMIN') return true;
+        
+        // If user is not assigned to any service, strictly show nothing (or fallback to all if desired, but strict is safer)
+        if (userServiceIds.length === 0) return false;
+
+        const empServiceIds = assignmentsList
+            .filter(a => a.employeeId === empId)
+            .map(a => a.serviceId);
+        
+        // Check for intersection
+        return empServiceIds.some(id => userServiceIds.includes(id));
+    };
+
+    // 3. Filter employees for Calendar/Forecast views
     const viewableEmployees = useMemo(() => {
-        if (filteredEmployees && filteredEmployees.length > 0) return filteredEmployees;
-        // Fallback: If no external filter, filter by service manually
-        if (!activeServiceId || !assignmentsList) return employees;
-        const assignedIds = assignmentsList
-            .filter(a => a.serviceId === activeServiceId)
-            .map(a => a.employeeId);
-        return employees.filter(e => assignedIds.includes(e.id));
-    }, [employees, filteredEmployees, activeServiceId, assignmentsList]);
+        // Base list: Filtered by Sidebar (if any) OR All
+        let baseList = (filteredEmployees && filteredEmployees.length > 0) ? filteredEmployees : employees;
+        
+        // Apply Security Scope (Cadre/Director only see their teams)
+        if (currentUser.role === 'CADRE' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE_SUP') {
+            baseList = baseList.filter(e => isEmployeeInScope(e.id));
+        }
+        
+        return baseList;
+    }, [employees, filteredEmployees, userServiceIds, currentUser]);
 
     // --- FORECAST DATA PREP ---
-    // Filter requests that are strictly PENDING (for Forecast view)
     const pendingRequests = useMemo(() => {
-        return requests.filter(r => r.status.startsWith('PENDING'));
-    }, [requests]);
+        return requests.filter(r => r.status.startsWith('PENDING') && isEmployeeInScope(r.employeeId));
+    }, [requests, userServiceIds]);
 
-    // --- CONTEXT PENDING REQUESTS (For Validation View) ---
-    // Includes all pending requests EXCEPT the currently selected one (which is simulated as full shift)
+    // --- CONTEXT PENDING REQUESTS ---
     const contextPendingRequests = useMemo(() => {
-        return requests.filter(r => r.status.startsWith('PENDING') && r.id !== selectedRequest?.id);
-    }, [requests, selectedRequest]);
+        return requests.filter(r => r.status.startsWith('PENDING') && r.id !== selectedRequest?.id && isEmployeeInScope(r.employeeId));
+    }, [requests, selectedRequest, userServiceIds]);
 
-    // --- SIMULATION LOGIC (For Single Request Validation) ---
+    // --- SIMULATION LOGIC ---
     const employeesWithSimulation = useMemo(() => {
         if (!selectedRequest) return viewableEmployees;
 
         return viewableEmployees.map(emp => {
             if (emp.id === selectedRequest.employeeId) {
-                // Clone shifts to avoid mutating state
                 const newShifts = { ...emp.shifts };
-                
                 const start = new Date(selectedRequest.startDate);
                 const end = new Date(selectedRequest.endDate);
-                
                 for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
                     const dStr = d.toISOString().split('T')[0];
-                    // Overwrite with the requested type for visualization
                     newShifts[dStr] = selectedRequest.type;
                 }
                 return { ...emp, shifts: newShifts };
@@ -170,7 +192,8 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
             
             let conflictCount = 0;
             // Find colleagues with overlapping skills (simplified)
-            const sameSkillEmps = employees.filter(e => e.id !== me.id && e.skills.some(skill => me.skills.includes(skill)));
+            // Filter colleagues to only those in the same services
+            const sameSkillEmps = viewableEmployees.filter(e => e.id !== me.id && e.skills.some(skill => me.skills.includes(skill)));
 
             for (let d = new Date(sDate); d <= eDate; d.setDate(d.getDate() + 1)) {
                 const dStr = d.toISOString().split('T')[0];
@@ -193,20 +216,18 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
 
     // --- CHECK N-1 OVERLAP (HISTORY) ---
     const checkN1Overlap = (req: LeaveRequestWorkflow) => {
-        // Only makes sense if we have history. Using 'requests' as source of truth.
         if (requests.length === 0) return false;
 
         const currentStart = new Date(req.startDate);
         const targetStart = new Date(currentStart);
         targetStart.setFullYear(currentStart.getFullYear() - 1);
-        targetStart.setDate(targetStart.getDate() - 5); // Window -5 days (fuzzy match)
+        targetStart.setDate(targetStart.getDate() - 5); 
 
         const currentEnd = new Date(req.endDate);
         const targetEnd = new Date(currentEnd);
         targetEnd.setFullYear(currentEnd.getFullYear() - 1);
-        targetEnd.setDate(targetEnd.getDate() + 5); // Window +5 days
+        targetEnd.setDate(targetEnd.getDate() + 5); 
 
-        // Look for validated requests from the same employee in the calculated range N-1
         return requests.some(r =>
             r.employeeId === req.employeeId &&
             r.status === 'VALIDATED' &&
@@ -221,9 +242,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         const start = new Date(startStr);
         const end = new Date(endStr);
         let count = 0;
-        // Iterate from start to end inclusive
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            // Count if NOT Sunday (generic assumption for RH/Non-working)
             if (d.getDay() !== 0) {
                 count++;
             }
@@ -235,7 +254,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         if (startDate && endDate) {
             const warn = checkConflicts(startDate, endDate, leaveType);
             setConflictWarning(warn);
-            // Reset force submit when dates change
             setForceSubmit(false);
         } else {
             setConflictWarning(null);
@@ -281,10 +299,8 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                  return;
             }
 
-            // Find current employee data
             let me = employees.find(e => e.id === currentUser.employeeId);
             if (!me) {
-                 // Fallback for mock data stability
                  if (currentUser.name) {
                      me = {
                          id: currentUser.employeeId,
@@ -305,7 +321,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
 
             const isSickLeave = leaveType === 'NT';
             
-            // Conflict Check Barrier
             if (!isSickLeave && conflictWarning && !forceSubmit) {
                 setMessage({ text: "Veuillez cocher la case pour forcer la demande malgré le conflit.", type: "warning" });
                 return;
@@ -341,7 +356,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                 });
                 setMessage({ text: "Demande mise à jour avec succès.", type: 'success' });
             } else {
-                // Pass 'me' to ensure employee exists in DB (mock data scenario)
                 const req = await db.createLeaveRequest({
                     employeeId: me.id,
                     employeeName: me.name,
@@ -350,7 +364,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                     endDate,
                 }, initialStatus, me);
                 
-                // Notification (Non-blocking)
                 db.createNotification({
                     recipientRole: recipientRole === 'DG' ? 'ADMIN' : recipientRole,
                     title: isSickLeave ? 'Arrêt Maladie' : 'Demande de Congés',
@@ -368,7 +381,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                 }
             }
             
-            // Reset Form
             setStartDate('');
             setEndDate('');
             setEditingRequestId(null);
@@ -485,7 +497,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
 
     const handleSelectRequestForComparison = (req: LeaveRequestWorkflow) => {
         setSelectedRequest(req);
-        // Auto-navigate calendar to the request start date
         setCalendarDate(new Date(req.startDate));
     };
 
@@ -535,7 +546,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
 
             setMessage({ text: isApprove ? "Validé." : "Refusé.", type: isApprove ? 'success' : 'warning' });
             setValidationModal(null);
-            setSelectedRequest(null); // Clear selection
+            setSelectedRequest(null); 
             loadData();
             onReload();
         } catch (e: any) {
@@ -566,13 +577,21 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
     // --- FILTER & SORT LOGIC FOR VALIDATION ---
     const requestsToValidate = useMemo(() => {
         let filtered = requests.filter(r => {
-            if (currentUser.role === 'CADRE') return r.status === 'PENDING_CADRE';
-            if (currentUser.role === 'DIRECTOR') return r.status === 'PENDING_DIRECTOR';
-            if (currentUser.role === 'ADMIN') return true; 
-            return false;
+            // 1. Check Status based on Role
+            let isRoleMatch = false;
+            if (currentUser.role === 'CADRE') isRoleMatch = r.status === 'PENDING_CADRE';
+            else if (currentUser.role === 'DIRECTOR') isRoleMatch = r.status === 'PENDING_DIRECTOR';
+            else if (currentUser.role === 'ADMIN') isRoleMatch = true;
+            
+            if (!isRoleMatch) return false;
+
+            // 2. Check Service Scope (Strict for Cadre/Director)
+            if (currentUser.role !== 'ADMIN') {
+                return isEmployeeInScope(r.employeeId);
+            }
+            return true;
         });
 
-        // DATE RANGE FILTER (overlap check)
         if (valFilterStart) {
             filtered = filtered.filter(r => r.endDate >= valFilterStart);
         }
@@ -580,14 +599,11 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
             filtered = filtered.filter(r => r.startDate <= valFilterEnd);
         }
 
-        // SORT BY CREATION DATE (OLDEST FIRST - FIFO)
-        // Ensure oldest request is at the top
         return filtered.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    }, [requests, currentUser, valFilterStart, valFilterEnd]);
+    }, [requests, currentUser, valFilterStart, valFilterEnd, userServiceIds]);
 
-    const prefsToValidate = preferences.filter(p => p.status === 'PENDING' && (currentUser.role === 'CADRE' || currentUser.role === 'ADMIN'));
+    const prefsToValidate = preferences.filter(p => p.status === 'PENDING' && isEmployeeInScope(p.employeeId) && (currentUser.role === 'CADRE' || currentUser.role === 'ADMIN'));
     
-    // Summary Data for "Desiderata Summary" View
     const getPreferencesForMonth = (year: number, month: number) => {
         const startDate = new Date(year, month, 1);
         const endDate = new Date(year, month + 1, 0);
@@ -600,7 +616,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         });
     };
 
-    // Group Summary by Employee
     const summaryByEmployee = useMemo(() => {
         if (mode !== 'desiderata_summary') return [];
         
@@ -608,7 +623,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         const month = calendarDate.getMonth();
         const activePrefs = getPreferencesForMonth(year, month);
         
-        // Map to filtered employees (showing only those currently visible in filter)
         const empMap = new Map<string, { emp: Employee, prefs: WorkPreference[] }>();
         
         activePrefs.forEach(p => {
@@ -661,9 +675,8 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         }
     };
 
-    // ROLES & PERMISSIONS
     const isManager = ['ADMIN', 'DIRECTOR', 'CADRE', 'CADRE_SUP'].includes(currentUser.role);
-    const canAccessForecast = isManager; // Explicit definition
+    const canAccessForecast = isManager; 
 
     return (
         <div className="p-4 md:p-8 max-w-7xl mx-auto h-full flex flex-col relative">
@@ -754,9 +767,17 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
             )}
 
             <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                    <Calendar className="w-6 h-6 text-blue-600" /> Gestion des Congés
-                </h2>
+                <div>
+                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                        <Calendar className="w-6 h-6 text-blue-600" /> Gestion des Congés
+                    </h2>
+                    {(currentUser.role === 'CADRE' || currentUser.role === 'DIRECTOR') && userServiceIds.length > 0 && (
+                        <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3 text-green-600" />
+                            Périmètre : {userServiceIds.length} service(s) affecté(s).
+                        </div>
+                    )}
+                </div>
                 
                 {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE' || currentUser.role === 'DIRECTOR' || currentUser.role === 'MANAGER') && (
                     <div className="flex items-center gap-2">
@@ -929,7 +950,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                     </div>
                 )}
 
-                {/* ... (rest of the component remains similar) ... */}
                 {/* --- DESIDERATA --- */}
                 {mode === 'desiderata' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -942,8 +962,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                                 Ces demandes sont prises en compte par le moteur de planification après validation.
                             </div>
                             <form onSubmit={handleSubmitDesiderata} className="space-y-4 bg-slate-50 dark:bg-slate-900 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
-                                {/* ... form contents ... */}
-                                {/* Re-using existing desiderata form code */}
                                 <div className="grid grid-cols-2 gap-2">
                                     <div>
                                         <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">Du</label>
@@ -1028,8 +1046,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                     </div>
                 )}
 
-                {/* ... (rest of Desiderata Summary, Validation Mode, Calendar Mode same as previous) ... */}
-                {/* --- DESIDERATA SUMMARY (NEW) --- */}
+                {/* --- DESIDERATA SUMMARY --- */}
                 {mode === 'desiderata_summary' && (
                     <div className="flex flex-col h-full">
                         {/* Copy existing Desiderata Summary render */}
@@ -1104,6 +1121,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                     </div>
                 )}
 
+                {/* --- VALIDATION --- */}
                 {mode === 'validation' && (
                     <div className="flex flex-col lg:flex-row h-full gap-6">
                          {/* LEFT COLUMN: LIST */}
@@ -1139,188 +1157,4 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
 
                                              return (
                                                  <div 
-                                                    key={req.id} 
-                                                    onClick={() => handleSelectRequestForComparison(req)}
-                                                    className={`border p-3 rounded-lg mb-2 cursor-pointer transition-all hover:shadow-md ${selectedRequest?.id === req.id ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-300 dark:bg-blue-900/30 dark:border-blue-600' : 'bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-700'}`}
-                                                 >
-                                                     <div className="flex justify-between items-start">
-                                                         <div>
-                                                             <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">{req.employeeName}</div>
-                                                             <div className="text-xs text-slate-600 dark:text-slate-400 font-medium mt-0.5">
-                                                                 {req.type} 
-                                                                 <span className="ml-1 text-slate-500 font-normal">({effectiveDays} jours hors RH)</span>
-                                                             </div>
-                                                             <div className="text-xs text-slate-500 dark:text-slate-500">{new Date(req.startDate).toLocaleDateString()} ➜ {new Date(req.endDate).toLocaleDateString()}</div>
-                                                             <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
-                                                                 <Clock className="w-3 h-3"/> Demandé le {new Date(req.createdAt).toLocaleString()}
-                                                             </div>
-                                                             {/* HISTORY ALERT */}
-                                                             {isManager && hasN1Overlap && (
-                                                                 <div className="mt-2 p-1.5 bg-purple-50 border border-purple-200 rounded text-[10px] text-purple-700 flex items-center gap-1 font-medium animate-pulse dark:bg-purple-900/30 dark:border-purple-700 dark:text-purple-300">
-                                                                     <History className="w-3 h-3" />
-                                                                     Année N-1 même période
-                                                                 </div>
-                                                             )}
-                                                         </div>
-                                                         {selectedRequest?.id === req.id && <Eye className="w-4 h-4 text-blue-500" />}
-                                                     </div>
-                                                     <div className="flex gap-2 mt-3 pt-2 border-t border-slate-100 dark:border-slate-700">
-                                                         <button onClick={(e) => {e.stopPropagation(); openValidationModal(req, false)}} className="flex-1 px-2 py-1 bg-white border border-red-200 text-red-700 rounded text-xs hover:bg-red-50">Refuser</button>
-                                                         <button onClick={(e) => {e.stopPropagation(); openValidationModal(req, true)}} className="flex-1 px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 shadow-sm">
-                                                            {req.status === 'PENDING_CADRE' ? 'Pré-valider' : 'Valider'}
-                                                         </button>
-                                                     </div>
-                                                 </div>
-                                             );
-                                         })
-                                     )}
-                                 </div>
-                             </div>
-
-                             <div className="flex-1 flex flex-col overflow-hidden">
-                                 {/* ... desiderata validation list ... */}
-                                 <h3 className="font-bold text-lg mb-2 border-b border-slate-200 dark:border-slate-700 pb-2 flex items-center gap-2 text-slate-800 dark:text-white">
-                                     <Heart className="w-4 h-4 text-purple-600"/> Desiderata à valider
-                                 </h3>
-                                 <div className="overflow-y-auto flex-1 pr-1">
-                                     {prefsToValidate.length === 0 ? (
-                                         <p className="text-slate-400 text-sm italic">Aucun souhait.</p>
-                                     ) : (
-                                         prefsToValidate.map(pref => {
-                                             const emp = employees.find(e => e.id === pref.employeeId);
-                                             return (
-                                                 <div key={pref.id} className="border border-purple-200 dark:border-purple-800 p-3 rounded-lg bg-purple-50/50 dark:bg-purple-900/20 mb-2">
-                                                     <div>
-                                                         <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">{emp?.name || 'Inconnu'}</div>
-                                                         <div className="text-xs text-slate-600 dark:text-slate-400 font-medium mt-0.5">
-                                                             {new Date(pref.startDate).toLocaleDateString()} au {new Date(pref.endDate).toLocaleDateString()} : 
-                                                             <span className="font-bold"> {pref.type}</span>
-                                                         </div>
-                                                         <div className="text-xs text-slate-500 italic mt-1">{pref.reason || 'Aucun motif'}</div>
-                                                     </div>
-                                                     <div className="flex gap-2 mt-2">
-                                                         <button onClick={() => openDesiderataValidationModal(pref, false)} className="flex-1 px-2 py-1 bg-white border border-red-200 text-red-700 rounded text-xs hover:bg-red-50">Refuser</button>
-                                                         <button onClick={() => openDesiderataValidationModal(pref, true)} className="flex-1 px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700 shadow-sm">Valider</button>
-                                                     </div>
-                                                 </div>
-                                             );
-                                         })
-                                     )}
-                                 </div>
-                             </div>
-                         </div>
-
-                         {/* RIGHT COLUMN: CALENDAR CONTEXT */}
-                         <div className="lg:w-2/3 flex flex-col bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-                             <div className="p-3 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
-                                 <div>
-                                     <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                                         <Calendar className="w-4 h-4 text-blue-600" />
-                                         {selectedRequest ? `Analyse d'impact : ${selectedRequest.employeeName}` : 'Planning Équipe (Vue Globale)'}
-                                     </h3>
-                                     {selectedRequest && (
-                                         <div className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1 mt-1">
-                                             <Eye className="w-3 h-3" /> Simulation de la demande en cours...
-                                         </div>
-                                     )}
-                                 </div>
-                                 <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700 p-1 rounded-lg">
-                                     <button onClick={() => navigateCalendar('prev')} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600"><ChevronLeft className="w-4 h-4 text-slate-600 dark:text-slate-300"/></button>
-                                     <span className="text-xs font-bold text-slate-700 dark:text-slate-200 px-2 capitalize min-w-[100px] text-center">{calendarDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</span>
-                                     <button onClick={() => navigateCalendar('next')} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600"><ChevronRight className="w-4 h-4 text-slate-600 dark:text-slate-300"/></button>
-                                 </div>
-                             </div>
-                             <div className="flex-1 overflow-hidden p-2 relative">
-                                 <LeaveCalendar 
-                                     employees={employeesWithSimulation} 
-                                     startDate={new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1)} 
-                                     days={getCalendarDays()} 
-                                     pendingRequests={contextPendingRequests} // Add pending context
-                                     preferences={preferences} // Add preferences context
-                                     serviceConfig={serviceConfig} // PASS CONFIG FOR VALIDATION
-                                 />
-                                 {selectedRequest && (
-                                     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-800 shadow-lg border border-slate-200 dark:border-slate-600 p-3 rounded-xl flex gap-4 z-40 animate-in slide-in-from-bottom-4">
-                                         <div className="text-xs text-slate-500 dark:text-slate-400 pr-4 border-r border-slate-200 dark:border-slate-700">
-                                             <div className="font-bold text-slate-800 dark:text-white">Action Rapide</div>
-                                             <div>{selectedRequest.type} du {new Date(selectedRequest.startDate).toLocaleDateString()}</div>
-                                         </div>
-                                         <button onClick={() => openValidationModal(selectedRequest, false)} className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-bold hover:bg-red-200">Refuser</button>
-                                         <button onClick={() => openValidationModal(selectedRequest, true)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 shadow-sm">Valider</button>
-                                     </div>
-                                 )}
-                             </div>
-                             <div className="px-4 py-2 text-[10px] text-slate-500 bg-slate-50 border-t flex gap-4">
-                                <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-400 rounded-sm"></span> Validé / Simulé</span>
-                                <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-50 border border-dashed border-blue-400 rounded-sm"></span> En attente (Autre)</span>
-                                <span className="flex items-center gap-1"><Heart className="w-3 h-3 text-purple-400"/> Souhait</span>
-                             </div>
-                         </div>
-                    </div>
-                )}
-
-                {/* --- CALENDAR VIEW (GLOBAL) --- */}
-                {mode === 'calendar' && (
-                    <div className="h-full flex flex-col">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="font-bold text-lg text-slate-800 dark:text-white">Planning des Congés & Souhaits</h3>
-                            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-700 p-1 rounded-lg border border-slate-200 dark:border-slate-600">
-                                <button onClick={() => navigateCalendar('prev')} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600"><ChevronLeft className="w-4 h-4 text-slate-600 dark:text-slate-300"/></button>
-                                <span className="text-sm font-bold text-slate-700 dark:text-slate-200 px-2 capitalize">{calendarDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</span>
-                                <button onClick={() => navigateCalendar('next')} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600"><ChevronRight className="w-4 h-4 text-slate-600 dark:text-slate-300"/></button>
-                            </div>
-                        </div>
-                        <div className="flex-1 overflow-hidden">
-                            <LeaveCalendar 
-                                employees={viewableEmployees} 
-                                startDate={new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1)} 
-                                days={getCalendarDays()}
-                                preferences={isManager ? preferences : myPreferences} // PRIVACY FILTER: Non-managers only see their own wishes overlay, but see ALL absences.
-                                serviceConfig={serviceConfig}
-                            />
-                        </div>
-                        <div className="mt-2 text-xs text-slate-500 italic flex gap-4">
-                            <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-400 rounded-sm"></span> Congés Validés (Toute l'équipe)</span>
-                            <span className="flex items-center gap-1"><Heart className="w-3 h-3 text-purple-400"/> {isManager ? 'Tous les Souhaits' : 'Mes Souhaits'}</span>
-                        </div>
-                    </div>
-                )}
-
-                {/* --- FORECAST VIEW (NEW) --- */}
-                {mode === 'forecast' && canAccessForecast && (
-                    <div className="h-full flex flex-col">
-                        <div className="flex items-center justify-between mb-4">
-                            <div>
-                                <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
-                                    <CalendarDays className="w-5 h-5 text-orange-500" /> Planning Prévisionnel
-                                </h3>
-                                <p className="text-sm text-slate-500">Visualisation des congés validés ET en attente avec effectif cible.</p>
-                            </div>
-                            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-700 p-1 rounded-lg border border-slate-200 dark:border-slate-600">
-                                <button onClick={() => navigateCalendar('prev')} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600"><ChevronLeft className="w-4 h-4 text-slate-600 dark:text-slate-300"/></button>
-                                <span className="text-sm font-bold text-slate-700 dark:text-slate-200 px-2 capitalize">{calendarDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</span>
-                                <button onClick={() => navigateCalendar('next')} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600"><ChevronRight className="w-4 h-4 text-slate-600 dark:text-slate-300"/></button>
-                            </div>
-                        </div>
-                        <div className="flex-1 overflow-hidden relative">
-                            {/* Pass PENDING requests to overlay them */}
-                            <LeaveCalendar 
-                                employees={viewableEmployees} 
-                                startDate={new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1)} 
-                                days={getCalendarDays()} 
-                                pendingRequests={pendingRequests}
-                                serviceConfig={serviceConfig} // IMPORTANT: Pass for calculation
-                            />
-                        </div>
-                        <div className="mt-2 text-xs text-slate-500 italic flex gap-4 items-center">
-                            <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-400 rounded-sm"></span> Congés Validés</span>
-                            <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-50 border border-dashed border-blue-400 rounded-sm"></span> En attente de validation</span>
-                            <span className="ml-4 font-bold flex items-center gap-1"><span className="w-3 h-3 bg-green-100 border border-green-300"></span> Effectif OK</span>
-                            <span className="font-bold flex items-center gap-1"><span className="w-3 h-3 bg-red-100 border border-red-300"></span> Effectif Insuffisant</span>
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
+                               

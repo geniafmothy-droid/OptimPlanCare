@@ -13,9 +13,9 @@ const getDayOfWeek = (d: Date) => d.getDay(); // 0 Sun, 1 Mon...
  * Calculates total hours worked in the sliding window ending at 'dateStr'.
  * Window is 7 days including current date (Current + 6 previous days).
  */
-const getHoursLast7Days = (emp: Employee, currentDate: Date, tempShifts: Record<string, ShiftCode>): number => {
+export const getHoursLast7Days = (emp: Employee, currentDate: Date, tempShifts: Record<string, ShiftCode>): number => {
     let total = 0;
-    // Check previous 6 days + current planned shift
+    // Check previous 6 days + current planned shift (if any)
     for (let k = 0; k < 7; k++) {
         const d = new Date(currentDate);
         d.setDate(d.getDate() - k);
@@ -75,13 +75,12 @@ export const generateMonthlySchedule = async (
   const endDate = new Date(year, month + 1, 0); 
   const numDays = endDate.getDate();
 
-  // Codes that cannot be moved/deleted
   const LOCKED_CODES = ['CA', 'FO', 'RC', 'HS', 'F', 'RTT', 'CSS', 'PATER', 'MALADIE'];
 
   // Stats for equity balancing
-  const equityStats: Record<string, { Mondays: number, Saturdays: number, TotalHours: number }> = {};
+  const equityStats: Record<string, { Mondays: number, Saturdays: number, Nights: number, TotalHours: number }> = {};
   employees.forEach(e => {
-      equityStats[e.id] = { Mondays: 0, Saturdays: 0, TotalHours: 0 };
+      equityStats[e.id] = { Mondays: 0, Saturdays: 0, Nights: 0, TotalHours: 0 };
   });
 
   // --- PHASE 1: PRE-CLEANING & DESIDERATA APPLICATION ---
@@ -93,12 +92,10 @@ export const generateMonthlySchedule = async (
       employees.forEach(emp => {
           const existing = emp.shifts[dateStr];
 
-          // 1. Clean up regeneratable shifts (NT, RH, Work codes not locked)
           if (existing && !LOCKED_CODES.includes(existing)) {
               delete emp.shifts[dateStr]; 
           }
 
-          // 2. Apply "NO_WORK" Desiderata as Hard Constraints immediately
           if (!emp.shifts[dateStr]) {
               const empPrefs = preferences.filter(p => p.employeeId === emp.id);
               for (const pref of empPrefs) {
@@ -106,29 +103,23 @@ export const generateMonthlySchedule = async (
                       if (pref.recurringDays && pref.recurringDays.length > 0 && !pref.recurringDays.includes(dayOfWeek)) continue;
                       
                       if (pref.type === 'NO_WORK') {
-                          // Rule: RH only for Sat(6)/Sun(0), NT for Weekdays
                           emp.shifts[dateStr] = (dayOfWeek === 0 || dayOfWeek === 6) ? 'RH' : 'NT';
                       }
                   }
               }
           }
 
-          // 3. Apply Sunday Rule (Closed)
-          // Exception: Cadres usually don't work Sunday but might have on-call. 
-          // Here we set RH for standard staff if empty.
           if (dayOfWeek === 0 && !emp.shifts[dateStr] && !NON_COUNTING_ROLES.includes(emp.role)) {
               emp.shifts[dateStr] = 'RH';
           }
           
-          // 4. Cadre Default Schedule (IT Mon-Fri)
-          // We assign them IT, but remember: this IT will NOT count towards the nurse target due to NON_COUNTING_ROLES check later.
           if (NON_COUNTING_ROLES.includes(emp.role) && !emp.shifts[dateStr] && dayOfWeek >= 1 && dayOfWeek <= 5) {
               emp.shifts[dateStr] = 'IT';
           }
       });
   }
 
-  // --- PHASE 2: DAILY ASSIGNMENT LOOP (THE CORE) ---
+  // --- PHASE 2: DAILY ASSIGNMENT LOOP ---
   for (let day = 1; day <= numDays; day++) {
       const currentDate = new Date(year, month, day);
       const dateStr = toLocalISOString(currentDate);
@@ -137,6 +128,10 @@ export const generateMonthlySchedule = async (
       const prevDate = new Date(currentDate);
       prevDate.setDate(prevDate.getDate() - 1);
       const prevDateStr = toLocalISOString(prevDate);
+
+      const prevPrevDate = new Date(prevDate);
+      prevPrevDate.setDate(prevPrevDate.getDate() - 1);
+      const prevPrevDateStr = toLocalISOString(prevPrevDate);
 
       if (dayOfWeek === 0) continue; // Skip Sundays
 
@@ -149,15 +144,13 @@ export const generateMonthlySchedule = async (
           }
       }
 
-      // Priority: Fill 'S' first (Hardest to fill due to "Next Day Off" rule)
+      // Priority Order: 'S' first (constraint heavy), then specific shifts, then generic IT
       const priorityOrder: ShiftCode[] = ['S', 'T6', 'T5', 'IT']; 
 
       for (const shiftType of priorityOrder) {
           const needed = targets[shiftType] || 0;
           if (needed === 0) continue;
 
-          // Count currently assigned STRICTLY filtering out management/admin roles
-          // This ensures that even if a Cadre is in 'IT', we still need 4 Nurses in 'IT'.
           let currentAssigned = employees.filter(e => 
               e.shifts[dateStr] === shiftType && 
               !NON_COUNTING_ROLES.includes(e.role)
@@ -166,111 +159,130 @@ export const generateMonthlySchedule = async (
           if (currentAssigned >= needed) continue;
 
           // --- CANDIDATE FINDING STRATEGY ---
-          
-          const findCandidates = (ignoreEquity: boolean) => {
+          const findCandidates = (strictnessLevel: number) => {
               return employees.filter(emp => {
-                  // A. Role Check (Strictly Care Staff)
-                  if (NON_COUNTING_ROLES.includes(emp.role)) return false; 
-                  // Double check to be sure we only take Nurses/AS/Interim
-                  if (emp.role !== 'Infirmier' && emp.role !== 'Aide-Soignant' && emp.role !== 'Intérimaire') return false;
+                  // A. Role Check
+                  const r = emp.role.toLowerCase();
+                  const isNursing = r.includes('infirmier') || r.includes('ide') || r.includes('soignant') || r.includes('as') || r.includes('intérim');
+                  
+                  if (!isNursing) return false;
+                  if (NON_COUNTING_ROLES.map(x => x.toLowerCase()).includes(r)) return false; 
                   
                   // B. Availability Check
-                  if (emp.shifts[dateStr]) return false; // Already working or absent
+                  if (emp.shifts[dateStr]) return false; 
 
-                  // C. Legal Hard Constraints
-                  // 1. Post-Night Rest: If S yesterday, cannot work today.
+                  // C. Safety Hard Constraints (Post-Night) - ABSOLUTE
                   if (emp.shifts[prevDateStr] === 'S') return false;
 
-                  // 2. Max 48h / 7 days
-                  const hoursThisShift = SHIFT_HOURS[shiftType] || 7.5;
-                  const hoursPast = getHoursLast7Days(emp, currentDate, emp.shifts);
-                  if ((hoursPast + hoursThisShift) > 48) return false;
+                  // D. Max 48h / 7 days
+                  // Strictness 0 & 1: Respect 48h
+                  // Strictness 2+: Ignore 48h (Emergency fill)
+                  if (strictnessLevel < 2) {
+                      const hoursThisShift = SHIFT_HOURS[shiftType] || 7.5;
+                      const hoursPast = getHoursLast7Days(emp, currentDate, emp.shifts);
+                      if ((hoursPast + hoursThisShift) > 48) return false;
+                  }
 
-                  // 3. Samedi rule (1 sur 2) - Only applies if today is Saturday
-                  if (dayOfWeek === 6 && !ignoreEquity) {
+                  // E. Samedi rule (1 sur 2)
+                  // Strictness 0: Strict 1/2
+                  // Strictness 1+: Ignore
+                  if (dayOfWeek === 6 && strictnessLevel === 0) {
                       const prevSat = new Date(currentDate); prevSat.setDate(prevSat.getDate() - 7);
                       const prevSatStr = toLocalISOString(prevSat);
                       const prevShift = emp.shifts[prevSatStr];
                       if (prevShift && SHIFT_TYPES[prevShift]?.isWork) return false;
                   }
 
-                  // 4. "NO_NIGHT" Desiderata Check
+                  // F. "NO_NIGHT" / Preferences
                   if (shiftType === 'S') {
                       const hasNoNight = preferences.some(p => 
                           p.employeeId === emp.id && 
                           p.type === 'NO_NIGHT' &&
                           dateStr >= p.startDate && dateStr <= p.endDate
                       );
-                      if (hasNoNight) return false;
+                      if (hasNoNight && strictnessLevel < 3) return false;
                   }
 
                   return true;
               });
           };
 
-          // --- PASS 1: EQUITY & FTE PRIORITY ---
-          let candidates = findCandidates(false);
-          
-          let scoredCandidates = candidates.map(emp => {
-              let score = 1000;
+          const runPass = (level: number) => {
+              let candidates = findCandidates(level);
               
-              // CRITICAL: FTE WEIGHTING
-              // A 100% FTE (1.0) gets +5000 points. A 80% (0.8) gets +4000.
-              // This ensures full-time staff are filled FIRST before part-time, preventing 100% staff from ending up with NT.
-              score += (emp.fte * 5000);
-
-              // Penalty for too many hours already worked relative to others
-              score -= equityStats[emp.id].TotalHours;
-              
-              // Penalty for specific days to rotate
-              if (dayOfWeek === 1) score -= (equityStats[emp.id].Mondays * 50);
-              if (dayOfWeek === 6) score -= (equityStats[emp.id].Saturdays * 200);
-
-              // Randomness to break ties among same FTE
-              score += Math.random() * 50; 
-              return { emp, score };
-          });
-
-          scoredCandidates.sort((a, b) => b.score - a.score);
-
-          // Assign
-          let assignedInPass1 = 0;
-          for (let i = 0; i < (needed - currentAssigned); i++) {
-              if (scoredCandidates[i]) {
-                  const winner = scoredCandidates[i].emp;
-                  winner.shifts[dateStr] = shiftType;
-                  assignedInPass1++;
+              let scoredCandidates = candidates.map(emp => {
+                  let score = 1000;
                   
-                  // Update Stats
-                  equityStats[winner.id].TotalHours += (SHIFT_HOURS[shiftType] || 0);
-                  if (dayOfWeek === 1) equityStats[winner.id].Mondays++;
-                  if (dayOfWeek === 6) equityStats[winner.id].Saturdays++;
-              }
-          }
+                  const workedYesterday = emp.shifts[prevDateStr] && SHIFT_TYPES[emp.shifts[prevDateStr]]?.isWork;
+                  const workedBeforeYesterday = emp.shifts[prevPrevDateStr] && SHIFT_TYPES[emp.shifts[prevPrevDateStr]]?.isWork;
 
-          currentAssigned += assignedInPass1;
+                  // --- STRATEGY: BLOCK SCHEDULING ---
+                  // Massive bonus if worked yesterday. We want to chain days (Mon-Tue-Wed).
+                  // This prevents the "oscillation" where everyone rests on the same day.
+                  if (workedYesterday) {
+                      score += 5000; 
+                      if (workedBeforeYesterday) score += 1000; // Prefer chains of 3 over chains of 2
+                  } 
+                  else {
+                      // If didn't work yesterday, we are pulling from the "Fresh" pool.
+                      // Only do this if necessary.
+                      // Penalize slightly to prefer those currently in a work block.
+                      score -= 500;
+                  }
 
-          // --- PASS 2: RESCUE MODE (Force Assignment) ---
-          // Ignore soft rules (like Saturday 1/2) if we are still missing staff.
-          if (currentAssigned < needed) {
-              const rescueCandidates = findCandidates(true); // ignoreEquity = true
+                  // Equity penalty (secondary to block scheduling)
+                  // Prevents one person from doing ALL the work, but only kicks in if blocks are equal
+                  score -= (equityStats[emp.id].TotalHours * 5);
+
+                  // FTE Bonus: Higher FTEs should be picked first for new blocks
+                  score += (emp.fte * 200);
+                  
+                  if (level === 0) {
+                      if (dayOfWeek === 6) score -= (equityStats[emp.id].Saturdays * 2000); // Heavy penalty for sat rotation
+                      if (shiftType === 'S') score -= (equityStats[emp.id].Nights * 500);
+                  }
+
+                  // Randomness to break ties
+                  score += Math.random() * 50; 
+                  return { emp, score };
+              });
+
+              scoredCandidates.sort((a, b) => b.score - a.score);
+
+              let assignedCount = 0;
+              const slotsToFill = needed - currentAssigned;
               
-              let scoredRescue = rescueCandidates.map(emp => ({
-                  emp,
-                  // Still prioritize FTE in rescue mode
-                  score: (emp.fte * 5000) - equityStats[emp.id].TotalHours + Math.random() * 50
-              })).sort((a, b) => b.score - a.score);
-
-              for (let i = 0; i < (needed - currentAssigned); i++) {
-                  if (scoredRescue[i]) {
-                      const winner = scoredRescue[i].emp;
+              for (let i = 0; i < slotsToFill; i++) {
+                  if (scoredCandidates[i]) {
+                      const winner = scoredCandidates[i].emp;
                       winner.shifts[dateStr] = shiftType;
+                      assignedCount++;
                       
                       equityStats[winner.id].TotalHours += (SHIFT_HOURS[shiftType] || 0);
                       if (dayOfWeek === 1) equityStats[winner.id].Mondays++;
                       if (dayOfWeek === 6) equityStats[winner.id].Saturdays++;
+                      if (shiftType === 'S') equityStats[winner.id].Nights++;
                   }
               }
+              currentAssigned += assignedCount;
+          };
+
+          // --- PASS 1: STANDARD (Block Rules & Constraints) ---
+          runPass(0);
+
+          // --- PASS 2: RELAXED (Ignore Preference & Saturday Rotation) ---
+          if (currentAssigned < needed) {
+              runPass(1);
+          }
+
+          // --- PASS 3: FORCE (Ignore 48h limit) ---
+          if (currentAssigned < needed) {
+              runPass(2);
+          }
+
+          // --- PASS 4: NUCLEAR (Fill holes at all cost, only Safety Rule remains) ---
+          if (currentAssigned < needed) {
+              runPass(3);
           }
       }
   }
@@ -283,7 +295,6 @@ export const generateMonthlySchedule = async (
           const dayOfWeek = getDayOfWeek(d);
           
           if (!emp.shifts[dateStr]) {
-              // Rule: RH only for Sat(6)/Sun(0), NT for Weekdays
               if (dayOfWeek === 0 || dayOfWeek === 6) {
                   emp.shifts[dateStr] = 'RH';
               } else {

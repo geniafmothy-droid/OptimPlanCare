@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Service, Skill, SkillRequirement, Employee, ServiceAssignment } from '../types';
-import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X } from 'lucide-react';
+import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X, Search, UserPlus, UserMinus, ArrowRight } from 'lucide-react';
 import * as db from '../services/db';
 
 interface ServiceSettingsProps {
@@ -27,7 +27,12 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
     // Editing State (Local Buffer)
     const [editName, setEditName] = useState('');
     const [config, setConfig] = useState<any>({});
-    const [members, setMembers] = useState<string[]>([]); // List of employee IDs
+    
+    // Member Management State
+    const [memberSearch, setMemberSearch] = useState('');
+    const [assignmentModal, setAssignmentModal] = useState<{ isOpen: boolean, employee: Employee | null, currentAssignment: ServiceAssignment | null }>({ isOpen: false, employee: null, currentAssignment: null });
+    const [assignStartDate, setAssignStartDate] = useState('');
+    const [assignEndDate, setAssignEndDate] = useState('');
 
     // --- INITIAL LOAD ---
     useEffect(() => {
@@ -41,7 +46,7 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
         } else if (services.length > 0 && selectedServiceId) {
             // Refresh current selection data if needed
             const s = services.find(x => x.id === selectedServiceId);
-            if (s) handleSelectService(s, false); // false = don't overwrite if dirty? Simplification: overwrite for now
+            if (s) handleSelectService(s, false); 
         }
     }, [services]);
 
@@ -72,13 +77,6 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
             setEditName(s.name);
             // Deep copy config
             setConfig(JSON.parse(JSON.stringify(s.config || { openDays: [], requiredSkills: [], shiftTargets: {} })));
-            
-            // Filter members for this service
-            const currentMemberIds = allAssignments
-                .filter(a => a.serviceId === s.id)
-                .map(a => a.employeeId);
-            setMembers(currentMemberIds);
-            
             setNotification(null);
         }
     };
@@ -122,23 +120,11 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
             await db.updateService(selectedServiceId, editName);
             await db.updateServiceConfig(selectedServiceId, config);
 
-            // 2. Update Members (Naive approach: delete all assignments for this service and recreate)
-            // Ideally we should diff, but for simplicity/robustness in this context:
-            // First, find current assignments for this service in DB (using state might be stale if others edited)
-            const currentDbAssignments = await db.fetchServiceAssignments();
-            const serviceAssignments = currentDbAssignments.filter(a => a.serviceId === selectedServiceId);
+            // Note: Member assignments are now handled atomically in the modal
             
-            // Determine to add and remove
-            const toRemove = serviceAssignments.filter(a => !members.includes(a.employeeId));
-            const toAdd = members.filter(mId => !serviceAssignments.some(a => a.employeeId === mId));
-
-            // Execute batch operations (mocked via loops as DB helper might not have batch delete/insert for this specific case exposed)
-            for (const a of toRemove) await db.deleteServiceAssignment(a.id);
-            for (const empId of toAdd) await db.createServiceAssignment(empId, selectedServiceId, new Date().toISOString().split('T')[0]);
-
             await loadAllData();
             onReload(); // Refresh parent app
-            setNotification({ type: 'success', message: "Configuration et membres enregistrés avec succès !" });
+            setNotification({ type: 'success', message: "Configuration enregistrée avec succès !" });
         } catch (e: any) {
             console.error(e);
             setNotification({ type: 'error', message: "Échec de l'enregistrement : " + e.message });
@@ -184,7 +170,6 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
         const dayTargets = currentTargets[dayIndex] || {};
         
         const newDayTargets = { ...dayTargets, [skillCode]: count };
-        // Clean up if 0 to keep object clean? Optional.
         
         setConfig({
             ...config,
@@ -195,8 +180,74 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
         });
     };
 
-    const toggleMember = (empId: string) => {
-        setMembers(prev => prev.includes(empId) ? prev.filter(id => id !== empId) : [...prev, empId]);
+    // --- MEMBER MANAGEMENT ---
+
+    const openAssignmentModal = (emp: Employee) => {
+        const existing = allAssignments.find(a => a.employeeId === emp.id && a.serviceId === selectedServiceId);
+        setAssignmentModal({
+            isOpen: true,
+            employee: emp,
+            currentAssignment: existing || null
+        });
+        setAssignStartDate(existing?.startDate || new Date().toISOString().split('T')[0]);
+        setAssignEndDate(existing?.endDate || '');
+    };
+
+    const handleSaveAssignment = async () => {
+        if (!selectedServiceId || !assignmentModal.employee) return;
+        if (!assignStartDate) {
+            alert("Une date de début est requise.");
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            if (assignmentModal.currentAssignment) {
+                // Update
+                await db.updateServiceAssignment(
+                    assignmentModal.currentAssignment.id,
+                    assignmentModal.employee.id,
+                    selectedServiceId,
+                    assignStartDate,
+                    assignEndDate || undefined
+                );
+                setNotification({ type: 'success', message: "Affectation mise à jour." });
+            } else {
+                // Create
+                await db.createServiceAssignment(
+                    assignmentModal.employee.id,
+                    selectedServiceId,
+                    assignStartDate,
+                    assignEndDate || undefined
+                );
+                setNotification({ type: 'success', message: "Membre ajouté au service." });
+            }
+            setAssignmentModal({ ...assignmentModal, isOpen: false });
+            await loadAllData();
+            onReload();
+        } catch (e: any) {
+            alert(e.message);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleRemoveAssignment = async () => {
+        if (!assignmentModal.currentAssignment) return;
+        if (!confirm("Retirer ce membre du service ?")) return;
+        
+        setIsLoading(true);
+        try {
+            await db.deleteServiceAssignment(assignmentModal.currentAssignment.id);
+            setNotification({ type: 'success', message: "Membre retiré du service." });
+            setAssignmentModal({ ...assignmentModal, isOpen: false });
+            await loadAllData();
+            onReload();
+        } catch (e: any) {
+            alert(e.message);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const daysOfWeek = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
@@ -211,6 +262,14 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
     }
 
     const selectedService = services.find(s => s.id === selectedServiceId);
+    
+    // Filter employees for member tab
+    const filteredEmployees = allEmployees.filter(emp => {
+        const search = memberSearch.toLowerCase();
+        return emp.name.toLowerCase().includes(search) || emp.matricule.toLowerCase().includes(search);
+    });
+
+    const activeMembersCount = allAssignments.filter(a => a.serviceId === selectedServiceId).length;
 
     return (
         <div className="flex flex-col md:flex-row gap-6 h-[700px]">
@@ -245,7 +304,70 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
             </div>
 
             {/* MAIN CONTENT */}
-            <div className="flex-1 bg-white rounded-xl shadow border border-slate-200 flex flex-col overflow-hidden">
+            <div className="flex-1 bg-white rounded-xl shadow border border-slate-200 flex flex-col overflow-hidden relative">
+                
+                {/* ASSIGNMENT MODAL */}
+                {assignmentModal.isOpen && assignmentModal.employee && (
+                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <h3 className="text-lg font-bold text-slate-800">Affectation Service</h3>
+                                    <div className="text-sm text-blue-600 font-medium">{assignmentModal.employee.name}</div>
+                                </div>
+                                <button onClick={() => setAssignmentModal({...assignmentModal, isOpen: false})} className="p-1 hover:bg-slate-100 rounded"><X className="w-5 h-5 text-slate-400"/></button>
+                            </div>
+
+                            <div className="space-y-4 mb-6">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Date de début</label>
+                                    <input 
+                                        type="date" 
+                                        value={assignStartDate} 
+                                        onChange={(e) => setAssignStartDate(e.target.value)} 
+                                        className="w-full p-2 border rounded bg-slate-50"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Date de fin (Optionnel)</label>
+                                    <input 
+                                        type="date" 
+                                        value={assignEndDate} 
+                                        onChange={(e) => setAssignEndDate(e.target.value)} 
+                                        className="w-full p-2 border rounded bg-slate-50"
+                                    />
+                                    <p className="text-[10px] text-slate-400 mt-1">Laissez vide pour une affectation indéterminée.</p>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-2 justify-end">
+                                {assignmentModal.currentAssignment && (
+                                    <button 
+                                        onClick={handleRemoveAssignment} 
+                                        disabled={isLoading}
+                                        className="mr-auto px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded text-sm font-medium flex items-center gap-2"
+                                    >
+                                        <Trash2 className="w-4 h-4"/> Désaffecter
+                                    </button>
+                                )}
+                                <button 
+                                    onClick={() => setAssignmentModal({...assignmentModal, isOpen: false})} 
+                                    className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded text-sm font-medium"
+                                >
+                                    Annuler
+                                </button>
+                                <button 
+                                    onClick={handleSaveAssignment} 
+                                    disabled={isLoading}
+                                    className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded text-sm font-medium shadow-sm"
+                                >
+                                    {isLoading ? 'Enregistrement...' : 'Valider'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {!selectedService ? (
                     <div className="flex-1 flex items-center justify-center text-slate-400">Sélectionnez un service</div>
                 ) : (
@@ -271,7 +393,7 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                     className="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-sm font-bold transition-all disabled:opacity-50"
                                 >
                                     {isLoading ? <span className="animate-spin">⌛</span> : <Save className="w-4 h-4" />}
-                                    Enregistrer
+                                    Enregistrer Config
                                 </button>
                             </div>
                         </div>
@@ -297,7 +419,7 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                 <Shield className="w-4 h-4" /> Règles & Équité
                             </button>
                             <button onClick={() => setActiveTab('members')} className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'members' ? 'border-green-600 text-green-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-                                <Users className="w-4 h-4" /> Membres ({members.length})
+                                <Users className="w-4 h-4" /> Membres ({activeMembersCount})
                             </button>
                         </div>
 
@@ -499,41 +621,69 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
 
                             {/* 4. MEMBERS TAB */}
                             {activeTab === 'members' && (
-                                <div className="bg-white p-0 rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full max-h-[500px]">
-                                    <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
-                                        <h4 className="font-bold text-slate-800 flex items-center gap-2"><Users className="w-5 h-5 text-green-600"/> Affectation des membres</h4>
-                                        <div className="text-xs text-slate-500">{members.length} sélectionné(s)</div>
+                                <div className="bg-white p-0 rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full max-h-[550px]">
+                                    <div className="p-4 border-b bg-slate-50 flex flex-col gap-3">
+                                        <div className="flex justify-between items-center">
+                                            <h4 className="font-bold text-slate-800 flex items-center gap-2"><Users className="w-5 h-5 text-green-600"/> Affectation des membres</h4>
+                                            <div className="text-xs text-slate-500">{activeMembersCount} actifs</div>
+                                        </div>
+                                        
+                                        {/* SEARCH BAR */}
+                                        <div className="relative">
+                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                                            <input 
+                                                type="text" 
+                                                placeholder="Rechercher un membre par nom ou matricule..." 
+                                                value={memberSearch}
+                                                onChange={(e) => setMemberSearch(e.target.value)}
+                                                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                            />
+                                        </div>
                                     </div>
+                                    
                                     <div className="overflow-y-auto p-2">
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                                            {allEmployees.map(emp => {
-                                                const isSelected = members.includes(emp.id);
+                                            {filteredEmployees.map(emp => {
+                                                const existingAssignment = allAssignments.find(a => a.employeeId === emp.id && a.serviceId === selectedServiceId);
+                                                const isAssigned = !!existingAssignment;
+                                                
                                                 // Check if assigned elsewhere
                                                 const assignedOther = allAssignments.find(a => a.employeeId === emp.id && a.serviceId !== selectedServiceId);
                                                 
                                                 return (
                                                     <div 
                                                         key={emp.id} 
-                                                        onClick={() => toggleMember(emp.id)}
-                                                        className={`p-2 rounded border cursor-pointer flex items-center gap-3 transition-all ${
-                                                            isSelected 
+                                                        onClick={() => openAssignmentModal(emp)}
+                                                        className={`p-3 rounded-lg border cursor-pointer flex items-center gap-3 transition-all group ${
+                                                            isAssigned 
                                                             ? 'bg-green-50 border-green-200 ring-1 ring-green-200' 
-                                                            : 'bg-white border-slate-200 hover:bg-slate-50'
+                                                            : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-blue-300'
                                                         }`}
                                                     >
-                                                        <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${isSelected ? 'bg-green-500 border-green-500' : 'bg-white border-slate-300'}`}>
-                                                            {isSelected && <CheckCircle2 className="w-3 h-3 text-white" />}
+                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${isAssigned ? 'bg-green-500 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'}`}>
+                                                            {isAssigned ? <CheckCircle2 className="w-4 h-4" /> : emp.name.charAt(0)}
                                                         </div>
                                                         <div className="flex-1 min-w-0">
-                                                            <div className={`text-sm font-medium truncate ${isSelected ? 'text-green-800' : 'text-slate-700'}`}>{emp.name}</div>
-                                                            <div className="text-xs text-slate-500 flex justify-between">
+                                                            <div className={`text-sm font-bold truncate ${isAssigned ? 'text-green-800' : 'text-slate-700'}`}>{emp.name}</div>
+                                                            <div className="text-xs text-slate-500 flex justify-between items-center">
                                                                 <span>{emp.role}</span>
-                                                                {assignedOther && <span className="text-orange-500 text-[10px] italic">Déjà affecté ailleurs</span>}
+                                                                {isAssigned && (
+                                                                    <span className="text-[10px] text-green-600 font-medium bg-green-100 px-1.5 rounded">
+                                                                        {existingAssignment?.startDate ? new Date(existingAssignment.startDate).toLocaleDateString() : 'Active'}
+                                                                    </span>
+                                                                )}
                                                             </div>
+                                                            {assignedOther && !isAssigned && <div className="text-orange-500 text-[10px] italic mt-0.5">Déjà affecté ailleurs</div>}
+                                                        </div>
+                                                        <div className="opacity-0 group-hover:opacity-100 text-slate-400">
+                                                            {isAssigned ? <Settings className="w-4 h-4"/> : <UserPlus className="w-4 h-4"/>}
                                                         </div>
                                                     </div>
                                                 );
                                             })}
+                                            {filteredEmployees.length === 0 && (
+                                                <div className="col-span-full text-center py-8 text-slate-400 italic">Aucun employé trouvé.</div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

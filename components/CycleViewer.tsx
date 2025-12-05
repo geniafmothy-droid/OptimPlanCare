@@ -1,17 +1,33 @@
 
-import React, { useState, useMemo } from 'react';
-import { Employee, ShiftCode } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Employee, ShiftCode, UserRole } from '../types';
 import { SHIFT_TYPES, SHIFT_HOURS } from '../constants';
 import { Calendar, Clock, User, ArrowRight, Calculator, CalendarClock, ChevronLeft, ChevronRight, Briefcase, Tag } from 'lucide-react';
 
 interface CycleViewerProps {
     employees: Employee[];
+    currentUser?: { role: UserRole, employeeId?: string };
 }
 
-export const CycleViewer: React.FC<CycleViewerProps> = ({ employees }) => {
-    const [selectedEmpId, setSelectedEmpId] = useState<string>(employees.length > 0 ? employees[0].id : '');
+export const CycleViewer: React.FC<CycleViewerProps> = ({ employees, currentUser }) => {
+    // Determine access level
+    const isManager = ['ADMIN', 'DIRECTOR', 'CADRE', 'CADRE_SUP', 'MANAGER'].includes(currentUser?.role || '');
+    
+    // Initial selection logic
+    const initialId = (!isManager && currentUser?.employeeId) 
+        ? currentUser.employeeId 
+        : (employees.length > 0 ? employees[0].id : '');
+
+    const [selectedEmpId, setSelectedEmpId] = useState<string>(initialId);
     const [cycleStartDate, setCycleStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
     const [cycleWeeks, setCycleWeeks] = useState<number>(4); // Default 4 weeks cycle
+
+    // Enforce self-view for non-managers if employees list updates
+    useEffect(() => {
+        if (!isManager && currentUser?.employeeId) {
+            setSelectedEmpId(currentUser.employeeId);
+        }
+    }, [currentUser, isManager, employees]);
 
     const selectedEmp = employees.find(e => e.id === selectedEmpId);
 
@@ -89,31 +105,44 @@ export const CycleViewer: React.FC<CycleViewerProps> = ({ employees }) => {
         setCycleStartDate(d.toISOString().split('T')[0]);
     };
 
-    if (!selectedEmp) return <div className="p-8 text-center text-slate-500">Aucun employé sélectionné.</div>;
+    if (!selectedEmp) return <div className="p-8 text-center text-slate-500">Profil employé introuvable.</div>;
 
     return (
         <div className="p-6 max-w-7xl mx-auto h-full flex flex-col">
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                    <CalendarClock className="w-6 h-6 text-indigo-600" /> Analyse de Cycle
+                    <CalendarClock className="w-6 h-6 text-indigo-600" /> 
+                    {isManager ? 'Analyse de Cycle' : 'Mon Cycle de Travail'}
                 </h2>
             </div>
 
             {/* CONTROLS */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-end gap-4 mb-6">
-                <div className="flex-1 min-w-[200px]">
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Employé</label>
-                    <div className="relative">
-                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <select 
-                            value={selectedEmpId} 
-                            onChange={(e) => setSelectedEmpId(e.target.value)}
-                            className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg bg-slate-50 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500"
-                        >
-                            {employees.map(e => <option key={e.id} value={e.id}>{e.name} - {e.role}</option>)}
-                        </select>
+                {isManager ? (
+                    <div className="flex-1 min-w-[200px]">
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Employé</label>
+                        <div className="relative">
+                            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                            <select 
+                                value={selectedEmpId} 
+                                onChange={(e) => setSelectedEmpId(e.target.value)}
+                                className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg bg-slate-50 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500"
+                            >
+                                {employees.map(e => <option key={e.id} value={e.id}>{e.name} - {e.role}</option>)}
+                            </select>
+                        </div>
                     </div>
-                </div>
+                ) : (
+                    <div className="flex-1 min-w-[200px] flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">
+                            {selectedEmp.name.charAt(0)}
+                        </div>
+                        <div>
+                            <div className="text-sm font-bold text-slate-800">{selectedEmp.name}</div>
+                            <div className="text-xs text-slate-500">{selectedEmp.role}</div>
+                        </div>
+                    </div>
+                )}
 
                 <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Début du Cycle (Lundi)</label>

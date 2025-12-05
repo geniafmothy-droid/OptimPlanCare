@@ -1,8 +1,9 @@
 
 import React, { useState, useMemo } from 'react';
 import { Employee, Service, PlanningScenario, ShiftCode } from '../types';
-import { generateMonthlySchedule } from '../utils/scheduler';
+import { generateMonthlySchedule, getHoursLast7Days } from '../utils/scheduler';
 import { checkConstraints } from '../utils/validation';
+import { SHIFT_TYPES, SHIFT_HOURS } from '../constants';
 import { Wand2, Copy, Save, CheckCircle2, RotateCcw, ArrowRightLeft, Users, AlertTriangle, Play, Plus, Clock } from 'lucide-react';
 import { ScheduleGrid } from './ScheduleGrid';
 import { ConstraintChecker } from './ConstraintChecker';
@@ -55,14 +56,21 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
         setIsOptimizing(false);
     };
 
-    const handleOptimizeInterim = async () => {
+    /**
+     * Smart Optimization:
+     * 1. Detect gaps in staffing based on targets.
+     * 2. Try to fill gaps with EXISTING employees who are valid (respect 48h, safety rest).
+     * 3. Only if no existing employee can take it, create an Interim.
+     */
+    const handleSmartOptimize = async () => {
         if (!activeScenarioId || !draftScenario) return;
         setIsOptimizing(true);
 
-        // 1. Clone current scenario employees
+        // 1. Clone current scenario employees to mutate
         const emps = JSON.parse(JSON.stringify(draftScenario.employeesSnapshot)) as Employee[];
         
         const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+        let filledCount = 0;
         let interimCount = 0;
 
         // Configuration defaults
@@ -79,6 +87,12 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
             const d = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
             const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
             const dayOfWeek = d.getDay();
+            
+            const prevD = new Date(d); prevD.setDate(d.getDate() - 1);
+            const prevDateStr = prevD.toISOString().split('T')[0];
+
+            const nextD = new Date(d); nextD.setDate(d.getDate() + 1);
+            const nextDateStr = nextD.toISOString().split('T')[0];
 
             if (!openDays.includes(dayOfWeek)) continue;
 
@@ -87,8 +101,7 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
             if (currentServiceConfig.shiftTargets && currentServiceConfig.shiftTargets[dayOfWeek]) {
                 dayTargets = { ...currentServiceConfig.shiftTargets[dayOfWeek] };
             } else {
-                 // Hardcoded logic from scheduler if no specific config
-                 if ([1,3,5].includes(dayOfWeek)) dayTargets['S'] = 2; // Mon/Wed/Fri need 2 S
+                 if ([1,3,5].includes(dayOfWeek)) dayTargets['S'] = 2; // Mon/Wed/Fri need 2 S default
             }
 
             // Check and Fill
@@ -99,23 +112,67 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
                 
                 if (needed > 0) {
                     for(let i=0; i<needed; i++) {
-                         // Create Interim
-                        interimCount++;
-                        const interimId = `INT-${Date.now()}-${interimCount}`;
-                        const interim: Employee = {
-                            id: interimId,
-                            matricule: `INT${String(interimCount).padStart(3,'0')}`,
-                            name: `Intérimaire ${code} #${interimCount}`,
-                            role: 'Intérimaire',
-                            fte: 1,
-                            leaveBalance: 0,
-                            leaveCounters: { CA:0, RTT:0, HS:0, RC:0 },
-                            skills: [code], // Skill matches the needed shift
-                            shifts: {} 
-                        };
-                        // Initialize shifts empty, then set this day
-                        interim.shifts[dateStr] = code as any; 
-                        emps.push(interim);
+                        
+                        // STRATEGY 1: FIND EXISTING CANDIDATE
+                        // Sort by FTE descending (try to give hours to those who need them)
+                        // But also check equity (those with fewest hours/nights)
+                        const candidates = emps.filter(e => {
+                            // Capability check (Role/Skill)
+                            // Simplification: Assume all Infirmiers can do all Nursing shifts
+                            if (e.role !== 'Infirmier' && e.role !== 'Intérimaire') return false;
+                            
+                            // Availability Check (Must be OFF, NT, RH)
+                            const currentShift = e.shifts[dateStr];
+                            if (currentShift && SHIFT_TYPES[currentShift]?.isWork) return false; 
+                            if (['CA', 'MAL', 'AT', 'ABS'].includes(currentShift)) return false; // Absent
+
+                            // SAFETY CHECK 1: Post-Night Rest
+                            // Cannot work if yesterday was S
+                            if (e.shifts[prevDateStr] === 'S') return false;
+
+                            // SAFETY CHECK 2: Pre-Night Rest (for S shift)
+                            // If assigning S today, cannot work tomorrow (unless we force it, but better safe)
+                            if (code === 'S' && e.shifts[nextDateStr] && SHIFT_TYPES[e.shifts[nextDateStr]]?.isWork) return false;
+
+                            // LEGAL CHECK: 48h limit
+                            const hoursToAdd = SHIFT_HOURS[code] || 0;
+                            const hoursLast7 = getHoursLast7Days(e, d, e.shifts);
+                            if ((hoursLast7 + hoursToAdd) > 48) return false;
+
+                            return true;
+                        });
+
+                        // Sort candidates: prioritizing those with fewer hours to balance equity
+                        // This is a simple heuristic.
+                        candidates.sort((a,b) => {
+                            const hoursA = getHoursLast7Days(a, d, a.shifts);
+                            const hoursB = getHoursLast7Days(b, d, b.shifts);
+                            return hoursA - hoursB;
+                        });
+
+                        if (candidates.length > 0) {
+                            // ASSIGN TO EXISTING
+                            const winner = candidates[0];
+                            winner.shifts[dateStr] = code as ShiftCode;
+                            filledCount++;
+                        } else {
+                            // STRATEGY 2: CREATE INTERIM
+                            interimCount++;
+                            const interimId = `INT-${Date.now()}-${interimCount}`;
+                            const interim: Employee = {
+                                id: interimId,
+                                matricule: `INT${String(interimCount).padStart(3,'0')}`,
+                                name: `Intérimaire ${code} #${interimCount}`,
+                                role: 'Intérimaire',
+                                fte: 1,
+                                leaveBalance: 0,
+                                leaveCounters: { CA:0, RTT:0, HS:0, RC:0 },
+                                skills: [code], // Skill matches the needed shift
+                                shifts: {} 
+                            };
+                            interim.shifts[dateStr] = code as any; 
+                            emps.push(interim);
+                        }
                     }
                 }
             }
@@ -125,7 +182,7 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
         const updatedScenario = {
             ...draftScenario,
             employeesSnapshot: emps,
-            description: draftScenario.description + ' ( + Intérimaires ajoutés)',
+            description: draftScenario.description + ` (Optimisé: +${filledCount} titulaires, +${interimCount} intérim)`,
             name: draftScenario.name + ' (Optimisé)'
         };
 
@@ -241,8 +298,8 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
                                 <div className="flex items-center gap-4">
                                     <span className="font-bold text-slate-700 dark:text-slate-200">{draftScenario.name}</span>
                                     <div className="h-4 w-px bg-slate-300 dark:bg-slate-600"></div>
-                                    <button onClick={handleOptimizeInterim} className="text-xs flex items-center gap-1 bg-amber-100 text-amber-800 px-2 py-1 rounded hover:bg-amber-200 transition-colors">
-                                        <Users className="w-3 h-3" /> Combler avec Intérim
+                                    <button onClick={handleSmartOptimize} className="text-xs flex items-center gap-1 bg-amber-100 text-amber-800 px-2 py-1 rounded hover:bg-amber-200 transition-colors">
+                                        <Users className="w-3 h-3" /> Combler (Smart + Intérim)
                                     </button>
                                 </div>
                                 <button onClick={handleApply} className="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm">

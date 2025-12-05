@@ -156,10 +156,14 @@ function App() {
 
   const handleLogin = (role: UserRole, employee?: Employee) => {
       let serviceToSelect = activeServiceId;
-      if (role === 'CADRE' || role === 'CADRE_SUP') {
-          const myAssignment = assignmentsList.find(a => a.employeeId === employee?.id);
+      // If employee belongs to a service, select it by default
+      if (employee) {
+          const myAssignment = assignmentsList.find(a => a.employeeId === employee.id);
           if (myAssignment) serviceToSelect = myAssignment.serviceId;
-          else if (servicesList.length > 0) serviceToSelect = servicesList[0].id;
+          // If manager/cadre with no assignment, maybe default to first service
+          else if (['CADRE', 'CADRE_SUP', 'MANAGER'].includes(role) && servicesList.length > 0) {
+              serviceToSelect = servicesList[0].id;
+          }
       }
       setActiveServiceId(serviceToSelect);
       setCurrentUser({
@@ -168,7 +172,7 @@ function App() {
           name: employee ? employee.name : (role === 'ADMIN' ? 'Administrateur' : 'Directeur / Directrice')
       });
       if (role === 'INFIRMIER' || role === 'AIDE_SOIGNANT') {
-          setActiveTab('leaves');
+          setActiveTab('planning');
       } else {
           setActiveTab('planning');
       }
@@ -337,6 +341,7 @@ function App() {
             }
         } else {
             // GLOBAL VIEW (No service selected): Show everyone
+            // Note: Regular employees should ideally default to their service ID on login, so this case is mostly for Admins/Directors
             assignmentMatch = true;
         }
 
@@ -555,6 +560,11 @@ function App() {
                 <Calendar className="w-5 h-5 flex-shrink-0" /> 
                 {!isSidebarCollapsed && <span>{currentUser.role === 'INFIRMIER' || currentUser.role === 'AIDE_SOIGNANT' ? 'Mon Planning' : 'Planning Global'}</span>}
             </button>
+            <button onClick={() => setActiveTab('cycles')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'cycles' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Cycles & Horaires" : ""}>
+                <CalendarClock className="w-5 h-5 flex-shrink-0" /> 
+                {!isSidebarCollapsed && <span>Cycles & Horaires</span>}
+            </button>
+            
             {/* ... other tabs ... */}
             {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP' || currentUser.role === 'MANAGER') && (
                 <>
@@ -565,10 +575,6 @@ function App() {
                 <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Tableau de bord" : ""}>
                     <LayoutDashboard className="w-5 h-5 flex-shrink-0" /> 
                     {!isSidebarCollapsed && <span>Carnet de Bord</span>}
-                </button>
-                <button onClick={() => setActiveTab('cycles')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'cycles' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Cycles & Horaires" : ""}>
-                    <CalendarClock className="w-5 h-5 flex-shrink-0" /> 
-                    {!isSidebarCollapsed && <span>Cycles & Horaires</span>}
                 </button>
                 <button onClick={() => setActiveTab('attractivity')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'attractivity' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Attractivité" : ""}>
                     <Heart className="w-5 h-5 flex-shrink-0" /> 
@@ -758,7 +764,7 @@ function App() {
 
            {activeTab === 'scenarios' && <ScenarioPlanner employees={filteredEmployees} currentDate={currentDate} service={activeService} onApplySchedule={loadData} />}
            {activeTab === 'dashboard' && <Dashboard employees={filteredEmployees} currentDate={currentDate} serviceConfig={activeService?.config} onNavigateToPlanning={handleViewPlanningWithHighlights} onNavigateToScenarios={() => setActiveTab('scenarios')} onScheduleChange={loadData} />}
-           {activeTab === 'cycles' && <CycleViewer employees={filteredEmployees} />}
+           {activeTab === 'cycles' && <CycleViewer employees={filteredEmployees} currentUser={currentUser} />}
            {activeTab === 'attractivity' && <AttractivityPanel />}
            {activeTab === 'stats' && <StatsPanel employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />}
            {activeTab === 'team' && <TeamManager employees={employees} allSkills={skillsList} currentUser={currentUser} onReload={loadData} />}
