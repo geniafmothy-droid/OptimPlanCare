@@ -170,22 +170,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
   // --- RESOLUTION LOGIC ---
 
   const handleOpenResolution = (v: ConstraintViolation) => {
-      // Logic to find candidates
       const candidates: { emp: Employee, reason: string }[] = [];
       const problemDate = v.date;
       const violator = employees.find(e => e.id === v.employeeId);
       
-      if (!violator) return; // Should not happen
+      if (!violator) return;
 
+      const shiftToSwap = violator.shifts[problemDate];
       const isConsecutiveSaturday = v.message.includes('deux Samedis');
       
-      // Calculate previous saturday date string if needed
-      let prevSaturdayStr = '';
-      if (isConsecutiveSaturday) {
-          const d = new Date(problemDate);
-          d.setDate(d.getDate() - 7);
-          prevSaturdayStr = d.toISOString().split('T')[0];
-      }
+      // Calculate related dates for rule checking
+      const d = new Date(problemDate);
+      
+      const prevD = new Date(d); prevD.setDate(d.getDate() - 1);
+      const prevDateStr = prevD.toISOString().split('T')[0];
+      
+      const nextD = new Date(d); nextD.setDate(d.getDate() + 1);
+      const nextDateStr = nextD.toISOString().split('T')[0];
+
+      const prevSat = new Date(d); prevSat.setDate(d.getDate() - 7);
+      const prevSatStr = prevSat.toISOString().split('T')[0];
 
       // Find candidates
       employees.forEach(candidate => {
@@ -201,20 +205,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
 
           // 3. SPECIAL CHECK: Consecutive Saturday
           if (isConsecutiveSaturday) {
-              const shiftPrevSat = candidate.shifts[prevSaturdayStr];
-              // If candidate worked previous saturday, they are NOT a solution (would just move the problem)
+              const shiftPrevSat = candidate.shifts[prevSatStr];
               if (shiftPrevSat && SHIFT_TYPES[shiftPrevSat]?.isWork) return;
           }
 
-          // 4. Check if swap causes 48h violation (Simplified check)
-          // Ideally we check sliding window, but for MVP we assume if available it's likely OK.
+          // 4. CRITICAL RULE: "Après un poste S, il faut NT ou RH"
+          // Check A: Did candidate work 'S' YESTERDAY? If yes, they cannot work today.
+          if (candidate.shifts[prevDateStr] === 'S') return;
 
-          candidates.push({
-              emp: candidate,
-              reason: isConsecutiveSaturday 
-                  ? "Disponible ce samedi et n'a pas travaillé le précédent."
-                  : "Disponible sur cette date."
-          });
+          // Check B: If we assign them 'S' TODAY (because violator had S), do they work TOMORROW?
+          // If yes, they cannot take the S shift today.
+          if (shiftToSwap === 'S') {
+              const nextShift = candidate.shifts[nextDateStr];
+              if (nextShift && SHIFT_TYPES[nextShift]?.isWork) return;
+          }
+
+          let reason = "Disponible (Repos/NT)";
+          if (candidate.shifts[prevDateStr] !== 'S') reason += " + Pas de S la veille";
+          if (isConsecutiveSaturday) reason = "Disponible + N'a pas fait le Samedi précédent";
+
+          candidates.push({ emp: candidate, reason });
       });
 
       setResolutionModal({ isOpen: true, violation: v, candidates });
@@ -277,7 +287,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
                             {resolutionModal.candidates.length === 0 ? (
                                 <div className="text-center py-4 text-slate-400 italic text-sm border-2 border-dashed border-slate-200 rounded-lg">
                                     Aucun remplaçant compatible trouvé.<br/>
-                                    (Même rôle + Disponible + Pas de conflit)
+                                    (Vérifiez : Rôle, Dispo, Règle "Pas de S la veille")
                                 </div>
                             ) : (
                                 resolutionModal.candidates.map((cand, idx) => (
@@ -302,6 +312,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
                     </div>
                     <div className="bg-slate-50 p-4 text-center text-xs text-slate-500 border-t border-slate-200">
                         L'échange attribuera le poste de travail au remplaçant et mettra l'agent actuel en repos.
+                        <br/><span className="text-indigo-600 font-bold">Le système vérifie les enchaînements (Pas de S la veille).</span>
                     </div>
                 </div>
             </div>
@@ -516,6 +527,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ employees, currentDate, se
                                         <div className="text-xs text-slate-600">{v.message}</div>
                                     </div>
                                     <div className="flex gap-1">
+                                        {/* ADDED RESOLUTION BUTTON FOR CRITICAL ERRORS */}
+                                        {onScheduleChange && v.employeeId !== 'ALL' && (
+                                            <button 
+                                                onClick={() => handleOpenResolution(v)}
+                                                title="Proposer une solution"
+                                                className="p-1.5 bg-red-50 hover:bg-red-200 text-red-600 rounded transition-colors animate-pulse"
+                                            >
+                                                <Lightbulb className="w-4 h-4" />
+                                            </button>
+                                        )}
                                         {/* HIGHLIGHT BUTTON */}
                                         {onNavigateToPlanning && (
                                             <button 
