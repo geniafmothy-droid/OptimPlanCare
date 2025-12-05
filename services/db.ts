@@ -174,6 +174,24 @@ export const deleteSkill = async (id: string) => {
 
 // --- Employees Management ---
 
+// Helper to normalize roles from DB string to strictly typed Role
+const normalizeRole = (rawRole: string): Employee['role'] => {
+    if (!rawRole) return 'Infirmier';
+    const r = rawRole.trim();
+    
+    // Case insensitive matching
+    if (/^infirmier/i.test(r) || /^ide/i.test(r)) return 'Infirmier';
+    if (/^aide[- ]soignant/i.test(r) || /^as/i.test(r) || /^asd/i.test(r)) return 'Aide-Soignant';
+    if (/^cadre/i.test(r)) return 'Cadre';
+    if (/^direct/i.test(r)) return 'Directeur';
+    if (/^manager/i.test(r)) return 'Manager';
+    if (/^int[eé]rim/i.test(r)) return 'Intérimaire';
+    if (/^agent/i.test(r) || /^admin/i.test(r) || /^secr[eé]taire/i.test(r)) return 'Agent Administratif';
+    
+    // Fallback: Capitalize first letter for display
+    return (r.charAt(0).toUpperCase() + r.slice(1)) as any;
+};
+
 export const fetchEmployeesWithShifts = async (): Promise<Employee[]> => {
   const { data: employeesData, error: empError } = await supabase
     .from('employees')
@@ -194,11 +212,13 @@ export const fetchEmployeesWithShifts = async (): Promise<Employee[]> => {
     .order('name');
 
   if (empError) {
-    console.warn("Using mock data due to DB error or empty DB");
-    return MOCK_EMPLOYEES;
+    console.error("DB Fetch Error (Employees):", empError);
+    // Throw error so UI can show a Toast, do NOT fallback to mock data silently
+    throw new Error("Impossible de charger les employés : " + empError.message);
   }
 
-  if (!employeesData || employeesData.length === 0) return MOCK_EMPLOYEES;
+  // If no data, return empty array. The user has requested NO MOCK DATA.
+  if (!employeesData) return [];
 
   return employeesData.map((emp: any) => {
     const shiftsRecord: Record<string, ShiftCode> = {};
@@ -217,7 +237,7 @@ export const fetchEmployeesWithShifts = async (): Promise<Employee[]> => {
       id: emp.id,
       matricule: emp.matricule,
       name: emp.name,
-      role: emp.role,
+      role: normalizeRole(emp.role), // Normalize role
       fte: emp.fte,
       leaveBalance: emp.leave_balance || 0,
       leaveCounters: safeCounters,
@@ -252,7 +272,9 @@ export const saveLeaveRange = async (employeeId: string, startDate: string, endD
     const shiftsToInsert = [];
 
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const dateStr = d.toISOString().split('T')[0];
+        // Construct local string explicitly YYYY-MM-DD to avoid timezone shifting with toISOString()
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        
         const isSunday = d.getDay() === 0;
         const codeToApply = isSunday ? 'RH' : type;
 
@@ -299,13 +321,31 @@ export const updateEmployeeLeaveData = async (employeeId: string, leaveData: any
 
 export const upsertEmployee = async (employee: Employee) => {
   // Correctly merge the updated counters into the leave_data structure
-  const currentLeaveData = employee.leaveData || { counters: {}, history: [] };
+  let currentLeaveData = employee.leaveData || { counters: {}, history: [] };
+  
   // Overwrite counters with the values from the employee object (which are edited in UI)
   if (employee.leaveCounters) {
-      currentLeaveData.counters = employee.leaveCounters;
+      // Helper to clean NaN or undefined values before sending to DB (causes 400 error otherwise)
+      const cleanCounter = (val: any) => {
+          const num = typeof val === 'number' ? val : parseFloat(val);
+          return isNaN(num) ? 0 : num;
+      };
+
+      const safeCounters = {
+          CA: cleanCounter(employee.leaveCounters.CA),
+          RTT: cleanCounter(employee.leaveCounters.RTT),
+          HS: cleanCounter(employee.leaveCounters.HS),
+          RC: cleanCounter(employee.leaveCounters.RC)
+      };
+      
+      currentLeaveData = {
+          ...currentLeaveData,
+          counters: safeCounters
+      };
   }
 
   const payload: any = {
+      id: employee.id, // Explicitly send ID to support Text-based IDs (mock data)
       matricule: employee.matricule,
       name: employee.name,
       role: employee.role,
@@ -315,16 +355,9 @@ export const upsertEmployee = async (employee: Employee) => {
       skills: employee.skills
   };
 
-  let conflictTarget = 'matricule';
-  // Use ID if available and valid UUID (length check is a rough heuristic for UUID vs temp ID)
-  if (employee.id && employee.id.length > 10) {
-      payload.id = employee.id;
-      conflictTarget = 'id';
-  }
-
   const { error } = await supabase
     .from('employees')
-    .upsert(payload, { onConflict: conflictTarget })
+    .upsert(payload, { onConflict: 'id' }) // Upsert based on ID to avoid duplicates
     .select();
     
   if (error) throw new Error(error.message);
@@ -472,24 +505,21 @@ export const bulkImportEmployees = async (employees: Employee[]) => {
 // --- DB-BACKED WORKFLOW MANAGEMENT ---
 
 export const fetchLeaveRequests = async (): Promise<LeaveRequestWorkflow[]> => {
-    // JOIN to get employee name
     const { data, error } = await supabase
         .from('leave_requests')
-        .select(`
-            *,
-            employee:employees(name)
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
 
-    if (error) {
-        // Fallback or empty if table doesn't exist yet
-        return [];
-    }
+    if (error) return [];
+
+    // Fetch names to be safe
+    const { data: allEmps } = await supabase.from('employees').select('id, name');
+    const empMap = new Map(allEmps?.map((e:any) => [e.id, e.name]) || []);
 
     return data.map((r: any) => ({
         id: r.id,
         employeeId: r.employee_id,
-        employeeName: r.employee?.name || 'Inconnu',
+        employeeName: empMap.get(r.employee_id) || 'Inconnu',
         type: r.type,
         startDate: r.start_date,
         endDate: r.end_date,
@@ -499,7 +529,17 @@ export const fetchLeaveRequests = async (): Promise<LeaveRequestWorkflow[]> => {
     }));
 };
 
-export const createLeaveRequest = async (req: Omit<LeaveRequestWorkflow, 'id' | 'createdAt' | 'status'>, initialStatus: LeaveRequestStatus = 'PENDING_CADRE') => {
+export const createLeaveRequest = async (req: Omit<LeaveRequestWorkflow, 'id' | 'createdAt' | 'status'>, initialStatus: LeaveRequestStatus = 'PENDING_CADRE', employeeToAutoCreate?: Employee) => {
+    console.log("Creating Leave Request...", req);
+    
+    if (employeeToAutoCreate) {
+        try {
+            await upsertEmployee(employeeToAutoCreate);
+        } catch (e: any) {
+            console.error("Auto-creation of employee failed:", e);
+        }
+    }
+
     const { data, error } = await supabase
         .from('leave_requests')
         .insert([{
@@ -566,9 +606,7 @@ export const fetchWorkPreferences = async (): Promise<WorkPreference[]> => {
         .from('work_preferences')
         .select('*');
     
-    if (error) {
-        throw new Error(error.message);
-    }
+    if (error) throw new Error(error.message);
 
     return data.map((p: any) => ({
         id: p.id,

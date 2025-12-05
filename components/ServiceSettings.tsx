@@ -10,28 +10,127 @@ interface ServiceSettingsProps {
 }
 
 const SQL_SCHEMA = `
--- 1. SERVICE ASSIGNMENTS
+-- ⚠️ REINITIALISATION COMPLETE (DONNÉES PERDUES)
+DROP TABLE IF EXISTS public.shifts CASCADE;
+DROP TABLE IF EXISTS public.leave_requests CASCADE;
+DROP TABLE IF EXISTS public.work_preferences CASCADE;
+DROP TABLE IF EXISTS public.service_assignments CASCADE;
+DROP TABLE IF EXISTS public.employees CASCADE;
+DROP TABLE IF EXISTS public.services CASCADE;
+DROP TABLE IF EXISTS public.skills CASCADE;
+DROP TABLE IF EXISTS public.notifications CASCADE;
+
+-- 1. TABLES PRINCIPALES (IDs en TEXT pour compatibilité maximale)
+CREATE TABLE IF NOT EXISTS public.services (
+    id text DEFAULT gen_random_uuid()::text NOT NULL PRIMARY KEY,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    name text NOT NULL,
+    config jsonb DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS public.employees (
+    id text NOT NULL PRIMARY KEY, -- TEXT pour supporter 'ide-100-0'
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    matricule text, -- Non unique strict pour éviter blocage import
+    name text NOT NULL,
+    role text NOT NULL,
+    fte numeric DEFAULT 1.0,
+    leave_balance numeric DEFAULT 0,
+    leave_data jsonb DEFAULT '{}'::jsonb,
+    skills text[] DEFAULT '{}'::text[]
+);
+
+-- Note: Suppression des FKs strictes pour éviter les erreurs "Key is not present in table" avec les données mockées
+CREATE TABLE IF NOT EXISTS public.shifts (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    employee_id text NOT NULL, 
+    date date NOT NULL,
+    shift_code text NOT NULL,
+    UNIQUE(employee_id, date)
+);
+
+CREATE TABLE IF NOT EXISTS public.skills (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    code text NOT NULL UNIQUE,
+    label text NOT NULL,
+    default_duration numeric,
+    default_break numeric
+);
+
+-- 2. TABLES FLUX DE TRAVAIL
+CREATE TABLE IF NOT EXISTS public.leave_requests (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    employee_id text NOT NULL,
+    type text NOT NULL,
+    start_date date NOT NULL,
+    end_date date NOT NULL,
+    status text DEFAULT 'PENDING_CADRE',
+    comments text,
+    validation_date timestamp with time zone
+);
+
+CREATE TABLE IF NOT EXISTS public.work_preferences (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    employee_id text NOT NULL,
+    start_date date NOT NULL,
+    end_date date NOT NULL,
+    type text NOT NULL,
+    recurring_days integer[],
+    reason text,
+    status text DEFAULT 'PENDING',
+    rejection_reason text
+);
+
+CREATE TABLE IF NOT EXISTS public.notifications (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    date timestamp with time zone DEFAULT now() NOT NULL,
+    recipient_role text,
+    recipient_id text,
+    title text NOT NULL,
+    message text NOT NULL,
+    is_read boolean DEFAULT false,
+    type text DEFAULT 'info',
+    action_type text,
+    entity_id uuid
+);
+
 CREATE TABLE IF NOT EXISTS public.service_assignments (
     id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    service_id uuid REFERENCES public.services(id) ON DELETE CASCADE,
-    employee_id uuid REFERENCES public.employees(id) ON DELETE CASCADE,
+    service_id text NOT NULL,
+    employee_id text NOT NULL,
     start_date date NOT NULL,
-    end_date date
+    end_date date,
+    UNIQUE(service_id, employee_id, start_date)
 );
-ALTER TABLE ONLY public.service_assignments
-    DROP CONSTRAINT IF EXISTS service_assignments_service_id_employee_id_key;
-ALTER TABLE ONLY public.service_assignments
-    ADD CONSTRAINT service_assignments_service_id_employee_id_key UNIQUE (service_id, employee_id, start_date);
 
--- 2. WORK PREFERENCES FIX (Missing Column)
-ALTER TABLE public.work_preferences 
-ADD COLUMN IF NOT EXISTS recurring_days integer[];
+-- 3. SECURITE (RLS)
+ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all employees" ON public.employees FOR ALL USING (true) WITH CHECK (true);
 
--- 3. WORK PREFERENCES RLS (Security)
+ALTER TABLE public.leave_requests ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all leave_requests" ON public.leave_requests FOR ALL USING (true) WITH CHECK (true);
+
 ALTER TABLE public.work_preferences ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all operations" ON public.work_preferences
-FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all work_preferences" ON public.work_preferences FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all notifications" ON public.notifications FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.service_assignments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all service_assignments" ON public.service_assignments FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.shifts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all shifts" ON public.shifts FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all services" ON public.services FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.skills ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all skills" ON public.skills FOR ALL USING (true) WITH CHECK (true);
 `;
 
 export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) => {
@@ -40,6 +139,7 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) =>
     const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
     const [services, setServices] = useState<Service[]>([]);
     const [isExpanded, setIsExpanded] = useState(true);
+    const [showDbScript, setShowDbScript] = useState(false);
     
     // Creation State
     const [isCreating, setIsCreating] = useState(false);
@@ -278,9 +378,15 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) =>
             <div className={`flex flex-1 overflow-hidden ${!isExpanded && 'hidden'}`}>
                 {/* Sidebar List */}
                 <div className="w-64 border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex flex-col">
-                    <div className="p-4 border-b">
+                    <div className="p-4 border-b space-y-2">
                         <button onClick={() => { setIsCreating(true); setSelectedServiceId(null); }} className="w-full bg-white border border-slate-300 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 shadow-sm hover:bg-slate-50">
                             <Plus className="w-4 h-4" /> Nouveau Service
+                        </button>
+                        <button 
+                            onClick={() => setShowDbScript(true)} 
+                            className="w-full bg-red-50 text-red-600 border border-red-200 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 hover:bg-red-100"
+                        >
+                            <Database className="w-3 h-3" /> Réparer Base
                         </button>
                     </div>
                     <div className="flex-1 overflow-y-auto p-2 space-y-1">
@@ -303,6 +409,33 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) =>
                                 {infoModal.type === 'success' ? <CheckCircle2 className="w-5 h-5"/> : <XCircle className="w-5 h-5"/>}
                                 <span className="font-medium text-sm">{infoModal.message}</span>
                                 <button onClick={() => setInfoModal({...infoModal, open: false})}><X className="w-4 h-4 opacity-50 hover:opacity-100"/></button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* DB SCRIPT MODAL */}
+                    {showDbScript && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-6">
+                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[80vh]">
+                                <div className="p-4 border-b flex justify-between items-center bg-slate-50 rounded-t-xl">
+                                    <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                        <Database className="w-5 h-5 text-red-600"/> Installation / Réparation Base de Données
+                                    </h3>
+                                    <button onClick={() => setShowDbScript(false)}><X className="w-5 h-5 text-slate-400 hover:text-slate-600"/></button>
+                                </div>
+                                <div className="p-6 overflow-y-auto">
+                                    <p className="text-sm text-slate-600 mb-4 bg-yellow-50 p-3 rounded border border-yellow-200">
+                                        <strong>IMPORTANT :</strong> Pour que l'application fonctionne avec les données de démonstration (qui utilisent des identifiants textuels comme "ide-100"), la base de données doit être configurée pour accepter ces formats sans blocage strict.
+                                        <br/><br/>
+                                        Copiez le script ci-dessous et exécutez-le dans l'<strong>Éditeur SQL</strong> de votre projet Supabase.
+                                    </p>
+                                    <pre className="bg-slate-800 text-green-400 p-4 rounded-lg overflow-x-auto text-xs font-mono leading-relaxed select-all border border-slate-700 shadow-inner">
+                                        {SQL_SCHEMA}
+                                    </pre>
+                                </div>
+                                <div className="p-4 border-t bg-slate-50 flex justify-end">
+                                    <button onClick={() => setShowDbScript(false)} className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium">Fermer</button>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -548,12 +681,6 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ onReload }) =>
                                                 </tbody>
                                             </table>
                                         </div>
-                                        {currentMembers.length === 0 && (
-                                            <div className="mt-6 p-4 bg-yellow-50 text-yellow-900 text-xs rounded border border-yellow-200">
-                                                <div className="flex items-center gap-2 font-bold mb-2"><Database className="w-4 h-4" /> Aide Base de Données</div>
-                                                <details><summary className="cursor-pointer font-semibold underline text-yellow-700">Voir le script SQL de création</summary><pre className="bg-slate-800 text-green-400 p-3 rounded mt-2 overflow-x-auto text-[10px] font-mono leading-relaxed">{SQL_SCHEMA}</pre></details>
-                                            </div>
-                                        )}
                                     </div>
                                 )}
                             </div>

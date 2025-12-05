@@ -39,7 +39,8 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
 
   // Define Lists explicitly
   const WORK_CODES: ShiftCode[] = ['IT', 'T5', 'T6', 'S', 'M', 'DP', 'FO'];
-  const ABSENCE_CODES: ShiftCode[] = ['RH', 'CA', 'RTT', 'HS', 'RC', 'NT', 'F'];
+  // Added ETP (Temps Partiel) and F (Férié) to absence tracking
+  const ABSENCE_CODES: ShiftCode[] = ['RH', 'CA', 'RTT', 'HS', 'RC', 'NT', 'F', 'ETP'];
 
   const getTargetClass = (code: ShiftCode, count: number, isWeekend: boolean, dayIndex: number, isHoliday: boolean) => {
       // Règles Dialyse : Pas d'alerte le WE ou Férié sauf pour le Soir (S) si critique

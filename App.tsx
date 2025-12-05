@@ -301,10 +301,10 @@ function App() {
   }, [currentDate, viewMode]);
 
   const filteredEmployees = useMemo(() => {
-      if (currentUser?.role === 'INFIRMIER' || currentUser?.role === 'AIDE_SOIGNANT' || currentUser?.role === 'AGENT_ADMIN') {
-          return employees.filter(e => e.id === currentUser.employeeId);
-      }
-
+      // Pour l'onglet "Congés", on veut peut-être tout voir si on est Admin/Cadre, 
+      // donc on ne filtre par currentUser.id que pour le planning perso.
+      // Ici, filteredEmployees représente "L'ensemble du personnel affiché à l'écran".
+      
       return employees.filter(emp => {
         const roleMatch = selectedRoles.length === 0 || selectedRoles.includes(emp.role);
         const skillMatch = skillFilter === 'all' || emp.skills.includes(skillFilter);
@@ -320,8 +320,15 @@ function App() {
         let assignmentMatch = true;
         if (activeServiceId && assignmentsList.length > 0) {
             const empAssignments = assignmentsList.filter(a => a.employeeId === emp.id && a.serviceId === activeServiceId);
-            if (activeServiceId) {
-                if (empAssignments.length === 0) assignmentMatch = false;
+            
+            if (empAssignments.length === 0) {
+                 assignmentMatch = false;
+                 // FIX: Ensure Cadres/Directors/Managers remain visible if they are not assigned to ANY service
+                 // This prevents them from disappearing when assignments exist for others but not them.
+                 const isAssignedAnywhere = assignmentsList.some(a => a.employeeId === emp.id);
+                 if (!isAssignedAnywhere && ['Cadre', 'Directeur', 'Manager', 'Cadre Supérieur'].includes(emp.role)) {
+                     assignmentMatch = true;
+                 }
             }
         }
 
@@ -452,6 +459,7 @@ function App() {
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
 
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 h-16 flex items-center justify-between px-4 md:px-6 shadow-sm sticky top-0 z-40 no-print">
+        {/* ... Header Content ... */}
         <div className="flex items-center gap-3">
           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-slate-600 dark:text-slate-300 rounded hover:bg-slate-100 dark:hover:bg-slate-700 lg:hidden"><Menu className="w-6 h-6" /></button>
           <div className="bg-blue-600 p-2 rounded-lg"><Calendar className="w-5 h-5 text-white" /></div>
@@ -472,6 +480,7 @@ function App() {
                    </div>
                </div>
            )}
+           {/* ... rest of header ... */}
            <div className="h-6 w-px bg-slate-300 dark:bg-slate-600 mx-1 hidden md:block"></div>
            <div className="flex items-center gap-3">
              <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 text-slate-600 dark:text-yellow-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">
@@ -519,7 +528,7 @@ function App() {
       
       <div className="flex-1 flex overflow-hidden relative">
         <aside className={`fixed lg:static inset-y-0 left-0 z-50 bg-slate-900 text-white border-r border-slate-700 flex flex-col overflow-y-auto transition-all duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'} ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-72'} w-72 no-print lg:shadow-none`}>
-          
+          {/* ... Sidebar Navigation ... */}
           <div className="hidden lg:flex justify-end p-2 border-b border-slate-800">
              <button onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
                  {isSidebarCollapsed ? <ChevronRight className="w-5 h-5"/> : <ChevronLeft className="w-5 h-5"/>}
@@ -657,6 +666,7 @@ function App() {
         <main className="flex-1 overflow-hidden flex flex-col relative bg-slate-50/50 dark:bg-slate-900/50">
            {activeTab === 'planning' && (
              <>
+               {/* Planning specific header and grid */}
                <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-2 flex items-center gap-2 justify-between flex-wrap no-print">
                   <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700 p-1 rounded-lg">
                       <button onClick={() => setViewMode('month')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'month' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Mois</button>
@@ -730,7 +740,7 @@ function App() {
            {activeTab === 'attractivity' && <AttractivityPanel />}
            {activeTab === 'stats' && <StatsPanel employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />}
            {activeTab === 'team' && <TeamManager employees={employees} allSkills={skillsList} currentUser={currentUser} onReload={loadData} />}
-           {activeTab === 'leaves' && <LeaveManager employees={employees} onReload={loadData} currentUser={currentUser} activeServiceId={activeServiceId} assignmentsList={assignmentsList} />}
+           {activeTab === 'leaves' && <LeaveManager employees={employees} filteredEmployees={filteredEmployees} onReload={loadData} currentUser={currentUser} activeServiceId={activeServiceId} assignmentsList={assignmentsList} />}
            {activeTab === 'settings' && (
                <div className="p-6 max-w-6xl mx-auto space-y-8 w-full overflow-y-auto">
                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Paramètres Généraux</h2>
@@ -769,6 +779,7 @@ function App() {
         </div>
       )}
 
+      {/* Hazard, Action Modal... (rest of modals same as original) */}
       {isHazardOpen && <HazardManager isOpen={isHazardOpen} onClose={() => setIsHazardOpen(false)} employees={filteredEmployees} currentDate={currentDate} onResolve={() => { loadData(); setToast({message: 'Aléa résolu', type: 'success'})}} />}
 
       {actionModal && (

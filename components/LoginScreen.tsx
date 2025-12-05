@@ -1,6 +1,4 @@
 
-
-
 import React, { useState } from 'react';
 import { Employee, UserRole } from '../types';
 import { ShieldCheck, User, Users, Activity } from 'lucide-react';
@@ -13,14 +11,19 @@ interface LoginScreenProps {
 export const LoginScreen: React.FC<LoginScreenProps> = ({ employees, onLogin }) => {
     const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
 
-    const infirmiers = employees.filter(e => e.role === 'Infirmier' || e.role === 'Aide-Soignant');
+    const infirmiers = employees.filter(e => 
+        e.role === 'Infirmier' || 
+        e.role === 'Aide-Soignant' || 
+        e.role === 'Intérimaire' || 
+        e.role === 'Agent Administratif'
+    );
     const cadres = employees.filter(e => e.role === 'Cadre' || e.role === 'Manager');
     const directors = employees.filter(e => e.role === 'Directeur');
 
     const getListForRole = () => {
         if (selectedRole === 'CADRE') return cadres;
         if (selectedRole === 'DIRECTOR') return directors;
-        return infirmiers;
+        return infirmiers; // Default bucket for everyone else (Personnel Soignant & Admin)
     };
 
     const list = getListForRole();
@@ -39,7 +42,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ employees, onLogin }) 
                         <p className="text-blue-100">Gestion intelligente des plannings et des congés hospitaliers.</p>
                     </div>
                     <div className="text-xs text-blue-200 mt-8">
-                        Veuillez sélectionner un rôle pour simuler une session utilisateur.
+                        Veuillez sélectionner un rôle pour accéder à l'application.
                     </div>
                 </div>
 
@@ -69,8 +72,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ employees, onLogin }) 
 
                             <button onClick={() => setSelectedRole('INFIRMIER')} className="p-6 border rounded-xl hover:bg-slate-50 hover:border-blue-500 transition-all text-left group">
                                 <Activity className="w-8 h-8 text-green-600 mb-3 group-hover:scale-110 transition-transform" />
-                                <div className="font-bold text-slate-800">Personnel Soignant</div>
-                                <div className="text-xs text-slate-500">IDE / AS</div>
+                                <div className="font-bold text-slate-800">Équipe & Admin</div>
+                                <div className="text-xs text-slate-500">IDE / AS / Agents / Intérim</div>
                             </button>
                         </div>
                     ) : (
@@ -95,7 +98,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ employees, onLogin }) 
                                     </button>
                                 ))}
                                 {list.length === 0 && (
-                                    <div className="text-slate-400 italic">Aucun employé trouvé pour ce rôle. Importez des données ou générez la démo.</div>
+                                    <div className="text-slate-400 italic p-4 text-center border border-dashed rounded-lg">
+                                        Aucun employé trouvé pour cette catégorie en base de données.
+                                    </div>
                                 )}
                             </div>
                         </div>
