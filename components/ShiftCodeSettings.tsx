@@ -2,12 +2,60 @@
 import React, { useState } from 'react';
 import { ShiftDefinition } from '../types';
 import { SHIFT_TYPES } from '../constants';
-import { Palette, Edit2, ChevronDown, ChevronUp, Clock, AlertTriangle } from 'lucide-react';
+import { Palette, Edit2, ChevronDown, ChevronUp, Clock, AlertTriangle, X, Check, Trash2, Save } from 'lucide-react';
 
 export const ShiftCodeSettings: React.FC = () => {
     const [isExpanded, setIsExpanded] = useState(true);
-    // Convert const object to array for display (Read-Only in this demo context)
-    const codes = Object.values(SHIFT_TYPES);
+    // Local state for UI demo purposes (since constant file is read-only in browser)
+    const [codes, setCodes] = useState<ShiftDefinition[]>(Object.values(SHIFT_TYPES));
+    
+    // Edit Modal State
+    const [editingCode, setEditingCode] = useState<ShiftDefinition | null>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+
+    // Form fields
+    const [formLabel, setFormLabel] = useState('');
+    const [formDesc, setFormDesc] = useState('');
+    const [formColor, setFormColor] = useState('');
+    const [formDuration, setFormDuration] = useState(0);
+    const [formStart, setFormStart] = useState(0);
+    const [formEnd, setFormEnd] = useState(0);
+
+    const handleEditClick = (def: ShiftDefinition) => {
+        setEditingCode(def);
+        setFormLabel(def.label);
+        setFormDesc(def.description);
+        setFormColor(def.color);
+        setFormDuration(def.duration || 0);
+        setFormStart(def.startHour || 0);
+        setFormEnd(def.endHour || 0);
+        setIsModalOpen(true);
+    };
+
+    const handleSave = () => {
+        if (!editingCode) return;
+        
+        // Update local list
+        setCodes(prev => prev.map(c => c.code === editingCode.code ? {
+            ...c,
+            label: formLabel,
+            description: formDesc,
+            color: formColor,
+            duration: formDuration,
+            startHour: formStart,
+            endHour: formEnd
+        } : c));
+
+        setIsModalOpen(false);
+        setEditingCode(null);
+        alert("Modifications enregistrées (Simulation UI). Dans une app réelle, cela mettrait à jour la base de données.");
+    };
+
+    const handleDelete = (code: string) => {
+        if (confirm(`Êtes-vous sûr de vouloir supprimer le code "${code}" ?\nAttention : Cela peut impacter l'historique des plannings.`)) {
+            setCodes(prev => prev.filter(c => c.code !== code));
+        }
+    };
 
     return (
         <div className={`bg-white rounded-xl shadow border border-slate-200 overflow-hidden flex flex-col transition-all ${isExpanded ? 'max-h-[800px]' : 'h-16'}`}>
@@ -33,12 +81,12 @@ export const ShiftCodeSettings: React.FC = () => {
                             <th className="px-6 py-3">Libellé & Description</th>
                             <th className="px-6 py-3">Type</th>
                             <th className="px-6 py-3">Horaires</th>
-                            <th className="px-6 py-3 w-20 text-right">Action</th>
+                            <th className="px-6 py-3 w-24 text-right">Action</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                         {codes.map(def => (
-                            <tr key={def.code} className="hover:bg-slate-50 transition-colors">
+                            <tr key={def.code} className="hover:bg-slate-50 transition-colors group">
                                 <td className="px-6 py-4 text-center">
                                     <div className={`w-10 h-8 flex items-center justify-center rounded font-bold text-xs shadow-sm ${def.color} ${def.textColor}`}>
                                         {def.code}
@@ -66,15 +114,84 @@ export const ShiftCodeSettings: React.FC = () => {
                                     )}
                                 </td>
                                 <td className="px-6 py-4 text-right">
-                                    <button className="p-1.5 hover:bg-slate-100 rounded text-slate-400 hover:text-blue-600 transition-colors">
-                                        <Edit2 className="w-4 h-4" />
-                                    </button>
+                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button 
+                                            onClick={() => handleEditClick(def)}
+                                            className="p-1.5 hover:bg-slate-100 rounded text-slate-400 hover:text-blue-600 transition-colors"
+                                            title="Modifier"
+                                        >
+                                            <Edit2 className="w-4 h-4" />
+                                        </button>
+                                        <button 
+                                            onClick={() => handleDelete(def.code)}
+                                            className="p-1.5 hover:bg-red-50 rounded text-slate-400 hover:text-red-600 transition-colors"
+                                            title="Supprimer"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
             </div>
+
+            {/* MODAL EDIT */}
+            {isModalOpen && editingCode && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4">
+                            <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                                <Edit2 className="w-5 h-5 text-blue-600"/> Modifier : {editingCode.code}
+                            </h3>
+                            <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                                <X className="w-5 h-5"/>
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Libellé</label>
+                                <input type="text" value={formLabel} onChange={e => setFormLabel(e.target.value)} className="w-full p-2 border rounded"/>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Description</label>
+                                <input type="text" value={formDesc} onChange={e => setFormDesc(e.target.value)} className="w-full p-2 border rounded"/>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Classe CSS Couleur (Tailwind)</label>
+                                <input type="text" value={formColor} onChange={e => setFormColor(e.target.value)} className="w-full p-2 border rounded font-mono text-xs"/>
+                            </div>
+                            
+                            {editingCode.isWork && (
+                                <div className="grid grid-cols-3 gap-3 bg-slate-50 p-3 rounded border border-slate-200">
+                                    <div className="col-span-3 text-xs font-bold text-blue-600 mb-1">Paramètres Horaires</div>
+                                    <div>
+                                        <label className="block text-[10px] uppercase text-slate-500">Durée (h)</label>
+                                        <input type="number" step="0.5" value={formDuration} onChange={e => setFormDuration(parseFloat(e.target.value))} className="w-full p-1 border rounded"/>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] uppercase text-slate-500">Début (h)</label>
+                                        <input type="number" step="0.5" value={formStart} onChange={e => setFormStart(parseFloat(e.target.value))} className="w-full p-1 border rounded"/>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] uppercase text-slate-500">Fin (h)</label>
+                                        <input type="number" step="0.5" value={formEnd} onChange={e => setFormEnd(parseFloat(e.target.value))} className="w-full p-1 border rounded"/>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
+                            <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded text-sm">Annuler</button>
+                            <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded text-sm font-medium flex items-center gap-2">
+                                <Save className="w-4 h-4"/> Enregistrer
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

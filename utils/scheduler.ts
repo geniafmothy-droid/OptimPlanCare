@@ -75,7 +75,8 @@ export const generateMonthlySchedule = async (
   const endDate = new Date(year, month + 1, 0); 
   const numDays = endDate.getDate();
 
-  const LOCKED_CODES = ['CA', 'FO', 'RC', 'HS', 'F', 'RTT', 'CSS', 'PATER', 'MALADIE'];
+  // Ajout de 'MAL' (Maladie) et autres codes d'absences strictes pour préservation
+  const LOCKED_CODES = ['CA', 'FO', 'RC', 'HS', 'F', 'RTT', 'CSS', 'PATER', 'MALADIE', 'MAL', 'AT', 'ABS'];
 
   // Stats for equity balancing
   const equityStats: Record<string, { Mondays: number, Saturdays: number, Nights: number, TotalHours: number }> = {};
