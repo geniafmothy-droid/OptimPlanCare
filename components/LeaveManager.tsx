@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Employee, ShiftCode, LeaveRequestWorkflow, UserRole, ServiceAssignment, WorkPreference, LeaveRequestStatus, ServiceConfig } from '../types';
-import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, Trash2, Save, Send, XCircle, Check, AlertOctagon, Edit2, X, Heart, FolderClock, ChevronDown, Clock, Database, Lock, Moon, Sun, Coffee, List, Eye, CalendarDays, Download, ShieldCheck } from 'lucide-react';
+import { Calendar, Upload, CheckCircle2, AlertTriangle, History, Settings, LayoutGrid, Filter, ChevronLeft, ChevronRight, Trash2, Save, Send, XCircle, Check, AlertOctagon, Edit2, X, Heart, FolderClock, ChevronDown, Clock, Database, Lock, Moon, Sun, Coffee, List, Eye, CalendarDays, Download, ShieldCheck, User } from 'lucide-react';
 import * as db from '../services/db';
 import { SHIFT_TYPES } from '../constants';
 import { LeaveCalendar } from './LeaveCalendar';
@@ -124,14 +124,16 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         // ADMIN sees all
         if (currentUser.role === 'ADMIN') return true;
         
-        // If user is not assigned to any service, strictly show nothing (or fallback to all if desired, but strict is safer)
-        if (userServiceIds.length === 0) return false;
+        // RELAXED SECURITY: If the current user has NO assignments (e.g. Floating Manager or New Install), 
+        // allow seeing everyone. Otherwise, strict filtering returns empty tables.
+        if (userServiceIds.length === 0) return true;
 
         const empServiceIds = assignmentsList
             .filter(a => a.employeeId === empId)
             .map(a => a.serviceId);
         
-        // Check for intersection
+        // If the target employee has NO service, they might be visible to global managers?
+        // For now, strict intersection if services exist.
         return empServiceIds.some(id => userServiceIds.includes(id));
     };
 
@@ -152,31 +154,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
     const pendingRequests = useMemo(() => {
         return requests.filter(r => r.status.startsWith('PENDING') && isEmployeeInScope(r.employeeId));
     }, [requests, userServiceIds]);
-
-    // --- CONTEXT PENDING REQUESTS ---
-    const contextPendingRequests = useMemo(() => {
-        return requests.filter(r => r.status.startsWith('PENDING') && r.id !== selectedRequest?.id && isEmployeeInScope(r.employeeId));
-    }, [requests, selectedRequest, userServiceIds]);
-
-    // --- SIMULATION LOGIC ---
-    const employeesWithSimulation = useMemo(() => {
-        if (!selectedRequest) return viewableEmployees;
-
-        return viewableEmployees.map(emp => {
-            if (emp.id === selectedRequest.employeeId) {
-                const newShifts = { ...emp.shifts };
-                const start = new Date(selectedRequest.startDate);
-                const end = new Date(selectedRequest.endDate);
-                for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-                    const dStr = d.toISOString().split('T')[0];
-                    newShifts[dStr] = selectedRequest.type;
-                }
-                return { ...emp, shifts: newShifts };
-            }
-            return emp;
-        });
-    }, [viewableEmployees, selectedRequest]);
-
 
     // --- CONFLICT CHECK LOGIC ---
     const checkConflicts = (start: string, end: string, type: string) => {
@@ -678,6 +655,10 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
     const isManager = ['ADMIN', 'DIRECTOR', 'CADRE', 'CADRE_SUP'].includes(currentUser.role);
     const canAccessForecast = isManager; 
 
+    // Define variables used in Validation View (Context Calendar)
+    const employeesWithSimulation = viewableEmployees;
+    const contextPendingRequests = pendingRequests;
+
     return (
         <div className="p-4 md:p-8 max-w-7xl mx-auto h-full flex flex-col relative">
             
@@ -1049,7 +1030,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                 {/* --- DESIDERATA SUMMARY --- */}
                 {mode === 'desiderata_summary' && (
                     <div className="flex flex-col h-full">
-                        {/* Copy existing Desiderata Summary render */}
                         <div className="flex justify-between items-center mb-6">
                             <div>
                                 <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
@@ -1157,4 +1137,174 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
 
                                              return (
                                                  <div 
-                               
+                                                     key={req.id} 
+                                                     onClick={() => handleSelectRequestForComparison(req)}
+                                                     className={`p-3 rounded-lg border mb-2 cursor-pointer transition-all ${
+                                                         selectedRequest?.id === req.id 
+                                                         ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-300 dark:bg-blue-900/20 dark:border-blue-600' 
+                                                         : 'bg-white border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:hover:bg-slate-700'
+                                                     }`}
+                                                 >
+                                                     <div className="flex justify-between">
+                                                         <div className="font-bold text-slate-800 dark:text-white text-sm">{req.employeeName}</div>
+                                                         <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded dark:bg-blue-900/40 dark:text-blue-300">{req.type}</span>
+                                                     </div>
+                                                     <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                                         {new Date(req.startDate).toLocaleDateString()} au {new Date(req.endDate).toLocaleDateString()}
+                                                     </div>
+                                                     <div className="flex justify-between items-center mt-2">
+                                                         <div className="text-xs text-slate-400">
+                                                             {effectiveDays}j • {new Date(req.createdAt).toLocaleDateString()}
+                                                         </div>
+                                                         <div className="flex gap-2">
+                                                             <button onClick={(e) => { e.stopPropagation(); openValidationModal(req, true); }} className="p-1 text-green-600 hover:bg-green-100 rounded dark:hover:bg-green-900/30"><CheckCircle2 className="w-4 h-4"/></button>
+                                                             <button onClick={(e) => { e.stopPropagation(); openValidationModal(req, false); }} className="p-1 text-red-600 hover:bg-red-100 rounded dark:hover:bg-red-900/30"><XCircle className="w-4 h-4"/></button>
+                                                         </div>
+                                                     </div>
+                                                     {hasN1Overlap && (
+                                                         <div className="mt-1 text-[10px] text-orange-600 bg-orange-50 px-1 py-0.5 rounded flex items-center gap-1">
+                                                             <History className="w-3 h-3"/> Mêmes dates l'an dernier !
+                                                         </div>
+                                                     )}
+                                                 </div>
+                                             );
+                                         })
+                                     )}
+                                 </div>
+                             </div>
+
+                             {/* --- DESIDERATA VALIDATION SECTION --- */}
+                             <div className="flex-shrink-0 mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+                                 <h3 className="font-bold text-lg mb-2 text-slate-800 dark:text-white">
+                                     Souhaits à valider
+                                 </h3>
+                                 <div className="overflow-y-auto max-h-[30vh] pr-1">
+                                     {prefsToValidate.length === 0 ? (
+                                         <p className="text-slate-400 text-sm italic">Aucun souhait en attente.</p>
+                                     ) : (
+                                         prefsToValidate.map(pref => {
+                                             const empName = viewableEmployees.find(e => e.id === pref.employeeId)?.name || 'Inconnu';
+                                             return (
+                                                 <div key={pref.id} className="p-3 rounded-lg border mb-2 bg-purple-50 border-purple-100 dark:bg-purple-900/10 dark:border-purple-800">
+                                                     <div className="flex justify-between items-start">
+                                                         <div>
+                                                             <div className="font-bold text-sm text-purple-900 dark:text-purple-300">{empName}</div>
+                                                             <div className="text-xs text-purple-700 dark:text-purple-400 font-medium">{getPrefLabel(pref.type)}</div>
+                                                             <div className="text-[10px] text-purple-600 dark:text-purple-500 mt-0.5">
+                                                                 {new Date(pref.startDate).toLocaleDateString()} ➜ {new Date(pref.endDate).toLocaleDateString()}
+                                                             </div>
+                                                             {pref.reason && <div className="text-[10px] italic text-slate-500 mt-1">"{pref.reason}"</div>}
+                                                         </div>
+                                                         <div className="flex gap-2">
+                                                             <button onClick={() => openDesiderataValidationModal(pref, true)} className="p-1 text-green-600 hover:bg-green-100 rounded dark:hover:bg-green-900/30"><CheckCircle2 className="w-4 h-4"/></button>
+                                                             <button onClick={() => openDesiderataValidationModal(pref, false)} className="p-1 text-red-600 hover:bg-red-100 rounded dark:hover:bg-red-900/30"><XCircle className="w-4 h-4"/></button>
+                                                         </div>
+                                                     </div>
+                                                 </div>
+                                             );
+                                         })
+                                     )}
+                                 </div>
+                             </div>
+                         </div>
+
+                         {/* RIGHT COLUMN: CALENDAR CONTEXT */}
+                         <div className="lg:w-2/3 flex flex-col h-full overflow-hidden bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                             {selectedRequest ? (
+                                 <div className="flex flex-col h-full">
+                                     <div className="p-3 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex justify-between items-center">
+                                         <h4 className="font-bold text-slate-700 dark:text-slate-200">
+                                             Analyse d'Impact : {selectedRequest.employeeName}
+                                         </h4>
+                                         <div className="text-xs text-slate-500">
+                                             Période demandée : {new Date(selectedRequest.startDate).toLocaleDateString()} - {new Date(selectedRequest.endDate).toLocaleDateString()}
+                                         </div>
+                                     </div>
+                                     
+                                     <div className="flex-1 overflow-hidden p-2">
+                                         <LeaveCalendar 
+                                             employees={employeesWithSimulation}
+                                             startDate={new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1)}
+                                             days={getCalendarDays()}
+                                             pendingRequests={contextPendingRequests}
+                                             serviceConfig={serviceConfig}
+                                         />
+                                     </div>
+                                     
+                                     <div className="p-3 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700">
+                                         <div className="flex gap-4 text-xs text-slate-500">
+                                             <div className="flex items-center gap-1">
+                                                 <div className="w-3 h-3 bg-blue-50 border border-blue-400 border-dashed rounded-sm"></div> Demande actuelle (Simulée)
+                                             </div>
+                                             <div className="flex items-center gap-1">
+                                                 <div className="w-3 h-3 bg-blue-50 border border-blue-400 border-dashed opacity-50 rounded-sm"></div> Autres demandes en attente
+                                             </div>
+                                         </div>
+                                     </div>
+                                 </div>
+                             ) : (
+                                 <div className="flex items-center justify-center h-full text-slate-400 flex-col gap-2">
+                                     <LayoutGrid className="w-12 h-12 opacity-20" />
+                                     <p>Sélectionnez une demande à gauche pour analyser l'impact sur le planning.</p>
+                                 </div>
+                             )}
+                         </div>
+                    </div>
+                )}
+
+                {/* --- CALENDAR (GLOBAL VIEW) --- */}
+                {mode === 'calendar' && (
+                    <div className="h-full flex flex-col">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                                <Calendar className="w-5 h-5"/> Planning Global (Absences Validées)
+                            </h3>
+                            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-700 p-1 rounded-lg border border-slate-200 dark:border-slate-600">
+                                <button onClick={() => navigateCalendar('prev')} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600"><ChevronLeft className="w-4 h-4 text-slate-600 dark:text-slate-300"/></button>
+                                <span className="text-sm font-bold text-slate-700 dark:text-slate-200 px-2 capitalize">{calendarDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</span>
+                                <button onClick={() => navigateCalendar('next')} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600"><ChevronRight className="w-4 h-4 text-slate-600 dark:text-slate-300"/></button>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-hidden border rounded-lg bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
+                            <LeaveCalendar 
+                                employees={viewableEmployees}
+                                startDate={new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1)}
+                                days={getCalendarDays()}
+                                preferences={getPreferencesForMonth(calendarDate.getFullYear(), calendarDate.getMonth())}
+                                serviceConfig={serviceConfig}
+                            />
+                        </div>
+                    </div>
+                )}
+
+                {/* --- FORECAST (PREVISIONNEL) --- */}
+                {mode === 'forecast' && (
+                    <div className="h-full flex flex-col">
+                        <div className="flex justify-between items-center mb-4">
+                            <div>
+                                <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                                    <FolderClock className="w-5 h-5 text-orange-500"/> Planning Prévisionnel
+                                </h3>
+                                <p className="text-xs text-slate-500">Inclut les demandes en attente (hachurées) pour anticiper la charge.</p>
+                            </div>
+                            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-700 p-1 rounded-lg border border-slate-200 dark:border-slate-600">
+                                <button onClick={() => navigateCalendar('prev')} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600"><ChevronLeft className="w-4 h-4 text-slate-600 dark:text-slate-300"/></button>
+                                <span className="text-sm font-bold text-slate-700 dark:text-slate-200 px-2 capitalize">{calendarDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</span>
+                                <button onClick={() => navigateCalendar('next')} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600"><ChevronRight className="w-4 h-4 text-slate-600 dark:text-slate-300"/></button>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-hidden border rounded-lg bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
+                            <LeaveCalendar 
+                                employees={viewableEmployees}
+                                startDate={new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1)}
+                                days={getCalendarDays()}
+                                pendingRequests={pendingRequests}
+                                serviceConfig={serviceConfig}
+                            />
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};

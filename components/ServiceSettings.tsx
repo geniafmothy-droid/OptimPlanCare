@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Service, Skill, SkillRequirement, Employee, ServiceAssignment } from '../types';
-import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X, Search, UserPlus, UserMinus, ArrowRight } from 'lucide-react';
+import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X, Search, UserPlus, UserMinus, ArrowRight, Filter } from 'lucide-react';
 import * as db from '../services/db';
 
 interface ServiceSettingsProps {
@@ -30,6 +30,7 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
     
     // Member Management State
     const [memberSearch, setMemberSearch] = useState('');
+    const [showAllEmployees, setShowAllEmployees] = useState(false); // Default: Show only members
     const [assignmentModal, setAssignmentModal] = useState<{ isOpen: boolean, employee: Employee | null, currentAssignment: ServiceAssignment | null }>({ isOpen: false, employee: null, currentAssignment: null });
     const [assignStartDate, setAssignStartDate] = useState('');
     const [assignEndDate, setAssignEndDate] = useState('');
@@ -75,9 +76,13 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
         setSelectedServiceId(s.id);
         if (fullReset) {
             setEditName(s.name);
-            // Deep copy config
-            setConfig(JSON.parse(JSON.stringify(s.config || { openDays: [], requiredSkills: [], shiftTargets: {} })));
+            // Deep copy config with defaults to prevent undefined properties
+            const defaults = { openDays: [1,2,3,4,5,6], requiredSkills: [], shiftTargets: {} };
+            const merged = { ...defaults, ...(s.config || {}) };
+            
+            setConfig(JSON.parse(JSON.stringify(merged)));
             setNotification(null);
+            setShowAllEmployees(false); // Reset filter to show only members on switch
         }
     };
 
@@ -263,10 +268,16 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
 
     const selectedService = services.find(s => s.id === selectedServiceId);
     
-    // Filter employees for member tab
+    // Filter employees based on search AND assignment status (unless showAll is true)
     const filteredEmployees = allEmployees.filter(emp => {
         const search = memberSearch.toLowerCase();
-        return emp.name.toLowerCase().includes(search) || emp.matricule.toLowerCase().includes(search);
+        const matchesSearch = emp.name.toLowerCase().includes(search) || emp.matricule.toLowerCase().includes(search);
+        const isAssigned = allAssignments.some(a => a.employeeId === emp.id && a.serviceId === selectedServiceId);
+
+        if (showAllEmployees) {
+            return matchesSearch;
+        }
+        return matchesSearch && isAssigned;
     });
 
     const activeMembersCount = allAssignments.filter(a => a.serviceId === selectedServiceId).length;
@@ -628,16 +639,25 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                             <div className="text-xs text-slate-500">{activeMembersCount} actifs</div>
                                         </div>
                                         
-                                        {/* SEARCH BAR */}
-                                        <div className="relative">
-                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                                            <input 
-                                                type="text" 
-                                                placeholder="Rechercher un membre par nom ou matricule..." 
-                                                value={memberSearch}
-                                                onChange={(e) => setMemberSearch(e.target.value)}
-                                                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                                            />
+                                        {/* SEARCH BAR & FILTER */}
+                                        <div className="flex flex-col sm:flex-row gap-3">
+                                            <div className="relative flex-1">
+                                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="Rechercher un membre par nom ou matricule..." 
+                                                    value={memberSearch}
+                                                    onChange={(e) => setMemberSearch(e.target.value)}
+                                                    className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                                />
+                                            </div>
+                                            <button 
+                                                onClick={() => setShowAllEmployees(!showAllEmployees)}
+                                                className={`px-3 py-2 rounded-lg text-xs font-medium border flex items-center gap-2 transition-colors whitespace-nowrap ${showAllEmployees ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
+                                            >
+                                                {showAllEmployees ? <UserMinus className="w-4 h-4"/> : <UserPlus className="w-4 h-4"/>}
+                                                {showAllEmployees ? 'Voir Membres Uniquement' : 'Ajouter / Voir Tout'}
+                                            </button>
                                         </div>
                                     </div>
                                     
@@ -682,7 +702,9 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                                 );
                                             })}
                                             {filteredEmployees.length === 0 && (
-                                                <div className="col-span-full text-center py-8 text-slate-400 italic">Aucun employé trouvé.</div>
+                                                <div className="col-span-full text-center py-8 text-slate-400 italic">
+                                                    {showAllEmployees ? "Aucun employé trouvé." : "Aucun membre affecté. Cliquez sur 'Ajouter / Voir Tout' pour ajouter des membres."}
+                                                </div>
                                             )}
                                         </div>
                                     </div>

@@ -24,7 +24,10 @@ export const checkConstraints = (
         const dayOfWeek = getDayOfWeek(d); // 0=Sun, 1=Mon...
 
         // Check if service is open
-        const isOpen = serviceConfig ? serviceConfig.openDays.includes(dayOfWeek) : dayOfWeek !== 0;
+        // FIX: Safely check for openDays existence
+        const isOpen = (serviceConfig && Array.isArray(serviceConfig.openDays)) 
+            ? serviceConfig.openDays.includes(dayOfWeek) 
+            : dayOfWeek !== 0;
 
         // Si le service est FERMÉ ce jour-là
         if (!isOpen) {
