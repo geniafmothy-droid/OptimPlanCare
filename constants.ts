@@ -1,5 +1,5 @@
 
-import { ShiftDefinition, Employee, ShiftCode } from './types';
+import { ShiftDefinition, Employee, ShiftCode, ValidationRule } from './types';
 
 // Updated with Duration and Break
 export const SHIFT_TYPES: Record<ShiftCode, ShiftDefinition> = {
@@ -74,6 +74,15 @@ export const SHIFT_HOURS: Record<string, number> = {};
 Object.values(SHIFT_TYPES).forEach(s => {
     SHIFT_HOURS[s.code] = Math.max(0, (s.duration || 0) - (s.breakDuration || 0));
 });
+
+export const DEFAULT_RULES: ValidationRule[] = [
+    { id: '1', code: 'MAX_48H', label: 'Max 48h / 7 jours', description: 'Respect légal strict de la durée maximale.', isActive: true, priority: 'HIGH', category: 'LEGAL' },
+    { id: '2', code: 'POST_NIGHT_REST', label: 'Repos Post-Nuit', description: 'Pas de travail le lendemain d\'un poste de Nuit (S).', isActive: true, priority: 'HIGH', category: 'LEGAL' },
+    { id: '3', code: 'SAT_ROTATION', label: 'Rotation Samedi (1/2)', description: 'Maximum un samedi travaillé sur deux.', isActive: true, priority: 'MEDIUM', category: 'EQUITY' },
+    { id: '4', code: 'FTE_DIALYSE', label: 'Quotité Dialyse', description: 'Respect des jours travaillés selon quotité (80% : 2-3j, 100% : 3-4j).', isActive: true, priority: 'MEDIUM', category: 'SERVICE' },
+    { id: '5', code: 'STAFFING_IT', label: 'Effectif IT (4)', description: 'Minimum 4 IT présents.', isActive: true, priority: 'HIGH', category: 'SERVICE' },
+    { id: '6', code: 'STAFFING_S', label: 'Effectif Soir (2)', description: 'Minimum 2 S les Lun/Mer/Ven.', isActive: true, priority: 'HIGH', category: 'SERVICE' },
+];
 
 // DIALYSIS TEAM GENERATION
 // 16 IDEs: 7 @ 80%, 9 @ 100%

@@ -1,10 +1,22 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import { Heart, TrendingUp, Users, Smile, Frown, Meh, Award } from 'lucide-react';
+import * as db from '../services/db';
 
 export const AttractivityPanel: React.FC = () => {
-    // MOCK DATA for Demo
+    // State for Real Data
+    const [realStats, setRealStats] = useState<{satisfaction: number, workload: number, balance: number, count: number} | null>(null);
+
+    useEffect(() => {
+        const loadStats = async () => {
+            const stats = await db.fetchSurveyStats();
+            if (stats.count > 0) setRealStats(stats);
+        };
+        loadStats();
+    }, []);
+
+    // MOCK DATA for Demo (Fallback)
     const surveyData = [
         { period: 'M+1', satisfaction: 65, workload: 70, balance: 60 },
         { period: 'M+3', satisfaction: 72, workload: 75, balance: 68 },
@@ -16,17 +28,25 @@ export const AttractivityPanel: React.FC = () => {
         { subject: 'Respect Planning', A: 90, fullMark: 100 },
         { subject: 'Équité W-E', A: 85, fullMark: 100 },
         { subject: 'Absence Imprévue', A: 60, fullMark: 100 },
-        { subject: 'Satisfaction', A: 80, fullMark: 100 },
+        { subject: 'Satisfaction', A: realStats ? realStats.satisfaction : 80, fullMark: 100 },
         { subject: 'Stabilité', A: 95, fullMark: 100 },
     ];
 
-    const globalScore = 82; // Calculated Mock
+    // Use real satisfaction score if available, else mock
+    const globalScore = realStats ? Math.round((realStats.satisfaction + realStats.balance + (100 - realStats.workload)) / 3) : 82;
 
     return (
         <div className="p-6 h-full overflow-y-auto">
             <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2 mb-6">
                 <Heart className="w-6 h-6 text-pink-600" /> Attractivité, Fidélisation & QVT
             </h2>
+
+            {realStats && (
+                <div className="mb-6 bg-purple-50 text-purple-900 px-4 py-2 rounded-lg border border-purple-200 text-sm flex items-center justify-between">
+                    <span className="font-medium">Données réelles (QVT Flash)</span>
+                    <span className="bg-purple-200 px-2 py-1 rounded text-xs font-bold">{realStats.count} Réponses</span>
+                </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 {/* Score Card */}
@@ -74,7 +94,7 @@ export const AttractivityPanel: React.FC = () => {
                     <div className="flex gap-4 items-center justify-center h-full pb-6">
                         <div className="text-center">
                             <Smile className="w-10 h-10 text-green-500 mx-auto mb-1" />
-                            <div className="font-bold text-xl">65%</div>
+                            <div className="font-bold text-xl">{realStats ? realStats.satisfaction : 65}%</div>
                             <div className="text-xs text-slate-500">Satisfaits</div>
                         </div>
                         <div className="text-center">

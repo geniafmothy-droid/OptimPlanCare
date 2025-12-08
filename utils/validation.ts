@@ -112,7 +112,6 @@ export const checkConstraints = (
     employees.forEach(emp => {
       
       // A. S -> Work pattern (Forbidden)
-      // Updated logic: Check if next day is WORK. If it is Absence (CA, RTT, F...) or Rest, it is Valid.
       for (let i = 0; i < days - 1; i++) {
         const d = new Date(startDate);
         d.setDate(d.getDate() + i);
@@ -124,7 +123,6 @@ export const checkConstraints = (
 
         if (emp.shifts[dateStr] === 'S') {
             const nextCode = emp.shifts[nextDateStr];
-            
             // If there is a code assigned next day AND it is defined as WORK
             if (nextCode && SHIFT_TYPES[nextCode]?.isWork) {
                 list.push({
@@ -132,7 +130,8 @@ export const checkConstraints = (
                     date: nextDateStr,
                     type: 'INVALID_ROTATION',
                     message: `${emp.name}: Enchaînement Soir (S) -> Travail interdit (Repos ou Absence requis)`,
-                    severity: 'error'
+                    severity: 'error',
+                    priority: 'HIGH'
                 });
             }
         }
@@ -202,7 +201,6 @@ export const checkConstraints = (
                   const prevSatStr = `${prevSat.getFullYear()}-${String(prevSat.getMonth() + 1).padStart(2, '0')}-${String(prevSat.getDate()).padStart(2, '0')}`;
                   const prevCode = emp.shifts[prevSatStr];
 
-                  // Only check if previous Saturday is within our known data (shifts object)
                   if (prevCode && SHIFT_TYPES[prevCode]?.isWork) {
                      list.push({
                         employeeId: emp.id,
@@ -217,7 +215,78 @@ export const checkConstraints = (
          }
       }
 
+      // D. SPECIAL FTE RULE (Dialysis)
+      // 80% FTE => 2 to 3 days worked (Mon-Sat)
+      // 100% FTE => 3 to 4 days worked (Mon-Sat)
+      // We iterate by chunks of weeks (Mon-Sun) within the visible range
+      
+      // Align to first Monday of the current range for analysis
+      const analysisStart = new Date(startDate);
+      const startDay = analysisStart.getDay();
+      const diffToMon = startDay === 0 ? -6 : 1 - startDay; // Adjust to Monday
+      analysisStart.setDate(analysisStart.getDate() + diffToMon);
+
+      // Analyze for 4 weeks ahead from start
+      for (let w = 0; w < Math.ceil(days / 7); w++) {
+          const weekStart = new Date(analysisStart);
+          weekStart.setDate(weekStart.getDate() + (w * 7));
+          
+          // Count worked days Mon-Sat (exclude Sun)
+          let daysWorkedCount = 0;
+          let hasSundayWork = false;
+
+          for (let d = 0; d < 7; d++) {
+              const current = new Date(weekStart);
+              current.setDate(weekStart.getDate() + d);
+              const dateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+              const shift = emp.shifts[dateStr];
+              
+              // Only count if within the visible range requested to avoid false positives at edges
+              // (Optional: remove this check if we want strict enforcement even on partial views)
+              
+              if (shift && SHIFT_TYPES[shift]?.isWork) {
+                  if (d < 6) { // Mon (0) to Sat (5) relative to weekStart (Mon)
+                      daysWorkedCount++;
+                  } else if (d === 6) {
+                      hasSundayWork = true; // Sunday is separate
+                  }
+              }
+          }
+
+          // Rule Check
+          // Only check if employee is "Infirmier" (target population)
+          if (emp.role === 'Infirmier') {
+              let violationMsg = null;
+              
+              if (emp.fte === 0.8) {
+                  if (daysWorkedCount < 2 || daysWorkedCount > 3) {
+                      violationMsg = `${emp.name} (80%): ${daysWorkedCount} jours travaillés (Lun-Sam). Cible: 2 à 3.`;
+                  }
+              } else if (emp.fte >= 1.0) {
+                  if (daysWorkedCount < 3 || daysWorkedCount > 4) {
+                      violationMsg = `${emp.name} (100%): ${daysWorkedCount} jours travaillés (Lun-Sam). Cible: 3 à 4.`;
+                  }
+              }
+
+              if (violationMsg) {
+                  const weekLabel = `${weekStart.toLocaleDateString()} - ${new Date(weekStart.getTime() + 6*24*3600*1000).toLocaleDateString()}`;
+                  list.push({
+                      employeeId: emp.id,
+                      date: weekStart.toISOString().split('T')[0], // Mark start of week
+                      type: 'FTE_MISMATCH',
+                      message: `${violationMsg} [Semaine: ${weekLabel}]`,
+                      severity: 'warning', // Warning because sometimes necessary for service continuity
+                      priority: 'MEDIUM'
+                  });
+              }
+          }
+      }
+
     });
+
+    // Filter by Active Rules logic could go here if we passed the full list of active rules to this function.
+    // For now, we return all, and the UI can filter or we assume these are the hardcoded active rules.
+    // The ServiceConfig param allows for extensibility.
 
     return list;
 };

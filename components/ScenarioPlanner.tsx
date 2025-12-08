@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Employee, Service, PlanningScenario, ShiftCode } from '../types';
+import { Employee, Service, PlanningScenario, ShiftCode, ServiceConfig } from '../types';
 import { generateMonthlySchedule, getHoursLast7Days } from '../utils/scheduler';
 import { checkConstraints } from '../utils/validation';
 import { SHIFT_TYPES, SHIFT_HOURS } from '../constants';
@@ -80,7 +80,7 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
         };
         
         // Use service config if available
-        const currentServiceConfig = service?.config || {};
+        const currentServiceConfig: Partial<ServiceConfig> = service?.config || {};
         const openDays = currentServiceConfig.openDays || defaultConfig.openDays;
 
         for(let day=1; day<=daysInMonth; day++) {

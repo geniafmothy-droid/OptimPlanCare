@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Heart, AlertTriangle, Moon, Sun, Flag, CalendarClock } from 'lucide-react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Heart, AlertTriangle, Moon, Sun, Flag, CalendarClock, Layers } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
 import { StaffingSummary } from './components/StaffingSummary';
 import { StatsPanel } from './components/StatsPanel';
@@ -10,12 +10,15 @@ import { TeamManager } from './components/TeamManager';
 import { SkillsSettings } from './components/SkillsSettings';
 import { ServiceSettings } from './components/ServiceSettings';
 import { RoleSettings } from './components/RoleSettings';
+import { RuleSettings } from './components/RuleSettings';
+import { ShiftCodeSettings } from './components/ShiftCodeSettings';
 import { AttractivityPanel } from './components/AttractivityPanel';
 import { HazardManager } from './components/HazardManager';
 import { Dashboard } from './components/Dashboard';
 import { LoginScreen } from './components/LoginScreen';
 import { ScenarioPlanner } from './components/ScenarioPlanner';
 import { CycleViewer } from './components/CycleViewer';
+import { SatisfactionSurveyModal } from './components/SatisfactionSurveyModal';
 import { SHIFT_TYPES } from './constants';
 import { Employee, ShiftCode, ViewMode, Skill, Service, LeaveData, ServiceAssignment, LeaveCounters, UserRole, AppNotification, ConstraintViolation, WorkPreference } from './types';
 import { generateMonthlySchedule } from './utils/scheduler';
@@ -69,6 +72,7 @@ function App() {
   // Modal States
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isHazardOpen, setIsHazardOpen] = useState(false);
+  const [isSurveyOpen, setIsSurveyOpen] = useState(false); // Survey Modal State
   
   // Notification State
   const [isNotifOpen, setIsNotifOpen] = useState(false);
@@ -101,13 +105,18 @@ function App() {
       else document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
 
-  // Clear highlights when leaving planning or changing date
+  // RANDOM SURVEY TRIGGER LOGIC
   useEffect(() => {
-      if (activeTab !== 'planning') {
-          // Keep highlights in memory if switching from Dashboard to Planning, but maybe clear if going elsewhere?
-          // For now, we only clear if explicitly navigating away from planning context logic.
+      if (currentUser && currentUser.employeeId && currentUser.role !== 'ADMIN' && currentUser.role !== 'DIRECTOR') {
+          // 30% chance to show survey on login/load if user is a standard employee
+          const shouldShow = Math.random() < 0.3; 
+          if (shouldShow) {
+              // Optional: Add logic to check if they already answered recently to avoid spam
+              // For now, simple random trigger
+              setTimeout(() => setIsSurveyOpen(true), 2000); // Delay slightly for better UX
+          }
       }
-  }, [activeTab]);
+  }, [currentUser]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -234,11 +243,7 @@ function App() {
       setIsLoading(true);
       try {
           if (actionModal.type === 'GENERATE') {
-               // IMPORTANT: Pass only the filtered employees to the generator if a service is selected
-               // This ensures we only generate for the relevant staff.
-               // If no service selected (Global view), generate for everyone.
                const scopeEmployees = activeServiceId ? filteredEmployees : employees;
-               
                const newEmps = await generateMonthlySchedule(scopeEmployees, actionYear, actionMonth, activeService?.config);
                await db.bulkSaveSchedule(newEmps);
                await loadData();
@@ -259,7 +264,6 @@ function App() {
       if (!confirm("Copier le planning du mois précédent sur le mois en cours ?")) return;
       setIsLoading(true);
       try {
-          // Simulation logic for copy
           setToast({ message: "Fonctionnalité simulée : Planning copié.", type: "success" });
       } catch(e) {
           console.error(e);
@@ -276,7 +280,6 @@ function App() {
   const handleViewPlanningWithHighlights = (violations: ConstraintViolation[]) => {
       setViolationHighlights(violations);
       setActiveTab('planning');
-      // Optional: Force view mode to month to see context
       setViewMode('month');
       setToast({ message: "Violations mises en évidence.", type: 'warning' });
   };
@@ -315,13 +318,8 @@ function App() {
 
   const filteredEmployees = useMemo(() => {
       return employees.filter(emp => {
-        // 1. Role Filter
         const roleMatch = selectedRoles.length === 0 || selectedRoles.includes(emp.role);
-        
-        // 2. Skill Filter
         const skillMatch = skillFilter === 'all' || emp.skills.includes(skillFilter);
-        
-        // 3. Qualification Filter
         let qualificationMatch = true;
         if (showQualifiedOnly && activeService?.config) {
             const reqSkills = activeService.config.requiredSkills || [];
@@ -329,23 +327,16 @@ function App() {
                 qualificationMatch = emp.skills.some(s => reqSkills.includes(s));
             }
         }
-
-        // 4. Service Assignment Filter (Strict)
         let assignmentMatch = true;
         if (activeServiceId) {
-            // STRICT MODE: Only show employees assigned to the selected service.
-            // This hides directors/cadres from other services unless they are explicitly assigned to this one.
             const isAssigned = assignmentsList.some(a => a.employeeId === emp.id && a.serviceId === activeServiceId);
             if (!isAssigned) {
                 assignmentMatch = false;
             }
         } else {
-            // GLOBAL VIEW (No service selected): Show everyone
-            // Note: Regular employees should ideally default to their service ID on login, so this case is mostly for Admins/Directors
             assignmentMatch = true;
         }
 
-        // 5. Status Filters (Period based)
         let statusMatch = true;
         let absenceTypeMatch = true;
         
@@ -469,6 +460,13 @@ function App() {
       
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       
+      {/* SATISFACTION SURVEY MODAL */}
+      <SatisfactionSurveyModal 
+          isOpen={isSurveyOpen} 
+          onClose={() => setIsSurveyOpen(false)} 
+          employeeId={currentUser.employeeId || ''} 
+      />
+
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
 
       {/* HEADER ... (rest of header identical) */}
@@ -607,22 +605,41 @@ function App() {
               <div className="p-4 space-y-6 animate-in fade-in duration-300">
                   <div>
                       <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2"><Store className="w-3 h-3" /> Service</h3>
-                      <select value={activeServiceId} onChange={(e) => setActiveServiceId(e.target.value)} className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium text-slate-200 outline-none focus:ring-2 focus:ring-blue-500">
-                          {servicesList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                          <option value="">Vue Globale (Tous)</option>
-                      </select>
-                      {activeService && (
-                          <div className="mt-3 grid grid-cols-2 gap-2">
-                              <div className="bg-slate-800 p-2 rounded border border-slate-700 text-center">
-                                  <div className="text-xs text-blue-400 font-medium">Effectifs</div>
-                                  <div className="text-lg font-bold text-blue-300">{assignmentsList.filter(a => a.serviceId === activeServiceId).length}</div>
-                              </div>
-                              <div className="bg-slate-800 p-2 rounded border border-slate-700 text-center">
-                                  <div className="text-xs text-purple-400 font-medium">Compétences</div>
-                                  <div className="text-lg font-bold text-purple-300">{activeService.config?.requiredSkills?.length || 0}</div>
-                              </div>
-                          </div>
-                      )}
+                      
+                      {/* NEW SERVICE SELECTOR LIST */}
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                          <button 
+                              onClick={() => setActiveServiceId('')}
+                              className={`w-full text-left p-3 rounded-lg border transition-all ${activeServiceId === '' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:border-slate-600'}`}
+                          >
+                              <div className="font-bold text-sm">Vue Globale</div>
+                              <div className="text-xs opacity-70 mt-1">Tous les services</div>
+                          </button>
+
+                          {servicesList.map(s => {
+                              const empCount = assignmentsList.filter(a => a.serviceId === s.id).length;
+                              const skillCount = s.config?.requiredSkills?.length || 0;
+                              const isActive = activeServiceId === s.id;
+
+                              return (
+                                  <button
+                                      key={s.id}
+                                      onClick={() => setActiveServiceId(s.id)}
+                                      className={`w-full text-left p-3 rounded-lg border transition-all ${isActive ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:border-slate-600'}`}
+                                  >
+                                      <div className="font-bold text-sm mb-2">{s.name}</div>
+                                      <div className="flex gap-3 text-[10px]">
+                                          <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${isActive ? 'bg-blue-500' : 'bg-slate-900'}`}>
+                                              <Users className="w-3 h-3" /> {empCount}
+                                          </div>
+                                          <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${isActive ? 'bg-blue-500' : 'bg-slate-900'}`}>
+                                              <Tag className="w-3 h-3" /> {skillCount}
+                                          </div>
+                                      </div>
+                                  </button>
+                              );
+                          })}
+                      </div>
                   </div>
                   
                   {/* FILTERS */}
@@ -677,7 +694,7 @@ function App() {
                           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Type d'absence</h3>
                           <div className="flex flex-wrap gap-1">
                               <button onClick={() => setAbsenceTypeFilter('all')} className={`px-2 py-1 rounded-full text-xs border ${absenceTypeFilter === 'all' ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>Tous</button>
-                              {['CA', 'RTT', 'NT', 'RH', 'RC', 'HS', 'FO', 'F'].map(code => (
+                              {['CA', 'RTT', 'MAL', 'RH', 'RC', 'HS', 'FO', 'F'].map(code => (
                                   <button key={code} onClick={() => setAbsenceTypeFilter(code)} className={`px-2 py-1 rounded-full text-xs border ${absenceTypeFilter === code ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>{code}</button>
                               ))}
                           </div>
@@ -773,13 +790,19 @@ function App() {
                <div className="p-6 max-w-6xl mx-auto space-y-8 w-full overflow-y-auto">
                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Paramètres Généraux</h2>
                    <div className="flex flex-col gap-6">
-                       {/* 1. SERVICES */}
+                       {/* 1. REGLES METIER */}
+                       <RuleSettings />
+
+                       {/* 2. SERVICES */}
                        <ServiceSettings service={activeService} onReload={loadData} />
                        
-                       {/* 2. COMPETENCES & HORAIRES */}
+                       {/* 3. CODES HORAIRES & ABSENCES */}
+                       <ShiftCodeSettings />
+
+                       {/* 4. COMPETENCES & HORAIRES */}
                        <SkillsSettings skills={skillsList} onReload={loadData} />
 
-                       {/* 3. ROLES & FONCTIONS */}
+                       {/* 5. ROLES & FONCTIONS */}
                        <RoleSettings />
                    </div>
                </div>

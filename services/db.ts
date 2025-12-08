@@ -1,6 +1,6 @@
 
 import { supabase } from '../lib/supabase';
-import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus, WorkPreference } from '../types';
+import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus, WorkPreference, SurveyResponse } from '../types';
 import { MOCK_EMPLOYEES } from '../constants';
 
 // --- System Diagnostics ---
@@ -703,4 +703,44 @@ export const markNotificationRead = async (id: string) => {
         .from('notifications')
         .update({ is_read: true })
         .eq('id', id);
+};
+
+// --- SURVEY MANAGEMENT (QVT) ---
+
+export const saveSurveyResponse = async (response: Omit<SurveyResponse, 'id'>) => {
+    const { error } = await supabase
+        .from('survey_responses')
+        .insert([{
+            employee_id: response.employeeId,
+            date: response.date,
+            satisfaction: response.satisfaction,
+            workload: response.workload,
+            balance: response.balance,
+            comment: response.comment
+        }]);
+    
+    if (error) {
+        console.error("Survey Error:", error);
+        throw new Error("Erreur sauvegarde enquête");
+    }
+};
+
+export const fetchSurveyStats = async (): Promise<{satisfaction: number, workload: number, balance: number, count: number}> => {
+    const { data, error } = await supabase
+        .from('survey_responses')
+        .select('satisfaction, workload, balance');
+    
+    if (error || !data || data.length === 0) return { satisfaction: 0, workload: 0, balance: 0, count: 0 };
+
+    const total = data.length;
+    const sumSat = data.reduce((acc, curr) => acc + curr.satisfaction, 0);
+    const sumWork = data.reduce((acc, curr) => acc + curr.workload, 0);
+    const sumBal = data.reduce((acc, curr) => acc + curr.balance, 0);
+
+    return {
+        satisfaction: Math.round(sumSat / total),
+        workload: Math.round(sumWork / total),
+        balance: Math.round(sumBal / total),
+        count: total
+    };
 };

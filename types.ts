@@ -1,5 +1,4 @@
 
-
 export type ShiftCode = 
   | 'M' | 'T5' | 'T6' | 'S' | 'IT' | 'NT' | 'CA' | 'RH' | 'FO' | 'ETP' | 'DP' | 'OFF' | 'RC' | 'HS' | 'F' | 'RTT' | 'INT'
   | 'MAL' | 'AT' | 'ABS'; // Added specific absenteeism codes
@@ -32,6 +31,16 @@ export interface SkillRequirement {
     minStaff: number; // Effectif cible minimum
     startTime?: string; // "06:30"
     endTime?: string; // "18:30"
+}
+
+export interface ValidationRule {
+    id: string;
+    code: string;
+    label: string;
+    description: string;
+    isActive: boolean;
+    priority: 'HIGH' | 'MEDIUM' | 'LOW';
+    category: 'LEGAL' | 'EQUITY' | 'SERVICE';
 }
 
 export interface LeaveCounterComplex {
@@ -88,6 +97,16 @@ export interface WorkPreference {
     rejectionReason?: string;
 }
 
+export interface SurveyResponse {
+    id: string;
+    employeeId: string;
+    date: string;
+    satisfaction: number; // 0-100 (converted from 1-10)
+    workload: number; // 0-100
+    balance: number; // 0-100
+    comment?: string;
+}
+
 export interface AppNotification {
     id: string;
     date: string;
@@ -127,9 +146,10 @@ export interface DailyStats {
 export interface ConstraintViolation {
   employeeId: string;
   date: string;
-  type: 'CONSECUTIVE_DAYS' | 'MISSING_SKILL' | 'INVALID_ROTATION';
+  type: 'CONSECUTIVE_DAYS' | 'MISSING_SKILL' | 'INVALID_ROTATION' | 'FTE_MISMATCH';
   message: string;
   severity: 'warning' | 'error';
+  priority?: 'HIGH' | 'MEDIUM' | 'LOW';
 }
 
 export type ViewMode = 'month' | 'week' | 'workweek' | 'workweek6' | 'day' | 'hourly';
@@ -148,6 +168,7 @@ export interface ServiceConfig {
     equityRules?: EquityConfig;
     maxConsecutiveDays?: number; // New rule
     minWeekendGap?: number; // Days between weekends worked
+    activeRules?: ValidationRule[]; // List of active rules with priorities
 }
 
 export interface Service {

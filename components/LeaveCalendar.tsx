@@ -1,4 +1,5 @@
 
+// ... existing imports ...
 import React, { useMemo, useRef } from 'react';
 import { Employee, LeaveRequestWorkflow, WorkPreference, ServiceConfig } from '../types';
 import { SHIFT_TYPES } from '../constants';
@@ -163,15 +164,15 @@ export const LeaveCalendar: React.FC<LeaveCalendarProps> = ({ employees, startDa
                                     
                                     if (isConflict) {
                                          content = (
-                                            <div className="w-full h-full flex items-center justify-center relative">
+                                            <div className="w-full h-full flex items-center justify-center relative" title="Conflit : Souhait 'Non Travaillé' mais planifié">
                                                 <div className={`w-full h-full opacity-30 ${def.color} rounded-sm`}></div>
-                                                <AlertCircle className="w-4 h-4 text-red-500 absolute z-10" title="Conflit : Souhait 'Non Travaillé' mais planifié" />
+                                                <AlertCircle className="w-4 h-4 text-red-500 absolute z-10" />
                                             </div>
                                          );
                                     } else {
                                         content = (
-                                            <div className="w-full h-full min-h-[24px] flex items-center justify-center">
-                                                <Heart className="w-3.5 h-3.5 text-purple-400 opacity-60" title={`Souhait: ${pref.type}`} />
+                                            <div className="w-full h-full min-h-[24px] flex items-center justify-center" title={`Souhait: ${pref.type}`}>
+                                                <Heart className="w-3.5 h-3.5 text-purple-400 opacity-60" />
                                             </div>
                                         );
                                     }
