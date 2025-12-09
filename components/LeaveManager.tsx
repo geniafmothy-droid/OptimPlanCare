@@ -509,11 +509,12 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
             await db.updateLeaveRequestStatus(req.id, newStatus, commentToSave);
             
             await db.createNotification({ 
+                recipientRole: 'ALL', // Or specific user role if available, but ALL + recipientId works safely
                 recipientId: req.employeeId, 
                 title: isApprove ? 'Congés Validés' : 'Congés Refusés', 
                 message: notifMsg, 
                 type: isApprove ? 'success' : 'error' 
-            } as any);
+            });
 
             setMessage({ text: isApprove ? "Validé." : "Refusé.", type: isApprove ? 'success' : 'warning' });
             setValidationModal(null);

@@ -1,74 +1,9 @@
 
-// ... existing imports ...
 import { supabase } from '../lib/supabase';
 import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus, WorkPreference, SurveyResponse } from '../types';
 import { MOCK_EMPLOYEES } from '../constants';
 
 // --- System Diagnostics ---
-// ... (keep existing diagnostics code)
-
-// ... (keep existing Services, Skills, Employees, Shifts code)
-
-// ... 
-
-export const toLocalISOString = (date: Date): string => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-};
-
-export const clearShiftsInRange = async (year: number, month: number, serviceId?: string) => {
-    const startDate = new Date(year, month, 1);
-    const endDate = new Date(year, month + 1, 0);
-    // Use local string construction to ensure we get the full range YYYY-MM-01 to YYYY-MM-LastDay
-    const startStr = toLocalISOString(startDate);
-    const endStr = toLocalISOString(endDate);
-    
-    // Codes to PRESERVE from deletion (Validated Absences & Leaves)
-    // ADDED 'MAL' and 'AT' 'ABS'
-    const PRESERVED_CODES = ['CA', 'RC', 'HS', 'F', 'RTT', 'FO', 'CSS', 'PATER', 'MALADIE', 'MAL', 'AT', 'ABS'];
-
-    let query = supabase.from('shifts')
-        .delete()
-        .gte('date', startStr)
-        .lte('date', endStr)
-        .not('shift_code', 'in', `(${PRESERVED_CODES.join(',')})`); // Preserve absences
-
-    if (serviceId) {
-        // Filter by employees in this service during the period
-        const { data: assignments } = await supabase
-            .from('service_assignments')
-            .select('employee_id, start_date, end_date')
-            .eq('service_id', serviceId);
-
-        // Filter assignments in JS to correctly handle overlapping date ranges
-        const relevantEmpIds = (assignments || [])
-            .filter((a: any) => {
-                const aStart = a.start_date;
-                const aEnd = a.end_date || '9999-12-31';
-                // Overlap check
-                return (aStart <= endStr) && (aEnd >= startStr);
-            })
-            .map((a: any) => a.employee_id);
-        
-        if (relevantEmpIds.length > 0) {
-            query = query.in('employee_id', relevantEmpIds);
-        } else {
-             query = query.in('employee_id', []);
-        }
-    }
-
-    const { error } = await query;
-    if (error) throw new Error(error.message);
-};
-
-// ... (keep rest of the file exactly as is - imports, fetch functions, workflow management, survey etc)
-// Re-exporting everything else implicitly by not changing it
-// I will include the full file content for clarity in the XML output if needed, but since I am editing, I should only touch the function.
-// However, the rule says "Full content of file". 
-
-// --- Services Management ---
 export const checkConnection = async (): Promise<{ success: boolean; latency: number; message?: string }> => {
     const start = performance.now();
     try {
@@ -81,9 +16,15 @@ export const checkConnection = async (): Promise<{ success: boolean; latency: nu
     }
 };
 
+// --- Services Management ---
 export const fetchServices = async (): Promise<Service[]> => {
     const { data, error } = await supabase.from('services').select('*').order('name');
-    if (error) { if (error.code === '42P01') return []; return []; }
+    if (error) { 
+        // Table might not exist yet in fresh instance
+        if (error.code === '42P01') return []; 
+        console.error("Fetch Services Error:", error.message);
+        return []; 
+    }
     return data || [];
 };
 
@@ -109,19 +50,36 @@ export const updateService = async (id: string, name: string) => {
 
 export const fetchServiceAssignments = async (): Promise<ServiceAssignment[]> => {
     const { data, error } = await supabase.from('service_assignments').select('*');
-    if (error) return [];
+    if (error) {
+        if (error.code !== '42P01') console.error("Fetch Assignments Error:", error.message);
+        return [];
+    }
     return data?.map((d: any) => ({
-        id: d.id, employeeId: d.employee_id, serviceId: d.service_id, startDate: d.start_date, endDate: d.end_date
+        id: d.id, 
+        employeeId: d.employee_id, 
+        serviceId: d.service_id, 
+        startDate: d.start_date, 
+        endDate: d.end_date
     })) || [];
 };
 
 export const createServiceAssignment = async (employeeId: string, serviceId: string, startDate: string, endDate?: string) => {
-    const { error } = await supabase.from('service_assignments').insert([{ employee_id: employeeId, service_id: serviceId, start_date: startDate, end_date: endDate || null }]);
+    const { error } = await supabase.from('service_assignments').insert([{ 
+        employee_id: employeeId, 
+        service_id: serviceId, 
+        start_date: startDate, 
+        end_date: endDate || null 
+    }]);
     if (error) throw new Error(error.message);
 };
 
 export const updateServiceAssignment = async (id: string, employeeId: string, serviceId: string, startDate: string, endDate?: string) => {
-    const { error } = await supabase.from('service_assignments').update({ employee_id: employeeId, service_id: serviceId, start_date: startDate, end_date: endDate || null }).eq('id', id);
+    const { error } = await supabase.from('service_assignments').update({ 
+        employee_id: employeeId, 
+        service_id: serviceId, 
+        start_date: startDate, 
+        end_date: endDate || null 
+    }).eq('id', id);
     if (error) throw new Error(error.message);
 };
 
@@ -130,21 +88,39 @@ export const deleteServiceAssignment = async (id: string) => {
     if (error) throw new Error(error.message);
 };
 
+// --- Skills Management ---
 export const fetchSkills = async (): Promise<Skill[]> => {
     const { data, error } = await supabase.from('skills').select('*').order('code');
-    if (error) return []; 
+    if (error) {
+        if (error.code !== '42P01') console.error("Fetch Skills Error:", error.message);
+        return []; 
+    }
     return data?.map((s: any) => ({
-        id: s.id, code: s.code, label: s.label, defaultDuration: s.default_duration, defaultBreak: s.default_break
+        id: s.id, 
+        code: s.code, 
+        label: s.label, 
+        defaultDuration: s.default_duration, 
+        defaultBreak: s.default_break
     })) || [];
 };
 
 export const createSkill = async (code: string, label: string, defaultDuration?: number, defaultBreak?: number) => {
-    const { error } = await supabase.from('skills').insert([{ code, label, default_duration: defaultDuration, default_break: defaultBreak }]);
+    const { error } = await supabase.from('skills').insert([{ 
+        code, 
+        label, 
+        default_duration: defaultDuration, 
+        default_break: defaultBreak 
+    }]);
     if (error) throw new Error(error.message);
 };
 
 export const updateSkill = async (id: string, code: string, label: string, defaultDuration?: number, defaultBreak?: number) => {
-    const { error } = await supabase.from('skills').update({ code, label, default_duration: defaultDuration, default_break: defaultBreak }).eq('id', id);
+    const { error } = await supabase.from('skills').update({ 
+        code, 
+        label, 
+        default_duration: defaultDuration, 
+        default_break: defaultBreak 
+    }).eq('id', id);
     if (error) throw new Error(error.message);
 };
 
@@ -152,6 +128,8 @@ export const deleteSkill = async (id: string) => {
     const { error } = await supabase.from('skills').delete().eq('id', id);
     if (error) throw new Error(error.message);
 };
+
+// --- Employee & Shift Management ---
 
 const normalizeRole = (rawRole: string): Employee['role'] => {
     if (!rawRole) return 'Infirmier';
@@ -171,7 +149,11 @@ export const fetchEmployeesWithShifts = async (): Promise<Employee[]> => {
     .select(`id, matricule, name, role, fte, leave_balance, leave_data, skills, shifts (date, shift_code)`)
     .order('name');
 
-  if (empError) throw new Error("Impossible de charger les employés : " + empError.message);
+  if (empError) {
+      // Handle known table errors gracefully
+      if(empError.code === '42P01') return [];
+      throw new Error("Impossible de charger les employés : " + empError.message);
+  }
   if (!employeesData) return [];
 
   return employeesData.map((emp: any) => {
@@ -183,9 +165,16 @@ export const fetchEmployeesWithShifts = async (): Promise<Employee[]> => {
     if (emp.leave_data && emp.leave_data.counters) { safeCounters = emp.leave_data.counters; }
 
     return {
-      id: emp.id, matricule: emp.matricule, name: emp.name, role: normalizeRole(emp.role),
-      fte: emp.fte, leaveBalance: emp.leave_balance || 0, leaveCounters: safeCounters,
-      leaveData: emp.leave_data, skills: emp.skills || [], shifts: shiftsRecord
+      id: emp.id, 
+      matricule: emp.matricule, 
+      name: emp.name, 
+      role: normalizeRole(emp.role),
+      fte: emp.fte, 
+      leaveBalance: emp.leave_balance || 0, 
+      leaveCounters: safeCounters,
+      leaveData: emp.leave_data, 
+      skills: emp.skills || [], 
+      shifts: shiftsRecord
     };
   });
 };
@@ -198,6 +187,52 @@ export const upsertShift = async (employeeId: string, date: string, shiftCode: S
     const { error } = await supabase.from('shifts').upsert({ employee_id: employeeId, date: date, shift_code: shiftCode }, { onConflict: 'employee_id,date' });
     if (error) throw new Error(error.message);
   }
+};
+
+export const toLocalISOString = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+export const clearShiftsInRange = async (year: number, month: number, serviceId?: string) => {
+    const startDate = new Date(year, month, 1);
+    const endDate = new Date(year, month + 1, 0);
+    const startStr = toLocalISOString(startDate);
+    const endStr = toLocalISOString(endDate);
+    
+    const PRESERVED_CODES = ['CA', 'RC', 'HS', 'F', 'RTT', 'FO', 'CSS', 'PATER', 'MALADIE', 'MAL', 'AT', 'ABS'];
+
+    let query = supabase.from('shifts')
+        .delete()
+        .gte('date', startStr)
+        .lte('date', endStr)
+        .not('shift_code', 'in', `(${PRESERVED_CODES.join(',')})`);
+
+    if (serviceId) {
+        const { data: assignments } = await supabase
+            .from('service_assignments')
+            .select('employee_id, start_date, end_date')
+            .eq('service_id', serviceId);
+
+        const relevantEmpIds = (assignments || [])
+            .filter((a: any) => {
+                const aStart = a.start_date;
+                const aEnd = a.end_date || '9999-12-31';
+                return (aStart <= endStr) && (aEnd >= startStr);
+            })
+            .map((a: any) => a.employee_id);
+        
+        if (relevantEmpIds.length > 0) {
+            query = query.in('employee_id', relevantEmpIds);
+        } else {
+             query = query.in('employee_id', []);
+        }
+    }
+
+    const { error } = await query;
+    if (error) throw new Error(error.message);
 };
 
 export const saveLeaveRange = async (employeeId: string, startDate: string, endDate: string, type: ShiftCode) => {
@@ -239,8 +274,14 @@ export const upsertEmployee = async (employee: Employee) => {
       currentLeaveData = { ...currentLeaveData, counters: safeCounters };
   }
   const payload: any = {
-      id: employee.id, matricule: employee.matricule, name: employee.name, role: employee.role, fte: employee.fte,
-      leave_balance: employee.leaveBalance, leave_data: currentLeaveData, skills: employee.skills
+      id: employee.id, 
+      matricule: employee.matricule, 
+      name: employee.name, 
+      role: employee.role, 
+      fte: employee.fte,
+      leave_balance: employee.leaveBalance, 
+      leave_data: currentLeaveData, 
+      skills: employee.skills
   };
   const { error } = await supabase.from('employees').upsert(payload, { onConflict: 'id' }).select();
   if (error) throw new Error(error.message);
@@ -254,10 +295,16 @@ export const deleteEmployee = async (employeeId: string) => {
 export const seedDatabase = async () => {
   for (const emp of MOCK_EMPLOYEES) {
     const { data, error } = await supabase.from('employees').upsert({
-        matricule: emp.matricule, name: emp.name, role: emp.role, fte: emp.fte, leave_balance: emp.leaveBalance,
-        leave_data: { counters: emp.leaveCounters, history: [] }, skills: emp.skills
+        matricule: emp.matricule, 
+        name: emp.name, 
+        role: emp.role, 
+        fte: emp.fte, 
+        leave_balance: emp.leaveBalance,
+        leave_data: { counters: emp.leaveCounters, history: [] }, 
+        skills: emp.skills
       }, { onConflict: 'matricule' }).select().single();
     if (error || !data) continue;
+    
     const newId = data.id;
     const shiftsToInsert = Object.entries(emp.shifts).map(([date, code]) => ({ employee_id: newId, date: date, shift_code: code }));
     if (shiftsToInsert.length > 0) { await supabase.from('shifts').upsert(shiftsToInsert, { onConflict: 'employee_id,date' }); }
@@ -292,8 +339,13 @@ export const bulkUpsertShifts = async (shifts: {employee_id: string, date: strin
 export const bulkImportEmployees = async (employees: Employee[]) => {
     for (const emp of employees) {
         const { data: dbEmp, error } = await supabase.from('employees').upsert({
-                 matricule: emp.matricule, name: emp.name, role: emp.role, fte: emp.fte, leave_balance: emp.leaveBalance,
-                 leave_data: { counters: emp.leaveCounters, history: emp.leaveData?.history || [] }, skills: emp.skills
+                 matricule: emp.matricule, 
+                 name: emp.name, 
+                 role: emp.role, 
+                 fte: emp.fte, 
+                 leave_balance: emp.leaveBalance,
+                 leave_data: { counters: emp.leaveCounters, history: emp.leaveData?.history || [] }, 
+                 skills: emp.skills
              }, { onConflict: 'matricule' }).select().single();
         if (error || !dbEmp) continue;
         const empId = dbEmp.id;
@@ -302,20 +354,37 @@ export const bulkImportEmployees = async (employees: Employee[]) => {
     }
 }
 
+// --- Leave Management ---
 export const fetchLeaveRequests = async (): Promise<LeaveRequestWorkflow[]> => {
     const { data, error } = await supabase.from('leave_requests').select('*').order('created_at', { ascending: false });
-    if (error) return [];
+    if (error) {
+        if(error.code !== '42P01') console.error("Fetch Leave Requests Error:", error.message);
+        return [];
+    }
     const { data: allEmps } = await supabase.from('employees').select('id, name');
     const empMap = new Map(allEmps?.map((e:any) => [e.id, e.name]) || []);
     return data.map((r: any) => ({
-        id: r.id, employeeId: r.employee_id, employeeName: empMap.get(r.employee_id) || 'Inconnu', type: r.type,
-        startDate: r.start_date, endDate: r.end_date, status: r.status as LeaveRequestStatus, createdAt: r.created_at, comments: r.comments
+        id: r.id, 
+        employeeId: r.employee_id, 
+        employeeName: empMap.get(r.employee_id) || 'Inconnu', 
+        type: r.type,
+        startDate: r.start_date, 
+        endDate: r.end_date, 
+        status: r.status as LeaveRequestStatus, 
+        createdAt: r.created_at, 
+        comments: r.comments
     }));
 };
 
 export const createLeaveRequest = async (req: Omit<LeaveRequestWorkflow, 'id' | 'createdAt' | 'status'>, initialStatus: LeaveRequestStatus = 'PENDING_CADRE', employeeToAutoCreate?: Employee) => {
     if (employeeToAutoCreate) { try { await upsertEmployee(employeeToAutoCreate); } catch (e: any) { console.error("Auto-creation failed:", e); } }
-    const { data, error } = await supabase.from('leave_requests').insert([{ employee_id: req.employeeId, type: req.type, start_date: req.startDate, end_date: req.endDate, status: initialStatus }]).select().single();
+    const { data, error } = await supabase.from('leave_requests').insert([{ 
+        employee_id: req.employeeId, 
+        type: req.type, 
+        start_date: req.startDate, 
+        end_date: req.endDate, 
+        status: initialStatus 
+    }]).select().single();
     if (error) throw new Error(error.message);
     return { ...req, id: data.id, status: initialStatus, createdAt: data.created_at };
 };
@@ -341,19 +410,36 @@ export const updateLeaveRequestStatus = async (id: string, status: LeaveRequestW
     if (error) throw new Error(error.message);
 };
 
+// --- Work Preferences ---
 export const fetchWorkPreferences = async (): Promise<WorkPreference[]> => {
     const { data, error } = await supabase.from('work_preferences').select('*');
-    if (error) throw new Error(error.message);
+    if (error) {
+        if(error.code !== '42P01') console.error("Fetch Preferences Error:", error.message);
+        // Don't throw, just return empty to allow app to load
+        return [];
+    }
     return data.map((p: any) => ({
-        id: p.id, employeeId: p.employee_id, startDate: p.start_date || p.date, endDate: p.end_date || p.date,
-        recurringDays: p.recurring_days, type: p.type, reason: p.reason, status: p.status, rejectionReason: p.rejection_reason
+        id: p.id, 
+        employeeId: p.employee_id, 
+        startDate: p.start_date || p.date, 
+        endDate: p.end_date || p.date,
+        recurringDays: p.recurring_days, 
+        type: p.type, 
+        reason: p.reason, 
+        status: p.status, 
+        rejectionReason: p.rejection_reason
     }));
 };
 
 export const createWorkPreference = async (pref: Omit<WorkPreference, 'id' | 'status'>) => {
     const { error } = await supabase.from('work_preferences').insert([{
-            employee_id: pref.employeeId, start_date: pref.startDate, end_date: pref.endDate,
-            recurring_days: pref.recurringDays, type: pref.type, reason: pref.reason, status: 'PENDING'
+            employee_id: pref.employeeId, 
+            start_date: pref.startDate, 
+            end_date: pref.endDate,
+            recurring_days: pref.recurringDays, 
+            type: pref.type, 
+            reason: pref.reason, 
+            status: 'PENDING'
         }]);
     if (error) throw new Error(error.message);
 };
@@ -365,19 +451,33 @@ export const updateWorkPreferenceStatus = async (id: string, status: 'VALIDATED'
     if (error) throw new Error(error.message);
 };
 
+// --- Notifications ---
 export const fetchNotifications = async (): Promise<AppNotification[]> => {
     const { data, error } = await supabase.from('notifications').select('*').order('date', { ascending: false }).limit(50);
     if (error) return [];
     return data.map((n: any) => ({
-        id: n.id, date: n.date, recipientRole: n.recipient_role, recipientId: n.recipient_id, title: n.title,
-        message: n.message, isRead: n.is_read, type: n.type || 'info', actionType: n.action_type, entityId: n.entity_id
+        id: n.id, 
+        date: n.date, 
+        recipientRole: n.recipient_role, 
+        recipientId: n.recipient_id, 
+        title: n.title,
+        message: n.message, 
+        isRead: n.is_read, 
+        type: n.type || 'info', 
+        actionType: n.action_type, 
+        entityId: n.entity_id
     }));
 };
 
 export const createNotification = async (notif: Omit<AppNotification, 'id' | 'date' | 'isRead'>) => {
     const { error } = await supabase.from('notifications').insert([{
-            recipient_role: notif.recipientRole, recipient_id: notif.recipientId, title: notif.title,
-            message: notif.message, type: notif.type, action_type: notif.actionType || null, entity_id: notif.entityId || null
+            recipient_role: notif.recipientRole, 
+            recipient_id: notif.recipientId, 
+            title: notif.title,
+            message: notif.message, 
+            type: notif.type, 
+            action_type: notif.actionType || null, 
+            entity_id: notif.entityId || null
         }]);
     if (error) console.error("Error sending notification:", error);
 };
@@ -386,20 +486,51 @@ export const markNotificationRead = async (id: string) => {
     await supabase.from('notifications').update({ is_read: true }).eq('id', id);
 };
 
+// --- Surveys ---
 export const saveSurveyResponse = async (response: Omit<SurveyResponse, 'id'>) => {
     const { error } = await supabase.from('survey_responses').insert([{
-            employee_id: response.employeeId, date: response.date, satisfaction: response.satisfaction,
-            workload: response.workload, balance: response.balance, comment: response.comment
+            employee_id: response.employeeId, 
+            date: response.date, 
+            satisfaction: response.satisfaction,
+            workload: response.workload, 
+            balance: response.balance, 
+            comment: response.comment
         }]);
-    if (error) { console.error("Survey Error:", error); throw new Error("Erreur sauvegarde enquête"); }
+    if (error) { 
+        console.error("Survey Save Error:", error.message || error); 
+        throw new Error("Erreur sauvegarde enquête"); 
+    }
 };
 
 export const fetchSurveyStats = async (): Promise<{satisfaction: number, workload: number, balance: number, count: number}> => {
     const { data, error } = await supabase.from('survey_responses').select('satisfaction, workload, balance');
-    if (error || !data || data.length === 0) return { satisfaction: 0, workload: 0, balance: 0, count: 0 };
+    if (error) {
+        if(error.code === '42P01') return { satisfaction: 0, workload: 0, balance: 0, count: 0 };
+        console.warn("Survey Stats Fetch Error:", error.message);
+        return { satisfaction: 0, workload: 0, balance: 0, count: 0 };
+    }
+    if (!data || data.length === 0) return { satisfaction: 0, workload: 0, balance: 0, count: 0 };
     const total = data.length;
     const sumSat = data.reduce((acc, curr) => acc + curr.satisfaction, 0);
     const sumWork = data.reduce((acc, curr) => acc + curr.workload, 0);
     const sumBal = data.reduce((acc, curr) => acc + curr.balance, 0);
     return { satisfaction: Math.round(sumSat / total), workload: Math.round(sumWork / total), balance: Math.round(sumBal / total), count: total };
+};
+
+export const fetchSurveyResponses = async () => {
+    const { data, error } = await supabase
+        .from('survey_responses')
+        .select('*, employees (name, role)')
+        .order('date', { ascending: false });
+    
+    if (error) {
+        // Table missing (42P01) or Relation missing (PGRST200)
+        if (error.code === '42P01' || error.code === 'PGRST200') {
+            console.warn(`Fetch Survey: Table or relation issue (${error.code}). Returning empty list.`);
+            return [];
+        }
+        console.error("Fetch Survey Error:", error.message || error);
+        return [];
+    }
+    return data;
 };
