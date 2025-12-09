@@ -191,29 +191,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         return null;
     };
 
-    // --- CHECK N-1 OVERLAP (HISTORY) ---
-    const checkN1Overlap = (req: LeaveRequestWorkflow) => {
-        if (requests.length === 0) return false;
-
-        const currentStart = new Date(req.startDate);
-        const targetStart = new Date(currentStart);
-        targetStart.setFullYear(currentStart.getFullYear() - 1);
-        targetStart.setDate(targetStart.getDate() - 5); 
-
-        const currentEnd = new Date(req.endDate);
-        const targetEnd = new Date(currentEnd);
-        targetEnd.setFullYear(currentEnd.getFullYear() - 1);
-        targetEnd.setDate(targetEnd.getDate() + 5); 
-
-        return requests.some(r =>
-            r.employeeId === req.employeeId &&
-            r.status === 'VALIDATED' &&
-            r.id !== req.id && 
-            new Date(r.startDate) <= targetEnd &&
-            new Date(r.endDate) >= targetStart
-        );
-    };
-
     // --- HELPER: CALCULATE EFFECTIVE DAYS ---
     const getEffectiveDays = (startStr: string, endStr: string) => {
         const start = new Date(startStr);
@@ -236,28 +213,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
             setConflictWarning(null);
         }
     }, [startDate, endDate, leaveType]);
-
-    // Calculate approximate staffing presence
-    const calculateStaffingInfo = (startStr: string, endStr: string) => {
-        const sDate = new Date(startStr);
-        const eDate = new Date(endStr);
-        let totalDays = 0;
-        let totalPresent = 0;
-
-        for (let d = new Date(sDate); d <= eDate; d.setDate(d.getDate() + 1)) {
-            const dStr = d.toISOString().split('T')[0];
-            const presentToday = viewableEmployees.reduce((acc, emp) => {
-                const code = emp.shifts[dStr];
-                return (code && SHIFT_TYPES[code]?.isWork) ? acc + 1 : acc;
-            }, 0);
-            
-            totalPresent += presentToday;
-            totalDays++;
-        }
-        
-        const avg = totalDays > 0 ? Math.round(totalPresent / totalDays) : 0;
-        return `Effectif moyen présent sur la période : ${avg} agents.`;
-    };
 
     // --- ACTIONS ---
 
@@ -473,11 +428,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         setValidationModal({ isOpen: true, req, isApprove });
     };
 
-    const handleSelectRequestForComparison = (req: LeaveRequestWorkflow) => {
-        setSelectedRequest(req);
-        setCalendarDate(new Date(req.startDate));
-    };
-
     const confirmValidation = async () => {
         if (!validationModal || !validationModal.req) return;
         const { req, isApprove } = validationModal;
@@ -658,10 +608,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
 
     const isManager = ['ADMIN', 'DIRECTOR', 'CADRE', 'CADRE_SUP'].includes(currentUser.role);
     const canAccessForecast = isManager; 
-
-    // Define variables used in Validation View (Context Calendar)
-    const employeesWithSimulation = viewableEmployees;
-    const contextPendingRequests = pendingRequests;
 
     return (
         <div className="p-4 md:p-8 max-w-7xl mx-auto h-full flex flex-col relative">
@@ -971,6 +917,180 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                     </div>
                 )}
 
+                {/* --- DESIDERATA --- */}
+                {mode === 'desiderata' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div>
+                            <h3 className="font-bold text-lg mb-4 text-slate-800 dark:text-white">Soumettre un Desiderata</h3>
+                            <form onSubmit={handleSubmitDesiderata} className="space-y-4 bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg border border-purple-100 dark:border-purple-800">
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">Type de souhait</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {[
+                                            { val: 'NO_WORK', label: 'Indisponibilité', icon: <XCircle className="w-4 h-4"/> },
+                                            { val: 'NO_NIGHT', label: 'Pas de Nuit', icon: <Moon className="w-4 h-4"/> },
+                                            { val: 'MORNING_ONLY', label: 'Matin Uniquement', icon: <Sun className="w-4 h-4"/> },
+                                            { val: 'AFTERNOON_ONLY', label: 'Soir Uniquement', icon: <Coffee className="w-4 h-4"/> }
+                                        ].map(opt => (
+                                            <div 
+                                                key={opt.val}
+                                                onClick={() => setPrefType(opt.val as any)}
+                                                className={`cursor-pointer p-3 rounded border flex flex-col items-center gap-2 text-sm font-medium transition-all ${prefType === opt.val ? 'bg-purple-600 text-white border-purple-600 shadow-md' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:border-purple-300'}`}
+                                            >
+                                                {opt.icon} {opt.label}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">Début</label>
+                                        <input type="date" value={prefStartDate} onChange={e => setPrefStartDate(e.target.value)} className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-600 dark:text-white" required />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">Fin</label>
+                                        <input type="date" value={prefEndDate} onChange={e => setPrefEndDate(e.target.value)} className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-600 dark:text-white" required />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium mb-2 text-slate-700 dark:text-slate-300">Récurrence (Optionnel)</label>
+                                    <div className="flex gap-1 flex-wrap">
+                                        {daysOfWeek.map(d => (
+                                            <button 
+                                                key={d.id}
+                                                type="button"
+                                                onClick={() => togglePrefDay(d.id)}
+                                                className={`w-8 h-8 rounded-full text-xs font-bold flex items-center justify-center border transition-all ${prefDays.includes(d.id) ? 'bg-purple-600 text-white border-purple-600' : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-600 hover:border-purple-300'}`}
+                                            >
+                                                {d.label.charAt(0)}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="text-[10px] text-slate-400 mt-1">Laissez vide si le souhait s'applique à tous les jours de la période.</p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">Raison (Optionnel)</label>
+                                    <textarea value={prefReason} onChange={e => setPrefReason(e.target.value)} className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-600 dark:text-white" rows={2} placeholder="Ex: Garde d'enfants, Sport..." />
+                                </div>
+
+                                <button type="submit" disabled={isLoading} className="w-full bg-purple-600 text-white py-2 rounded hover:bg-purple-700 flex justify-center gap-2 items-center font-medium shadow-sm">
+                                    {isLoading ? '...' : <><Heart className="w-4 h-4"/> Enregistrer le souhait</>}
+                                </button>
+                            </form>
+                        </div>
+
+                        <div>
+                            <h3 className="font-bold text-lg mb-4 text-slate-800 dark:text-white">Mes Souhaits ({myPreferences.length})</h3>
+                            <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                                {myPreferences.length === 0 ? <div className="text-slate-400 italic text-sm">Aucun desiderata enregistré.</div> : myPreferences.map(p => (
+                                    <div key={p.id} className="bg-white dark:bg-slate-800 border dark:border-slate-700 p-4 rounded-lg shadow-sm flex justify-between items-start">
+                                        <div>
+                                            <div className="flex items-center gap-2 mb-1">
+                                                {getPrefIcon(p.type)}
+                                                <span className="font-bold text-slate-700 dark:text-slate-200">{getPrefLabel(p.type)}</span>
+                                            </div>
+                                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                Du {new Date(p.startDate).toLocaleDateString()} au {new Date(p.endDate).toLocaleDateString()}
+                                            </div>
+                                            {p.recurringDays && p.recurringDays.length > 0 && (
+                                                <div className="flex gap-1 mt-2">
+                                                    {p.recurringDays.map(d => (
+                                                        <span key={d} className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 rounded text-[10px] border dark:border-slate-600">
+                                                            {daysOfWeek.find(day => day.id === d)?.label}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {p.reason && <div className="text-xs text-slate-500 italic mt-1">"{p.reason}"</div>}
+                                        </div>
+                                        <div className="flex flex-col items-end gap-2">
+                                            <span className={`text-[10px] font-bold px-2 py-1 rounded border ${
+                                                p.status === 'VALIDATED' ? 'bg-green-50 text-green-700 border-green-200' :
+                                                p.status === 'REFUSED' ? 'bg-red-50 text-red-700 border-red-200' :
+                                                'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                            }`}>
+                                                {p.status === 'VALIDATED' ? 'Accepté' : p.status === 'REFUSED' ? 'Refusé' : 'En attente'}
+                                            </span>
+                                            {p.status === 'PENDING' && (
+                                                <button onClick={async () => {
+                                                    if(confirm("Supprimer ce souhait ?")) {
+                                                        // Assuming DB has logic, but we simulate reload for now
+                                                        // Actually we should add delete function in db.ts or just hide
+                                                        alert("Fonctionnalité de suppression à implémenter dans db.ts");
+                                                    }
+                                                }} className="text-red-400 hover:text-red-600 p-1">
+                                                    <Trash2 className="w-4 h-4"/>
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* --- DESIDERATA SUMMARY --- */}
+                {mode === 'desiderata_summary' && (
+                    <div className="h-full flex flex-col">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
+                                <List className="w-5 h-5"/> Synthèse Mensuelle
+                            </h3>
+                            <div className="flex items-center gap-2 bg-white dark:bg-slate-800 border dark:border-slate-700 rounded p-1">
+                                <button onClick={() => navigateCalendar('prev')}><ChevronLeft className="w-4 h-4"/></button>
+                                <span className="text-sm font-bold w-32 text-center">{calendarDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</span>
+                                <button onClick={() => navigateCalendar('next')}><ChevronRight className="w-4 h-4"/></button>
+                            </div>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto">
+                            {summaryByEmployee.length === 0 ? (
+                                <div className="text-center py-10 text-slate-400 italic border-2 border-dashed rounded-xl">
+                                    Aucun souhait enregistré pour cette période.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {summaryByEmployee.map(item => (
+                                        <div key={item.emp.id} className="bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-lg p-4 shadow-sm">
+                                            <div className="flex items-center gap-3 mb-3 border-b dark:border-slate-700 pb-2">
+                                                <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center font-bold text-slate-600 dark:text-slate-300">
+                                                    {item.emp.name.charAt(0)}
+                                                </div>
+                                                <div className="font-bold text-slate-800 dark:text-white">{item.emp.name}</div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                {item.prefs.map(p => (
+                                                    <div key={p.id} className="text-xs bg-slate-50 dark:bg-slate-900 p-2 rounded border dark:border-slate-600 flex justify-between items-center">
+                                                        <div>
+                                                            <div className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                                                                {getPrefIcon(p.type)} {getPrefLabel(p.type)}
+                                                            </div>
+                                                            <div className="text-slate-500">
+                                                                {new Date(p.startDate).getDate()}/{new Date(p.startDate).getMonth()+1} au {new Date(p.endDate).getDate()}/{new Date(p.endDate).getMonth()+1}
+                                                            </div>
+                                                        </div>
+                                                        {p.status === 'PENDING' && (
+                                                            <div className="flex gap-1">
+                                                                <button onClick={() => openDesiderataValidationModal(p, true)} className="text-green-500 hover:bg-green-50 p-1 rounded"><Check className="w-3 h-3"/></button>
+                                                                <button onClick={() => openDesiderataValidationModal(p, false)} className="text-red-500 hover:bg-red-50 p-1 rounded"><X className="w-3 h-3"/></button>
+                                                            </div>
+                                                        )}
+                                                        {p.status === 'VALIDATED' && <CheckCircle2 className="w-3 h-3 text-green-500"/>}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 {(mode === 'calendar' || mode === 'forecast') && (
                     <div className="flex-1 flex flex-col h-full min-h-[500px]">
                         <div className="flex justify-between items-center mb-4">
@@ -1030,9 +1150,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                         </div>
                     </div>
                 )}
-                
-                {/* Desiderata & Summary sections... (kept but not shown in this specific snippet to save space, assuming they are preserved by replacement) */}
-                {/* ... existing Desiderata components ... */}
             </div>
         </div>
     );
