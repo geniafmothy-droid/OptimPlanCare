@@ -455,7 +455,17 @@ function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-100 dark:bg-slate-900 font-sans transition-colors duration-300">
-      <style>{`@media print { @page { size: landscape; margin: 5mm; } body { background: white; } aside, header, .no-print { display: none !important; } .print-container { overflow: visible !important; height: auto !important; } table { width: 100% !important; } }`}</style>
+      <style>{`@media print { 
+        @page { size: landscape; margin: 5mm; } 
+        body { 
+          background: white; 
+          -webkit-print-color-adjust: exact; 
+          print-color-adjust: exact; 
+        } 
+        aside, header, .no-print { display: none !important; } 
+        .print-container { overflow: visible !important; height: auto !important; } 
+        table { width: 100% !important; } 
+      }`}</style>
       
       {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsSidebarOpen(false)} />}
       

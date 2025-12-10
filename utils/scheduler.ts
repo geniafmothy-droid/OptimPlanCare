@@ -28,6 +28,56 @@ export const getHoursLast7Days = (emp: Employee, currentDate: Date, tempShifts: 
     return total;
 };
 
+/**
+ * Counts worked days (Mon-Sat) in the CURRENT ISO Week up to the target date.
+ */
+const getWorkedDaysInCurrentWeek = (emp: Employee, currentDate: Date, tempShifts: Record<string, ShiftCode>): number => {
+    const dayOfWeek = currentDate.getDay(); // 0-6
+    const diffToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    
+    const monday = new Date(currentDate);
+    monday.setDate(currentDate.getDate() + diffToMon);
+    
+    let count = 0;
+    // Iterate from Monday up to yesterday (inclusive)
+    // We assume current day is being decided, so we count what's already locked.
+    const tempDate = new Date(monday);
+    
+    while (tempDate < currentDate) {
+        const dStr = toLocalISOString(tempDate);
+        const code = tempShifts[dStr] || emp.shifts[dStr];
+        const dayIdx = tempDate.getDay();
+        
+        // Count if Work AND not Sunday (Dialysis rule counts Mon-Sat)
+        if (code && SHIFT_TYPES[code]?.isWork && dayIdx !== 0) {
+            count++;
+        }
+        tempDate.setDate(tempDate.getDate() + 1);
+    }
+    return count;
+};
+
+/**
+ * Returns current consecutive work days ending yesterday
+ */
+const getConsecutiveDaysCount = (emp: Employee, currentDate: Date, tempShifts: Record<string, ShiftCode>): number => {
+    let count = 0;
+    let d = new Date(currentDate);
+    d.setDate(d.getDate() - 1); // Start checking from yesterday
+
+    while (true) {
+        const dStr = toLocalISOString(d);
+        const code = tempShifts[dStr] || emp.shifts[dStr];
+        if (code && SHIFT_TYPES[code]?.isWork) {
+            count++;
+            d.setDate(d.getDate() - 1);
+        } else {
+            break;
+        }
+    }
+    return count;
+};
+
 // --- DIALYSIS SPECIFIC RULES ---
 const DIALYSIS_TARGETS: Record<number, Record<string, number>> = {
     1: { 'IT': 4, 'T5': 1, 'T6': 1, 'S': 2 }, // Lundi
@@ -83,6 +133,8 @@ export const generateMonthlySchedule = async (
   employees.forEach(e => {
       equityStats[e.id] = { Mondays: 0, Saturdays: 0, Nights: 0, TotalHours: 0 };
   });
+
+  const isDialysisMode = serviceConfig?.fteConstraintMode === 'DIALYSIS_STANDARD';
 
   // --- PHASE 1: PRE-CLEANING & DESIDERATA APPLICATION ---
   for (let day = 1; day <= numDays; day++) {
@@ -175,7 +227,31 @@ export const generateMonthlySchedule = async (
                   // C. Safety Hard Constraints (Post-Night) - ABSOLUTE
                   if (emp.shifts[prevDateStr] === 'S') return false;
 
-                  // D. Max 48h / 7 days
+                  // D. DIALYSIS RULES
+                  if (isDialysisMode) {
+                      // 1. WEEKLY QUOTA STRICTNESS (80% -> Max 3 days, 100% -> Max 4 days)
+                      // Applied rigidly in levels 0, 1, AND 2 (Force). Only skipped in Nuclear (3).
+                      if (strictnessLevel < 3) {
+                          const daysWorkedWeek = getWorkedDaysInCurrentWeek(emp, currentDate, emp.shifts);
+                          
+                          if (emp.fte >= 0.8 && emp.fte < 0.9) {
+                              if (daysWorkedWeek >= 3) return false; // Strict Max 3 days for 80%
+                          }
+                          else if (emp.fte >= 1.0) {
+                              if (daysWorkedWeek >= 4) return false; // Strict Max 4 days for 100%
+                          }
+                      }
+
+                      // 2. CONSECUTIVE DAYS STRICTNESS (Max 2 consecutive)
+                      // Applied rigidly in levels 0 & 1.
+                      // In level 2, we might allow a 3rd day but prefer not to.
+                      if (strictnessLevel < 2) {
+                          const consecutive = getConsecutiveDaysCount(emp, currentDate, emp.shifts);
+                          if (consecutive >= 2) return false; // Prevents 3rd consecutive day
+                      }
+                  }
+
+                  // E. Max 48h / 7 days
                   // Strictness 0 & 1: Respect 48h
                   // Strictness 2+: Ignore 48h (Emergency fill)
                   if (strictnessLevel < 2) {
@@ -184,7 +260,7 @@ export const generateMonthlySchedule = async (
                       if ((hoursPast + hoursThisShift) > 48) return false;
                   }
 
-                  // E. Samedi rule (1 sur 2)
+                  // F. Samedi rule (1 sur 2)
                   // Strictness 0: Strict 1/2
                   // Strictness 1+: Ignore
                   if (dayOfWeek === 6 && strictnessLevel === 0) {
@@ -194,7 +270,7 @@ export const generateMonthlySchedule = async (
                       if (prevShift && SHIFT_TYPES[prevShift]?.isWork) return false;
                   }
 
-                  // F. "NO_NIGHT" / Preferences
+                  // G. "NO_NIGHT" / Preferences
                   if (shiftType === 'S') {
                       const hasNoNight = preferences.some(p => 
                           p.employeeId === emp.id && 
@@ -215,24 +291,38 @@ export const generateMonthlySchedule = async (
                   let score = 1000;
                   
                   const workedYesterday = emp.shifts[prevDateStr] && SHIFT_TYPES[emp.shifts[prevDateStr]]?.isWork;
-                  const workedBeforeYesterday = emp.shifts[prevPrevDateStr] && SHIFT_TYPES[emp.shifts[prevPrevDateStr]]?.isWork;
+                  const consecutiveDays = getConsecutiveDaysCount(emp, currentDate, emp.shifts);
 
-                  // --- STRATEGY: BLOCK SCHEDULING ---
-                  // Massive bonus if worked yesterday. We want to chain days (Mon-Tue-Wed).
-                  // This prevents the "oscillation" where everyone rests on the same day.
+                  // --- STRATEGY: BLOCK SCHEDULING (Prefer blocks of 2) ---
                   if (workedYesterday) {
-                      score += 5000; 
-                      if (workedBeforeYesterday) score += 1000; // Prefer chains of 3 over chains of 2
-                  } 
-                  else {
-                      // If didn't work yesterday, we are pulling from the "Fresh" pool.
-                      // Only do this if necessary.
-                      // Penalize slightly to prefer those currently in a work block.
+                      score += 2000; 
+                  } else {
                       score -= 500;
                   }
 
+                  // --- STRATEGY: CONSECUTIVE DAYS EQUITY ---
+                  // Penalize heavily if consecutive days get high
+                  if (consecutiveDays >= 3) {
+                      score -= 10000; // Nuclear deterrent
+                  } else if (consecutiveDays >= 2) {
+                      score -= 5000; // Strong deterrent (target is max 2)
+                  }
+
+                  // --- STRATEGY: DIALYSIS QUOTA FILLING ---
+                  if (isDialysisMode) {
+                      const daysWorkedWeek = getWorkedDaysInCurrentWeek(emp, currentDate, emp.shifts);
+                      
+                      let minTarget = 0;
+                      if (emp.fte >= 0.8 && emp.fte < 0.9) minTarget = 2;
+                      if (emp.fte >= 1.0) minTarget = 3;
+
+                      if (daysWorkedWeek < minTarget) {
+                          // Boost proportional to how close to end of week we are
+                          score += (dayOfWeek * 500); 
+                      }
+                  }
+
                   // Equity penalty (secondary to block scheduling)
-                  // Prevents one person from doing ALL the work, but only kicks in if blocks are equal
                   score -= (equityStats[emp.id].TotalHours * 5);
 
                   // FTE Bonus: Higher FTEs should be picked first for new blocks
@@ -271,12 +361,12 @@ export const generateMonthlySchedule = async (
           // --- PASS 1: STANDARD (Block Rules & Constraints) ---
           runPass(0);
 
-          // --- PASS 2: RELAXED (Ignore Preference & Saturday Rotation) ---
+          // --- PASS 2: RELAXED (Ignore Preference & Saturday Rotation & Dialysis Consecutive soft limit) ---
           if (currentAssigned < needed) {
               runPass(1);
           }
 
-          // --- PASS 3: FORCE (Ignore 48h limit) ---
+          // --- PASS 3: FORCE (Ignore 48h limit but KEEP Dialysis Weekly Limits) ---
           if (currentAssigned < needed) {
               runPass(2);
           }

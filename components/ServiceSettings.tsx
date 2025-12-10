@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Service, Skill, SkillRequirement, Employee, ServiceAssignment } from '../types';
-import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X, Search, UserPlus, UserMinus, ArrowRight, Filter } from 'lucide-react';
+import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X, Search, UserPlus, UserMinus, ArrowRight, Filter, Scale } from 'lucide-react';
 import * as db from '../services/db';
 
 interface ServiceSettingsProps {
@@ -77,7 +77,7 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
         if (fullReset) {
             setEditName(s.name);
             // Deep copy config with defaults to prevent undefined properties
-            const defaults = { openDays: [1,2,3,4,5,6], requiredSkills: [], shiftTargets: {} };
+            const defaults = { openDays: [1,2,3,4,5,6], requiredSkills: [], shiftTargets: {}, fteConstraintMode: 'NONE' };
             const merged = { ...defaults, ...(s.config || {}) };
             
             setConfig(JSON.parse(JSON.stringify(merged)));
@@ -625,6 +625,30 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                                 onChange={e => setConfig({...config, maxConsecutiveDays: parseInt(e.target.value)})}
                                                 className="w-full p-2 border rounded"
                                             />
+                                        </div>
+
+                                        <div className="pt-4 border-t border-slate-200">
+                                            <h5 className="font-bold text-slate-800 flex items-center gap-2 mb-2">
+                                                <Scale className="w-4 h-4 text-purple-600" />
+                                                Mode Spécifique FTE (Dialyse)
+                                            </h5>
+                                            <div className="bg-purple-50 p-3 rounded-lg border border-purple-100">
+                                                <label className="flex items-center gap-3 cursor-pointer">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={config.fteConstraintMode === 'DIALYSIS_STANDARD'}
+                                                        onChange={(e) => setConfig({...config, fteConstraintMode: e.target.checked ? 'DIALYSIS_STANDARD' : 'NONE'})}
+                                                        className="w-5 h-5 text-purple-600 rounded"
+                                                    />
+                                                    <div>
+                                                        <div className="font-bold text-purple-900 text-sm">Activer les règles de quotité stricte (Dialyse)</div>
+                                                        <ul className="text-xs text-purple-700 mt-1 list-disc list-inside">
+                                                            <li>80% : Entre 2 et 3 jours travaillés (Lun-Sam)</li>
+                                                            <li>100% : Entre 3 et 4 jours travaillés (Lun-Sam)</li>
+                                                        </ul>
+                                                    </div>
+                                                </label>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

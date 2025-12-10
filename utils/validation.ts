@@ -14,6 +14,7 @@ export const checkConstraints = (
     const getDayOfWeek = (d: Date) => d.getDay();
 
     const infirmiers = employees.filter(e => e.role === 'Infirmier');
+    const isDialysisMode = serviceConfig?.fteConstraintMode === 'DIALYSIS_STANDARD';
     
     // 1. Check Daily Staffing Rules
     for (let i = 0; i < days; i++) {
@@ -137,10 +138,12 @@ export const checkConstraints = (
         }
       }
 
-      // B. Weekly Rest (RH) - Simplified checking (per sliding 7 days)
+      // B. Weekly Rest (RH) - Simplified checking (per sliding 7 days) & CONSECUTIVE DAYS
       for (let i = 0; i <= days - 7; i++) {
           let rhCount = 0;
           let totalHours = 0;
+          let consecutiveWorkDays = 0;
+          let maxConsecutiveObserved = 0;
 
           for (let j = 0; j < 7; j++) {
               const d = new Date(startDate);
@@ -148,14 +151,22 @@ export const checkConstraints = (
               const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
               
               const code = emp.shifts[dateStr];
+              const isWork = code && SHIFT_TYPES[code]?.isWork;
+
               // Count all forms of Rest or Absences as "Non-Work" days for the 2-day rest rule
-              if (code && !SHIFT_TYPES[code]?.isWork && code !== 'OFF') {
+              if (code && !isWork && code !== 'OFF') {
                   rhCount++;
               }
               
-              // Sum hours for 48h check
-              totalHours += (SHIFT_HOURS[code] || 0);
+              if (isWork) {
+                  consecutiveWorkDays++;
+                  totalHours += (SHIFT_HOURS[code] || 0);
+              } else {
+                  maxConsecutiveObserved = Math.max(maxConsecutiveObserved, consecutiveWorkDays);
+                  consecutiveWorkDays = 0; // Reset
+              }
           }
+          maxConsecutiveObserved = Math.max(maxConsecutiveObserved, consecutiveWorkDays);
 
           const startWindow = new Date(startDate);
           startWindow.setDate(startWindow.getDate() + i);
@@ -169,6 +180,31 @@ export const checkConstraints = (
                   message: `${emp.name}: Moins de 2 jours de repos/absence sur 7 jours glissants`,
                   severity: 'warning'
               });
+          }
+
+          // Rule: Max Consecutive Days
+          // IF DIALYSIS: STRICT Max 2 days allowed consecutively
+          if (isDialysisMode && maxConsecutiveObserved > 2) {
+              list.push({
+                  employeeId: emp.id,
+                  date: dateLabel,
+                  type: 'CONSECUTIVE_DAYS',
+                  message: `${emp.name} (Dialyse): ${maxConsecutiveObserved} jours consécutifs (Max 2 autorisé)`,
+                  severity: 'error', // Raised to ERROR for Dialysis
+                  priority: 'HIGH'
+              });
+          } else {
+              // STANDARD RULE (Warning only above 6 or config)
+              const maxConsec = serviceConfig?.maxConsecutiveDays || 6;
+              if (!isDialysisMode && maxConsecutiveObserved > maxConsec) {
+                  list.push({
+                      employeeId: emp.id,
+                      date: dateLabel,
+                      type: 'CONSECUTIVE_DAYS',
+                      message: `${emp.name}: ${maxConsecutiveObserved} jours consécutifs (Max ${maxConsec})`,
+                      severity: 'warning'
+                  });
+              }
           }
 
           // Rule: Max 48h on 7 sliding days
@@ -215,56 +251,48 @@ export const checkConstraints = (
          }
       }
 
-      // D. SPECIAL FTE RULE (Dialysis)
-      // 80% FTE => 2 to 3 days worked (Mon-Sat)
-      // 100% FTE => 3 to 4 days worked (Mon-Sat)
-      // We iterate by chunks of weeks (Mon-Sun) within the visible range
-      
-      // Align to first Monday of the current range for analysis
-      const analysisStart = new Date(startDate);
-      const startDay = analysisStart.getDay();
-      const diffToMon = startDay === 0 ? -6 : 1 - startDay; // Adjust to Monday
-      analysisStart.setDate(analysisStart.getDate() + diffToMon);
+      // D. SPECIAL FTE RULE (DIALYSIS STANDARD)
+      // Activated only if fteConstraintMode is set to DIALYSIS_STANDARD
+      if (isDialysisMode) {
+          // Align to first Monday of the current range for analysis
+          const analysisStart = new Date(startDate);
+          const startDay = analysisStart.getDay();
+          const diffToMon = startDay === 0 ? -6 : 1 - startDay; // Adjust to Monday
+          analysisStart.setDate(analysisStart.getDate() + diffToMon);
 
-      // Analyze for 4 weeks ahead from start
-      for (let w = 0; w < Math.ceil(days / 7); w++) {
-          const weekStart = new Date(analysisStart);
-          weekStart.setDate(weekStart.getDate() + (w * 7));
-          
-          // Count worked days Mon-Sat (exclude Sun)
-          let daysWorkedCount = 0;
-          let hasSundayWork = false;
+          // Analyze for 4 weeks ahead from start
+          for (let w = 0; w < Math.ceil(days / 7); w++) {
+              const weekStart = new Date(analysisStart);
+              weekStart.setDate(weekStart.getDate() + (w * 7));
+              
+              // Count worked days Mon-Sat (exclude Sun)
+              let daysWorkedCount = 0;
 
-          for (let d = 0; d < 7; d++) {
-              const current = new Date(weekStart);
-              current.setDate(weekStart.getDate() + d);
-              const dateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
-              const shift = emp.shifts[dateStr];
-              
-              // Only count if within the visible range requested to avoid false positives at edges
-              // (Optional: remove this check if we want strict enforcement even on partial views)
-              
-              if (shift && SHIFT_TYPES[shift]?.isWork) {
-                  if (d < 6) { // Mon (0) to Sat (5) relative to weekStart (Mon)
-                      daysWorkedCount++;
-                  } else if (d === 6) {
-                      hasSundayWork = true; // Sunday is separate
+              for (let d = 0; d < 7; d++) {
+                  const current = new Date(weekStart);
+                  current.setDate(weekStart.getDate() + d);
+                  const dateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+                  const shift = emp.shifts[dateStr];
+                  
+                  if (shift && SHIFT_TYPES[shift]?.isWork) {
+                      if (d < 6) { // Mon (0) to Sat (5) relative to weekStart (Mon)
+                          daysWorkedCount++;
+                      }
                   }
               }
-          }
 
-          // Rule Check
-          // Only check if employee is "Infirmier" (target population)
-          if (emp.role === 'Infirmier') {
               let violationMsg = null;
               
-              if (emp.fte === 0.8) {
+              // 80% FTE Rule: 2 to 3 days (Mon-Sat)
+              if (emp.fte >= 0.8 && emp.fte < 0.9) {
                   if (daysWorkedCount < 2 || daysWorkedCount > 3) {
-                      violationMsg = `${emp.name} (80%): ${daysWorkedCount} jours travaillés (Lun-Sam). Cible: 2 à 3.`;
+                      violationMsg = `${emp.name} (80%): ${daysWorkedCount}j travaillés (Lun-Sam). Cible: 2 à 3.`;
                   }
-              } else if (emp.fte >= 1.0) {
+              } 
+              // 100% FTE Rule: 3 to 4 days (Mon-Sat)
+              else if (emp.fte >= 1.0) {
                   if (daysWorkedCount < 3 || daysWorkedCount > 4) {
-                      violationMsg = `${emp.name} (100%): ${daysWorkedCount} jours travaillés (Lun-Sam). Cible: 3 à 4.`;
+                      violationMsg = `${emp.name} (100%): ${daysWorkedCount}j travaillés (Lun-Sam). Cible: 3 à 4.`;
                   }
               }
 
@@ -274,19 +302,15 @@ export const checkConstraints = (
                       employeeId: emp.id,
                       date: weekStart.toISOString().split('T')[0], // Mark start of week
                       type: 'FTE_MISMATCH',
-                      message: `${violationMsg} [Semaine: ${weekLabel}]`,
-                      severity: 'warning', // Warning because sometimes necessary for service continuity
-                      priority: 'MEDIUM'
+                      message: `${violationMsg} [${weekLabel}]`,
+                      severity: 'warning',
+                      priority: 'HIGH'
                   });
               }
           }
       }
 
     });
-
-    // Filter by Active Rules logic could go here if we passed the full list of active rules to this function.
-    // For now, we return all, and the UI can filter or we assume these are the hardcoded active rules.
-    // The ServiceConfig param allows for extensibility.
 
     return list;
 };

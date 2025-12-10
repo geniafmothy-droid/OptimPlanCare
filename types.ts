@@ -169,6 +169,7 @@ export interface ServiceConfig {
     maxConsecutiveDays?: number; // New rule
     minWeekendGap?: number; // Days between weekends worked
     activeRules?: ValidationRule[]; // List of active rules with priorities
+    fteConstraintMode?: 'NONE' | 'DIALYSIS_STANDARD'; // New: Special logic selector
 }
 
 export interface Service {
