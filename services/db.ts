@@ -235,6 +235,53 @@ export const clearShiftsInRange = async (year: number, month: number, serviceId?
     if (error) throw new Error(error.message);
 };
 
+export const clearLeavesAndNotificationsInRange = async (year: number, month: number) => {
+    const startDate = new Date(year, month, 1);
+    const endDate = new Date(year, month + 1, 0);
+    const startStr = toLocalISOString(startDate);
+    const endStr = toLocalISOString(endDate);
+
+    // 1. Identifier les demandes de congés qui se terminent ou commencent dans ce mois
+    // (Une approximation raisonnable pour nettoyer le mois)
+    const { data: requests, error: reqError } = await supabase
+        .from('leave_requests')
+        .select('id')
+        .or(`start_date.gte.${startStr},end_date.lte.${endStr}`);
+    
+    if (reqError) throw new Error(reqError.message);
+
+    const requestIds = requests?.map(r => r.id) || [];
+
+    // 2. Supprimer les notifications liées à ces demandes
+    if (requestIds.length > 0) {
+        const { error: notifError } = await supabase
+            .from('notifications')
+            .delete()
+            .in('entity_id', requestIds);
+        
+        if (notifError) console.warn("Erreur suppression notifications", notifError);
+
+        // 3. Supprimer les demandes
+        const { error: delReqError } = await supabase
+            .from('leave_requests')
+            .delete()
+            .in('id', requestIds);
+        
+        if (delReqError) throw new Error(delReqError.message);
+    }
+
+    // 4. Supprimer les shifts correspondants aux absences dans la grille
+    const ABSENCE_CODES = ['CA', 'RTT', 'MAL', 'RC', 'HS', 'FO', 'F', 'AT', 'ABS', 'CSS', 'PATER', 'MALADIE'];
+    const { error: shiftError } = await supabase
+        .from('shifts')
+        .delete()
+        .gte('date', startStr)
+        .lte('date', endStr)
+        .in('shift_code', ABSENCE_CODES);
+
+    if (shiftError) throw new Error(shiftError.message);
+};
+
 export const saveLeaveRange = async (employeeId: string, startDate: string, endDate: string, type: ShiftCode) => {
     const start = new Date(startDate);
     const end = new Date(endDate);

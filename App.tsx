@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Heart, AlertTriangle, Moon, Sun, Flag, CalendarClock, Layers, MessageSquare } from 'lucide-react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Heart, AlertTriangle, Moon, Sun, Flag, CalendarClock, Layers, MessageSquare, Eraser } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
 import { StaffingSummary } from './components/StaffingSummary';
 import { StatsPanel } from './components/StatsPanel';
@@ -80,7 +80,7 @@ function App() {
   const [appNotifications, setAppNotifications] = useState<AppNotification[]>([]);
 
   // Generation / Reset Modal State
-  const [actionModal, setActionModal] = useState<{ type: 'GENERATE' | 'RESET', isOpen: boolean } | null>(null);
+  const [actionModal, setActionModal] = useState<{ type: 'GENERATE' | 'RESET' | 'RESET_LEAVES', isOpen: boolean } | null>(null);
   const [actionMonth, setActionMonth] = useState<number>(new Date().getMonth());
   const [actionYear, setActionYear] = useState<number>(new Date().getFullYear());
   
@@ -150,10 +150,14 @@ function App() {
       const allNotifs = await db.fetchNotifications();
       const now = new Date().getTime();
       const filtered = allNotifs.filter(n => {
-          const isTarget = n.recipientRole === 'ALL' || 
-                           n.recipientRole === currentUser?.role ||
-                           (n.recipientId && n.recipientId === currentUser?.employeeId);
+          // Si recipientId est défini, on cible UNIQUEMENT cette personne
+          if (n.recipientId) {
+              return n.recipientId === currentUser?.employeeId;
+          }
+          // Sinon, on utilise le rôle (Broadcast)
+          const isTarget = n.recipientRole === 'ALL' || n.recipientRole === currentUser?.role;
           if (!isTarget) return false;
+          
           if (n.isRead) {
               const notifTime = new Date(n.date).getTime();
               const diffHours = (now - notifTime) / (1000 * 60 * 60);
@@ -230,7 +234,7 @@ function App() {
       e.target.value = '';
   };
 
-  const openActionModal = (type: 'GENERATE' | 'RESET') => {
+  const openActionModal = (type: 'GENERATE' | 'RESET' | 'RESET_LEAVES') => {
       setActionMonth(currentDate.getMonth());
       setActionYear(currentDate.getFullYear());
       setActionModal({ type, isOpen: true });
@@ -249,10 +253,14 @@ function App() {
                await db.bulkSaveSchedule(newEmps);
                await loadData();
                setToast({ message: `Planning de ${monthName} généré avec succès pour ${scopeEmployees.length} employés.`, type: "success" });
-          } else {
+          } else if (actionModal.type === 'RESET') {
                await db.clearShiftsInRange(actionYear, actionMonth, activeServiceId || undefined);
                await loadData();
                setToast({ message: `Planning de ${monthName} réinitialisé ${activeServiceId ? 'pour le service' : 'globalement'}.`, type: "success" });
+          } else if (actionModal.type === 'RESET_LEAVES') {
+               await db.clearLeavesAndNotificationsInRange(actionYear, actionMonth);
+               await loadData();
+               setToast({ message: `Toutes les absences et notifications de ${monthName} ont été supprimées.`, type: "success" });
           }
       } catch (e: any) {
           setToast({ message: e.message, type: "error" });
@@ -753,7 +761,11 @@ function App() {
                            
                            <button onClick={handleCopyPlanning} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Copier M-1"><Copy className="w-4 h-4" /></button>
                            
-                           <button onClick={() => openActionModal('RESET')} className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-800" title="Réinitialiser"><Trash2 className="w-4 h-4" /></button>
+                           <button onClick={() => openActionModal('RESET')} className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-800" title="Réinitialiser Planning"><Trash2 className="w-4 h-4" /></button>
+
+                           {currentUser.role === 'ADMIN' && (
+                               <button onClick={() => openActionModal('RESET_LEAVES')} className="p-2 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/30 rounded-lg border border-orange-200 dark:border-orange-800" title="Réinit. Absences"><Eraser className="w-4 h-4" /></button>
+                           )}
 
                            <div className="h-6 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div>
 
@@ -855,10 +867,12 @@ function App() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setActionModal(null)}>
               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-8 w-[400px] animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
                   <div className="text-center mb-6">
-                      <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 ${actionModal.type === 'GENERATE' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>
-                          {actionModal.type === 'GENERATE' ? <Wand2 className="w-6 h-6" /> : <Trash2 className="w-6 h-6" />}
+                      <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 ${actionModal.type === 'GENERATE' ? 'bg-blue-100 text-blue-600' : (actionModal.type === 'RESET_LEAVES' ? 'bg-orange-100 text-orange-600' : 'bg-red-100 text-red-600')}`}>
+                          {actionModal.type === 'GENERATE' ? <Wand2 className="w-6 h-6" /> : (actionModal.type === 'RESET_LEAVES' ? <Eraser className="w-6 h-6"/> : <Trash2 className="w-6 h-6" />)}
                       </div>
-                      <h3 className="text-xl font-bold text-slate-800 dark:text-white">{actionModal.type === 'GENERATE' ? 'Génération Automatique' : 'Réinitialisation'}</h3>
+                      <h3 className="text-xl font-bold text-slate-800 dark:text-white">
+                          {actionModal.type === 'GENERATE' ? 'Génération Automatique' : (actionModal.type === 'RESET_LEAVES' ? 'Réinitialisation Absences' : 'Réinitialisation Planning')}
+                      </h3>
                       <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">Veuillez confirmer la période cible pour cette action.</p>
                   </div>
                   <div className="space-y-4 mb-6">
@@ -879,9 +893,15 @@ function App() {
                           <span>Attention : Seuls les plannings du service <strong>{activeService.name}</strong> seront effacés.</span>
                       </div>
                   )}
+                  {actionModal.type === 'RESET_LEAVES' && (
+                      <div className="mb-6 p-3 bg-orange-50 dark:bg-orange-900/20 text-orange-800 dark:text-orange-300 text-xs rounded-lg border border-orange-100 dark:border-orange-800 flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                          <span>Attention : Ceci supprimera <strong>toutes les demandes de congés, les validations et les notifications associées</strong> pour ce mois. Cette action est irréversible.</span>
+                      </div>
+                  )}
                   <div className="flex gap-3">
                       <button onClick={() => setActionModal(null)} className="flex-1 py-2.5 text-slate-600 dark:text-slate-300 font-medium hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">Annuler</button>
-                      <button onClick={confirmAction} disabled={isLoading} className={`flex-1 py-2.5 text-white font-medium rounded-lg shadow-sm flex items-center justify-center gap-2 ${actionModal.type === 'GENERATE' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'}`}>
+                      <button onClick={confirmAction} disabled={isLoading} className={`flex-1 py-2.5 text-white font-medium rounded-lg shadow-sm flex items-center justify-center gap-2 ${actionModal.type === 'GENERATE' ? 'bg-blue-600 hover:bg-blue-700' : (actionModal.type === 'RESET_LEAVES' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-red-600 hover:bg-red-700')}`}>
                           {isLoading && <Loader2 className="w-4 h-4 animate-spin" />} Confirmer
                       </button>
                   </div>

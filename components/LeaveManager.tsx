@@ -297,14 +297,53 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                     endDate,
                 }, initialStatus, me);
                 
-                db.createNotification({
-                    recipientRole: recipientRole === 'DG' ? 'ADMIN' : recipientRole,
-                    title: isSickLeave ? 'Arrêt Maladie' : 'Demande de Congés',
-                    message: `${me.name} : ${codeToSave} du ${startDate} au ${endDate}`,
-                    type: isSickLeave ? 'warning' : 'info',
-                    actionType: isSickLeave ? undefined : 'LEAVE_VALIDATION', 
-                    entityId: req.id
-                }).catch(console.warn);
+                // NOTIFICATION TARGETING LOGIC
+                const targetManagers: Employee[] = [];
+
+                // Si la demande est destinée aux cadres, on cherche les cadres du service spécifique
+                if (recipientRole === 'CADRE') {
+                    const empAssignments = assignmentsList.filter(a => a.employeeId === me.id);
+                    if (empAssignments.length > 0) {
+                        const serviceIds = empAssignments.map(a => a.serviceId);
+                        
+                        // Trouver les cadres/managers de ces services
+                        const potentialManagers = assignmentsList
+                            .filter(a => serviceIds.includes(a.serviceId) && a.employeeId !== me.id)
+                            .map(a => employees.find(e => e.id === a.employeeId))
+                            .filter(e => e && (e.role === 'Cadre' || e.role === 'Manager' || e.role === 'Cadre Supérieur')) as Employee[];
+                            
+                        // Dedupliquer
+                        const uniqueManagers = Array.from(new Set(potentialManagers.map(m => m.id)))
+                            .map(id => potentialManagers.find(m => m.id === id)!);
+                            
+                        targetManagers.push(...uniqueManagers);
+                    }
+                }
+
+                if (targetManagers.length > 0) {
+                    // Envoi ciblé aux cadres du service
+                    for (const manager of targetManagers) {
+                        db.createNotification({
+                            recipientRole: 'CADRE', 
+                            recipientId: manager.id, // TARGET SPECIFIC ID
+                            title: isSickLeave ? 'Arrêt Maladie' : 'Demande de Congés',
+                            message: `${me.name} : ${codeToSave} du ${startDate} au ${endDate} (Votre Service)`,
+                            type: isSickLeave ? 'warning' : 'info',
+                            actionType: isSickLeave ? undefined : 'LEAVE_VALIDATION',
+                            entityId: req.id
+                        }).catch(console.warn);
+                    }
+                } else {
+                    // Fallback broadcast (pas de service ou pas de cadre trouvé, ou destinataire = DG/Admin)
+                    db.createNotification({
+                        recipientRole: recipientRole === 'DG' ? 'ADMIN' : recipientRole,
+                        title: isSickLeave ? 'Arrêt Maladie' : 'Demande de Congés',
+                        message: `${me.name} : ${codeToSave} du ${startDate} au ${endDate}`,
+                        type: isSickLeave ? 'warning' : 'info',
+                        actionType: isSickLeave ? undefined : 'LEAVE_VALIDATION', 
+                        entityId: req.id
+                    }).catch(console.warn);
+                }
 
                 if (isSickLeave) {
                     await db.saveLeaveRange(me.id, startDate, endDate, 'MAL');
