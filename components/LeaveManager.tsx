@@ -38,6 +38,11 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
     // Conflict & Force State
     const [conflictWarning, setConflictWarning] = useState<string | null>(null);
     const [forceSubmit, setForceSubmit] = useState(false);
+
+    // Delay Rule State (15 days)
+    const [delayWarning, setDelayWarning] = useState<boolean>(false);
+    const [forceDelay, setForceDelay] = useState(false);
+    const [delayReason, setDelayReason] = useState('');
     
     // Desiderata State (Advanced)
     const [prefStartDate, setPrefStartDate] = useState('');
@@ -155,10 +160,12 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         return requests.filter(r => r.status.startsWith('PENDING') && isEmployeeInScope(r.employeeId));
     }, [requests, userServiceIds]);
 
-    // --- CONFLICT CHECK LOGIC ---
+    // --- RULES LOGIC ---
+    
+    // 1. Check Conflicts (Resources)
     const checkConflicts = (start: string, end: string, type: string) => {
         if (!start || !end || !currentUser.employeeId) return null;
-        if (type === 'MAL' || type === 'NT') return null; 
+        if (type === 'MAL' || type === 'NT' || type === 'AT') return null; 
 
         const me = employees.find(e => e.id === currentUser.employeeId);
         if (!me) return null;
@@ -191,6 +198,26 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         return null;
     };
 
+    // 2. Check Delay (15 Days)
+    const checkDelayRule = (start: string, type: string) => {
+        // Ignore for sickness/accidents
+        if (['MAL', 'AT', 'ABS', 'NT'].includes(type)) return false;
+        
+        if (!start) return false;
+        const today = new Date();
+        // Reset time to avoid hour issues
+        today.setHours(0,0,0,0);
+        
+        const sDate = new Date(start);
+        
+        // Diff in ms
+        const diffTime = sDate.getTime() - today.getTime();
+        // Diff in days
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        return diffDays < 15;
+    };
+
     // --- HELPER: CALCULATE EFFECTIVE DAYS ---
     const getEffectiveDays = (startStr: string, endStr: string) => {
         const start = new Date(startStr);
@@ -206,11 +233,23 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
 
     useEffect(() => {
         if (startDate && endDate) {
+            // Conflict
             const warn = checkConflicts(startDate, endDate, leaveType);
             setConflictWarning(warn);
-            setForceSubmit(false);
+            
+            // Delay
+            const isTooLate = checkDelayRule(startDate, leaveType);
+            setDelayWarning(isTooLate);
+            
+            // Reset force toggles if conditions clear
+            if (!warn) setForceSubmit(false);
+            if (!isTooLate) {
+                setForceDelay(false);
+                setDelayReason('');
+            }
         } else {
             setConflictWarning(null);
+            setDelayWarning(false);
         }
     }, [startDate, endDate, leaveType]);
 
@@ -233,34 +272,42 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
 
             let me = employees.find(e => e.id === currentUser.employeeId);
             if (!me) {
-                 if (currentUser.name) {
-                     me = {
-                         id: currentUser.employeeId,
-                         name: currentUser.name,
-                         role: currentUser.role as any, 
-                         matricule: 'UNKNOWN',
-                         fte: 1,
-                         leaveBalance: 0,
-                         leaveCounters: { CA:0, RTT:0, HS:0, RC:0},
-                         skills: [],
-                         shifts: {}
-                     };
-                 } else {
-                     setMessage({ text: "Erreur critique : Fiche employé introuvable.", type: "error" });
-                     return;
-                 }
+                 // Fallback minimal structure if not found
+                 me = {
+                     id: currentUser.employeeId,
+                     name: currentUser.name || 'Utilisateur',
+                     role: currentUser.role as any, 
+                     matricule: 'UNKNOWN',
+                     fte: 1,
+                     leaveBalance: 0,
+                     leaveCounters: { CA:0, RTT:0, HS:0, RC:0},
+                     skills: [],
+                     shifts: {}
+                 };
             }
 
-            const isSickLeave = leaveType === 'MAL' || leaveType === 'NT';
-            const codeToSave = isSickLeave ? 'MAL' : (leaveType as ShiftCode);
+            const isSickLeave = leaveType === 'MAL' || leaveType === 'NT' || leaveType === 'AT';
+            const codeToSave = isSickLeave ? (leaveType as ShiftCode) : (leaveType as ShiftCode);
             
+            // Validation: Conflict
             if (!isSickLeave && conflictWarning && !forceSubmit) {
-                setMessage({ text: "Veuillez cocher la case pour forcer la demande malgré le conflit.", type: "warning" });
+                setMessage({ text: "Conflit détecté. Cochez 'Forcer' si maintenu.", type: "warning" });
+                return;
+            }
+
+            // Validation: Delay (15 days)
+            if (delayWarning && !forceDelay) {
+                setMessage({ text: "Délai de 15j non respecté. Cochez 'Forcer' et justifiez.", type: "warning" });
+                return;
+            }
+            if (delayWarning && forceDelay && !delayReason.trim()) {
+                setMessage({ text: "Une justification est obligatoire pour le non-respect du délai.", type: "error" });
                 return;
             }
 
             setIsLoading(true);
             
+            // Default Workflow
             let initialStatus: LeaveRequestStatus = 'PENDING_CADRE';
             let recipientRole: UserRole | 'DG' = 'CADRE';
             
@@ -268,7 +315,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                 initialStatus = 'VALIDATED'; 
                 recipientRole = 'CADRE'; 
             } else {
-                if (me.role === 'Infirmier' || me.role === 'Aide-Soignant') {
+                if (me.role === 'Infirmier' || me.role === 'Aide-Soignant' || me.role === 'Agent Administratif') {
                     initialStatus = 'PENDING_CADRE';
                     recipientRole = 'CADRE';
                 } else if (me.role === 'Cadre' || me.role === 'Manager') {
@@ -280,6 +327,12 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                 }
             }
 
+            // Append Justification if forced
+            let comments = '';
+            if (delayWarning && delayReason) {
+                comments = `[FORCE DELAI: ${delayReason}] `;
+            }
+
             if (editingRequestId) {
                 await db.updateLeaveRequest(editingRequestId, {
                     type: codeToSave,
@@ -289,56 +342,59 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                 });
                 setMessage({ text: "Demande mise à jour avec succès.", type: 'success' });
             } else {
+                // CREATE REQUEST
                 const req = await db.createLeaveRequest({
                     employeeId: me.id,
                     employeeName: me.name,
                     type: codeToSave,
                     startDate,
                     endDate,
+                    comments: comments || undefined
                 }, initialStatus, me);
                 
-                // NOTIFICATION TARGETING LOGIC
+                // --- NOTIFICATION TARGETING LOGIC ---
+                // Rule: Only notify Cadres of the SAME service
+                
                 const targetManagers: Employee[] = [];
 
-                // Si la demande est destinée aux cadres, on cherche les cadres du service spécifique
-                if (recipientRole === 'CADRE') {
-                    const empAssignments = assignmentsList.filter(a => a.employeeId === me.id);
-                    if (empAssignments.length > 0) {
-                        const serviceIds = empAssignments.map(a => a.serviceId);
+                // 1. Identify Service of the requester
+                const empAssignments = assignmentsList.filter(a => a.employeeId === me!.id);
+                
+                if (recipientRole === 'CADRE' && empAssignments.length > 0) {
+                    const serviceIds = empAssignments.map(a => a.serviceId);
+                    
+                    // 2. Find Cadres/Managers assigned to these services
+                    const potentialManagers = assignmentsList
+                        .filter(a => serviceIds.includes(a.serviceId) && a.employeeId !== me!.id)
+                        .map(a => employees.find(e => e.id === a.employeeId))
+                        .filter(e => e && (e.role === 'Cadre' || e.role === 'Manager' || e.role === 'Cadre Supérieur')) as Employee[];
                         
-                        // Trouver les cadres/managers de ces services
-                        const potentialManagers = assignmentsList
-                            .filter(a => serviceIds.includes(a.serviceId) && a.employeeId !== me.id)
-                            .map(a => employees.find(e => e.id === a.employeeId))
-                            .filter(e => e && (e.role === 'Cadre' || e.role === 'Manager' || e.role === 'Cadre Supérieur')) as Employee[];
-                            
-                        // Dedupliquer
-                        const uniqueManagers = Array.from(new Set(potentialManagers.map(m => m.id)))
-                            .map(id => potentialManagers.find(m => m.id === id)!);
-                            
-                        targetManagers.push(...uniqueManagers);
-                    }
+                    // Deduplicate
+                    const uniqueManagers = Array.from(new Set(potentialManagers.map(m => m.id)))
+                        .map(id => potentialManagers.find(m => m.id === id)!);
+                        
+                    targetManagers.push(...uniqueManagers);
                 }
 
                 if (targetManagers.length > 0) {
-                    // Envoi ciblé aux cadres du service
+                    // TARGETED NOTIFICATION (By Recipient ID)
                     for (const manager of targetManagers) {
                         db.createNotification({
-                            recipientRole: 'CADRE', 
-                            recipientId: manager.id, // TARGET SPECIFIC ID
+                            recipientRole: 'CADRE', // Fallback role
+                            recipientId: manager.id, // STRICT TARGET
                             title: isSickLeave ? 'Arrêt Maladie' : 'Demande de Congés',
-                            message: `${me.name} : ${codeToSave} du ${startDate} au ${endDate} (Votre Service)`,
+                            message: `${me.name} : ${codeToSave} du ${startDate} au ${endDate} ${delayWarning ? '(Hors Délai)' : ''}`,
                             type: isSickLeave ? 'warning' : 'info',
                             actionType: isSickLeave ? undefined : 'LEAVE_VALIDATION',
                             entityId: req.id
                         }).catch(console.warn);
                     }
                 } else {
-                    // Fallback broadcast (pas de service ou pas de cadre trouvé, ou destinataire = DG/Admin)
+                    // FALLBACK BROADCAST (If no service assigned or destined to Director/Admin)
                     db.createNotification({
                         recipientRole: recipientRole === 'DG' ? 'ADMIN' : recipientRole,
                         title: isSickLeave ? 'Arrêt Maladie' : 'Demande de Congés',
-                        message: `${me.name} : ${codeToSave} du ${startDate} au ${endDate}`,
+                        message: `${me.name} : ${codeToSave} du ${startDate} au ${endDate} ${delayWarning ? '(Hors Délai)' : ''}`,
                         type: isSickLeave ? 'warning' : 'info',
                         actionType: isSickLeave ? undefined : 'LEAVE_VALIDATION', 
                         entityId: req.id
@@ -347,18 +403,22 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
 
                 if (isSickLeave) {
                     await db.saveLeaveRange(me.id, startDate, endDate, 'MAL');
-                    setMessage({ text: "Arrêt maladie enregistré (Code: MAL).", type: 'success' });
+                    setMessage({ text: "Arrêt maladie enregistré.", type: 'success' });
                 } else {
                     setMessage({ text: "Demande envoyée pour validation.", type: 'success' });
                 }
             }
             
+            // Reset Form
             setStartDate('');
             setEndDate('');
             setEditingRequestId(null);
             setLeaveType('CA');
             setForceSubmit(false);
             setConflictWarning(null);
+            setForceDelay(false);
+            setDelayReason('');
+            setDelayWarning(false);
             
             await loadData();
             onReload(); 
@@ -547,6 +607,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
             if (!isRoleMatch) return false;
 
             // 2. Check Service Scope (Strict for Cadre/Director)
+            // The isEmployeeInScope function already checks assignmentsList vs active user's scope
             if (currentUser.role !== 'ADMIN') {
                 return isEmployeeInScope(r.employeeId);
             }
@@ -663,6 +724,12 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                         <div className="bg-slate-50 dark:bg-slate-700 p-3 rounded mb-4 text-sm dark:text-slate-200">
                             <p><strong>{validationModal.req?.employeeName}</strong></p>
                             <p>{validationModal.req?.type} : {validationModal.req?.startDate} au {validationModal.req?.endDate}</p>
+                            {validationModal.req?.comments && validationModal.req.comments.includes('FORCE') && (
+                                <div className="mt-2 p-2 bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200 text-xs rounded border border-orange-200 dark:border-orange-800">
+                                    <AlertTriangle className="w-3 h-3 inline mr-1"/>
+                                    <strong>Demande Forcée :</strong> {validationModal.req.comments}
+                                </div>
+                            )}
                         </div>
 
                         {!validationModal.isApprove && (
@@ -849,6 +916,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                                         <option value="HS">Hors Saison (HS)</option>
                                         <option value="RC">Repos Cycle (RC)</option>
                                         <option value="MAL">Maladie (Arrêt)</option>
+                                        <option value="AT">Accident de Travail (AT)</option>
                                         <option value="FO">Formation (FO)</option>
                                         <option value="F">Férié (F)</option>
                                     </select>
@@ -864,16 +932,48 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                                     </div>
                                 </div>
                                 
-                                {conflictWarning && leaveType !== 'MAL' && (
-                                    <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 p-3 rounded text-sm text-yellow-800 dark:text-yellow-200">
-                                        <div className="flex gap-2 items-start">
-                                            <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                                            <div>{conflictWarning}</div>
-                                        </div>
-                                        <label className="flex items-center gap-2 mt-2 cursor-pointer font-medium">
-                                            <input type="checkbox" checked={forceSubmit} onChange={e => setForceSubmit(e.target.checked)} className="rounded text-yellow-600 focus:ring-yellow-500" />
-                                            Forcer la demande
-                                        </label>
+                                {/* ALERTS: Conflict & Delay */}
+                                {(conflictWarning || delayWarning) && leaveType !== 'MAL' && leaveType !== 'AT' && (
+                                    <div className="space-y-3">
+                                        {conflictWarning && (
+                                            <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 p-3 rounded text-sm text-yellow-800 dark:text-yellow-200">
+                                                <div className="flex gap-2 items-start">
+                                                    <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                                                    <div>{conflictWarning}</div>
+                                                </div>
+                                                <label className="flex items-center gap-2 mt-2 cursor-pointer font-medium">
+                                                    <input type="checkbox" checked={forceSubmit} onChange={e => setForceSubmit(e.target.checked)} className="rounded text-yellow-600 focus:ring-yellow-500" />
+                                                    Forcer la demande
+                                                </label>
+                                            </div>
+                                        )}
+                                        {delayWarning && (
+                                            <div className="bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700 p-3 rounded text-sm text-orange-800 dark:text-orange-200">
+                                                <div className="flex gap-2 items-start font-bold">
+                                                    <Clock className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                                                    <div>Délai de prévenance non respecté ({'<'} 15 jours).</div>
+                                                </div>
+                                                <div className="mt-2 text-xs">Veuillez cocher la case ci-dessous et justifier cette demande tardive.</div>
+                                                
+                                                <label className="flex items-center gap-2 mt-2 cursor-pointer font-medium">
+                                                    <input type="checkbox" checked={forceDelay} onChange={e => setForceDelay(e.target.checked)} className="rounded text-orange-600 focus:ring-orange-500" />
+                                                    Je confirme vouloir forcer cette demande
+                                                </label>
+
+                                                {forceDelay && (
+                                                    <div className="mt-2">
+                                                        <label className="block text-xs font-bold mb-1">Motif obligatoire :</label>
+                                                        <textarea 
+                                                            value={delayReason}
+                                                            onChange={e => setDelayReason(e.target.value)}
+                                                            placeholder="Ex: Urgence familiale, Opportunité dernière minute..."
+                                                            className="w-full p-2 border rounded text-xs dark:bg-slate-800 dark:border-slate-600"
+                                                            required
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
@@ -1168,12 +1268,18 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                                 {requestsToValidate.length === 0 ? <p className="text-slate-400 italic">Rien à valider.</p> : requestsToValidate.map(r => (
                                     <div key={r.id} className="flex justify-between items-center p-3 border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                                         <div>
-                                            <span className="font-bold text-slate-800 dark:text-white">{r.employeeName}</span> 
-                                            <span className="text-slate-500 mx-2">-</span> 
-                                            <span className="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded font-bold">{r.type}</span>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-bold text-slate-800 dark:text-white">{r.employeeName}</span> 
+                                                <span className="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded font-bold">{r.type}</span>
+                                            </div>
                                             <div className="text-xs text-slate-500 mt-1">
                                                 Du {new Date(r.startDate).toLocaleDateString()} au {new Date(r.endDate).toLocaleDateString()}
                                             </div>
+                                            {r.comments && r.comments.includes('FORCE') && (
+                                                <div className="mt-2 text-[10px] text-orange-600 font-bold bg-orange-50 inline-block px-2 py-1 rounded border border-orange-200">
+                                                    ⚠️ {r.comments}
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="flex gap-2">
                                             <button onClick={() => openValidationModal(r, true)} className="flex items-center gap-1 px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded hover:bg-green-100 text-xs font-bold transition-colors">
