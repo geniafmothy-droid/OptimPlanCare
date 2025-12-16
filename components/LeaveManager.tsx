@@ -129,16 +129,15 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         // ADMIN sees all
         if (currentUser.role === 'ADMIN') return true;
         
-        // RELAXED SECURITY: If the current user has NO assignments (e.g. Floating Manager or New Install), 
-        // allow seeing everyone. Otherwise, strict filtering returns empty tables.
-        if (userServiceIds.length === 0) return true;
+        // STRICT SECURITY: If the current user (Manager/Director) is NOT assigned to any service,
+        // they see NOTHING. This prevents "floating" managers from seeing sensitive data.
+        if (userServiceIds.length === 0) return false;
 
         const empServiceIds = assignmentsList
             .filter(a => a.employeeId === empId)
             .map(a => a.serviceId);
         
-        // If the target employee has NO service, they might be visible to global managers?
-        // For now, strict intersection if services exist.
+        // STRICT INTERSECTION: The employee must belong to at least one of the manager's services.
         return empServiceIds.some(id => userServiceIds.includes(id));
     };
 
@@ -434,6 +433,16 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         setPrefDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
     };
 
+    const getPrefLabel = (type: string) => {
+        switch(type) {
+            case 'NO_NIGHT': return 'Pas de Nuit';
+            case 'NO_WORK': return 'Indisponible';
+            case 'MORNING_ONLY': return 'Matin Uniquement';
+            case 'AFTERNOON_ONLY': return 'Soir Uniquement';
+            default: return type;
+        }
+    };
+
     const handleSubmitDesiderata = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!currentUser.employeeId || !prefStartDate || !prefEndDate) return;
@@ -447,7 +456,50 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
                 recurringDays: prefDays,
                 reason: prefReason
             });
-            setMessage({ text: "Souhait enregistré.", type: 'success' });
+
+            // --- NOTIFICATION GENERATION FOR DESIDERATA ---
+            const me = employees.find(e => e.id === currentUser.employeeId);
+            if (me) {
+                const myAssignments = assignmentsList.filter(a => a.employeeId === me.id);
+                const serviceIds = myAssignments.map(a => a.serviceId);
+
+                // Find managers of the employee's services
+                const targetManagers = assignmentsList
+                    .filter(a => serviceIds.includes(a.serviceId) && a.employeeId !== me.id)
+                    .map(a => employees.find(e => e.id === a.employeeId))
+                    .filter(e => e && (e.role === 'Cadre' || e.role === 'Manager' || e.role === 'Directeur')) as Employee[];
+
+                const uniqueManagers = Array.from(new Set(targetManagers.map(m => m.id)))
+                    .map(id => targetManagers.find(m => m.id === id)!);
+
+                const label = getPrefLabel(prefType);
+                const msg = `${me.name} : Souhait ${label} du ${prefStartDate} au ${prefEndDate}`;
+
+                if (uniqueManagers.length > 0) {
+                    for (const manager of uniqueManagers) {
+                        db.createNotification({
+                            recipientRole: 'CADRE',
+                            recipientId: manager.id,
+                            title: 'Nouveau Desiderata',
+                            message: msg,
+                            type: 'info',
+                            actionType: 'LEAVE_VALIDATION' // Use existing flow to open tab
+                        }).catch(console.warn);
+                    }
+                } else {
+                    // Fallback to ADMIN if no manager found
+                    db.createNotification({
+                        recipientRole: 'ADMIN',
+                        title: 'Nouveau Desiderata (Sans Manager)',
+                        message: msg,
+                        type: 'warning',
+                        actionType: 'LEAVE_VALIDATION'
+                    }).catch(console.warn);
+                }
+            }
+            // ----------------------------------------------
+
+            setMessage({ text: "Souhait enregistré et notifié.", type: 'success' });
             setPrefStartDate('');
             setPrefEndDate('');
             setPrefReason('');
@@ -624,7 +676,11 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         return filtered.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     }, [requests, currentUser, valFilterStart, valFilterEnd, userServiceIds]);
 
-    const prefsToValidate = preferences.filter(p => p.status === 'PENDING' && isEmployeeInScope(p.employeeId) && (currentUser.role === 'CADRE' || currentUser.role === 'ADMIN'));
+    const prefsToValidate = preferences.filter(p => 
+        p.status === 'PENDING' && 
+        isEmployeeInScope(p.employeeId) && 
+        (currentUser.role === 'CADRE' || currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR')
+    );
     
     const getPreferencesForMonth = (year: number, month: number) => {
         const startDate = new Date(year, month, 1);
@@ -648,6 +704,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         const empMap = new Map<string, { emp: Employee, prefs: WorkPreference[] }>();
         
         activePrefs.forEach(p => {
+            // viewableEmployees is already filtered by scope
             const emp = viewableEmployees.find(e => e.id === p.employeeId);
             if (emp) {
                 if (!empMap.has(emp.id)) {
@@ -684,16 +741,6 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
             case 'MORNING_ONLY': return <Sun className="w-4 h-4 text-orange-500" />;
             case 'AFTERNOON_ONLY': return <Coffee className="w-4 h-4 text-amber-600" />;
             default: return <Heart className="w-4 h-4 text-pink-500" />;
-        }
-    };
-
-    const getPrefLabel = (type: string) => {
-        switch(type) {
-            case 'NO_NIGHT': return 'Pas de Nuit';
-            case 'NO_WORK': return 'Indisponible';
-            case 'MORNING_ONLY': return 'Matin Uniquement';
-            case 'AFTERNOON_ONLY': return 'Soir Uniquement';
-            default: return type;
         }
     };
 

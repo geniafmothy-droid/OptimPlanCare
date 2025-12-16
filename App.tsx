@@ -92,13 +92,14 @@ function App() {
     loadData();
   }, []);
 
+  // Update notifications when context changes (user, assignments, or employees list)
   useEffect(() => {
     if (currentUser) {
         const interval = setInterval(loadNotifications, 5000);
-        loadNotifications();
+        loadNotifications(); // Immediate call
         return () => clearInterval(interval);
     }
-  }, [currentUser]);
+  }, [currentUser, assignmentsList, employees]);
 
   // Apply Dark Mode Class
   useEffect(() => {
@@ -112,9 +113,7 @@ function App() {
           // 30% chance to show survey on login/load if user is a standard employee
           const shouldShow = Math.random() < 0.3; 
           if (shouldShow) {
-              // Optional: Add logic to check if they already answered recently to avoid spam
-              // For now, simple random trigger
-              setTimeout(() => setIsSurveyOpen(true), 2000); // Delay slightly for better UX
+              setTimeout(() => setIsSurveyOpen(true), 2000); 
           }
       }
   }, [currentUser]);
@@ -133,7 +132,7 @@ function App() {
       setSkillsList(skillsData);
       setServicesList(servicesData);
       setAssignmentsList(assignData);
-      setPreferences(prefsData.filter(p => p.status === 'VALIDATED')); // Only active preferences
+      setPreferences(prefsData.filter(p => p.status === 'VALIDATED')); 
       
       if (servicesData.length > 0 && !activeServiceId) {
           setActiveServiceId(servicesData[0].id);
@@ -147,22 +146,58 @@ function App() {
   };
 
   const loadNotifications = async () => {
+      if (!currentUser) return;
+      
       const allNotifs = await db.fetchNotifications();
       const now = new Date().getTime();
+
+      // 1. Identify User's Service Scope
+      const myServiceIds = assignmentsList
+          .filter(a => a.employeeId === currentUser.employeeId)
+          .map(a => a.serviceId);
+
+      // 2. Build list of names in my scope (to filter legacy broadcast messages)
+      const myTeamNames = new Set<string>();
+      if (['CADRE', 'CADRE_SUP', 'DIRECTOR', 'MANAGER'].includes(currentUser.role)) {
+          const relevantAssignments = assignmentsList.filter(a => myServiceIds.includes(a.serviceId));
+          const relevantEmpIds = relevantAssignments.map(a => a.employeeId);
+          employees.filter(e => relevantEmpIds.includes(e.id)).forEach(e => myTeamNames.add(e.name));
+      }
+
       const filtered = allNotifs.filter(n => {
-          // STRICT FILTERING: If recipientId is set, it MUST match the current user.
-          if (n.recipientId) {
-              return n.recipientId === currentUser?.employeeId;
-          }
-          // If no specific recipient, use Role broadcast
-          const isTarget = n.recipientRole === 'ALL' || n.recipientRole === currentUser?.role;
-          if (!isTarget) return false;
-          
+          // Time filtering (24h) if read
           if (n.isRead) {
               const notifTime = new Date(n.date).getTime();
               const diffHours = (now - notifTime) / (1000 * 60 * 60);
               if (diffHours > 24) return false;
           }
+
+          // A. Targeted Notification (High Priority - Strict Match)
+          if (n.recipientId) {
+              return n.recipientId === currentUser.employeeId;
+          }
+
+          // B. Role Broadcast (Requires Scope Check for Managers)
+          const isRoleMatch = n.recipientRole === 'ALL' || n.recipientRole === currentUser.role;
+          if (!isRoleMatch) return false;
+
+          // Scope Logic for Managers receiving Broadcasts
+          if (['CADRE', 'CADRE_SUP', 'DIRECTOR', 'MANAGER'].includes(currentUser.role)) {
+              // Admin sees everything
+              if (currentUser.role === 'ADMIN') return true;
+
+              // If manager has no service assigned, they see nothing from broadcasts
+              if (myServiceIds.length === 0) return false;
+
+              // If notification has 'actionType', assume it's related to an employee action.
+              // Check if the message contains a name from my team.
+              // This is a heuristic because we don't always have senderId in older notifications.
+              if (n.actionType === 'LEAVE_VALIDATION' || n.type === 'info' || n.type === 'warning') {
+                  const relatesToTeam = Array.from(myTeamNames).some(name => n.message.startsWith(name) || n.title.includes(name));
+                  return relatesToTeam;
+              }
+          }
+
           return true;
       });
       setAppNotifications(filtered);
