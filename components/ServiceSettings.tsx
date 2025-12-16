@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Service, Skill, SkillRequirement, Employee, ServiceAssignment } from '../types';
-import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X, Search, UserPlus, UserMinus, ArrowRight, Filter, Scale } from 'lucide-react';
+import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X, Search, UserPlus, UserMinus, ArrowRight, Filter, Scale, Briefcase } from 'lucide-react';
 import * as db from '../services/db';
 
 interface ServiceSettingsProps {
@@ -280,7 +280,51 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
         return matchesSearch && isAssigned;
     });
 
+    // Separer les cadres/managers du reste de l'équipe
+    const managers = filteredEmployees.filter(e => ['Cadre', 'Manager', 'Directeur', 'Cadre Supérieur'].includes(e.role));
+    const staff = filteredEmployees.filter(e => !managers.includes(e));
+
     const activeMembersCount = allAssignments.filter(a => a.serviceId === selectedServiceId).length;
+
+    const renderEmployeeCard = (emp: Employee) => {
+        const existingAssignment = allAssignments.find(a => a.employeeId === emp.id && a.serviceId === selectedServiceId);
+        const isAssigned = !!existingAssignment;
+        
+        // Check if assigned elsewhere
+        const assignedOther = allAssignments.find(a => a.employeeId === emp.id && a.serviceId !== selectedServiceId);
+        const isManagerRole = ['Cadre', 'Manager', 'Directeur', 'Cadre Supérieur'].includes(emp.role);
+
+        return (
+            <div 
+                key={emp.id} 
+                onClick={() => openAssignmentModal(emp)}
+                className={`p-3 rounded-lg border cursor-pointer flex items-center gap-3 transition-all group ${
+                    isAssigned 
+                    ? (isManagerRole ? 'bg-indigo-50 border-indigo-200 ring-1 ring-indigo-200' : 'bg-green-50 border-green-200 ring-1 ring-green-200')
+                    : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-blue-300'
+                }`}
+            >
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${isAssigned ? (isManagerRole ? 'bg-indigo-600 text-white' : 'bg-green-500 text-white') : 'bg-slate-100 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'}`}>
+                    {isAssigned ? <CheckCircle2 className="w-4 h-4" /> : emp.name.charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <div className={`text-sm font-bold truncate ${isAssigned ? (isManagerRole ? 'text-indigo-900' : 'text-green-800') : 'text-slate-700'}`}>{emp.name}</div>
+                    <div className="text-xs text-slate-500 flex justify-between items-center">
+                        <span>{emp.role}</span>
+                        {isAssigned && (
+                            <span className={`text-[10px] font-medium px-1.5 rounded ${isManagerRole ? 'text-indigo-600 bg-indigo-100' : 'text-green-600 bg-green-100'}`}>
+                                {existingAssignment?.startDate ? new Date(existingAssignment.startDate).toLocaleDateString() : 'Active'}
+                            </span>
+                        )}
+                    </div>
+                    {assignedOther && !isAssigned && <div className="text-orange-500 text-[10px] italic mt-0.5">Déjà affecté ailleurs</div>}
+                </div>
+                <div className="opacity-0 group-hover:opacity-100 text-slate-400">
+                    {isAssigned ? <Settings className="w-4 h-4"/> : <UserPlus className="w-4 h-4"/>}
+                </div>
+            </div>
+        );
+    };
 
     return (
         <div className="flex flex-col md:flex-row gap-6 h-[700px]">
@@ -685,52 +729,36 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                         </div>
                                     </div>
                                     
-                                    <div className="overflow-y-auto p-2">
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                                            {filteredEmployees.map(emp => {
-                                                const existingAssignment = allAssignments.find(a => a.employeeId === emp.id && a.serviceId === selectedServiceId);
-                                                const isAssigned = !!existingAssignment;
-                                                
-                                                // Check if assigned elsewhere
-                                                const assignedOther = allAssignments.find(a => a.employeeId === emp.id && a.serviceId !== selectedServiceId);
-                                                
-                                                return (
-                                                    <div 
-                                                        key={emp.id} 
-                                                        onClick={() => openAssignmentModal(emp)}
-                                                        className={`p-3 rounded-lg border cursor-pointer flex items-center gap-3 transition-all group ${
-                                                            isAssigned 
-                                                            ? 'bg-green-50 border-green-200 ring-1 ring-green-200' 
-                                                            : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-blue-300'
-                                                        }`}
-                                                    >
-                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${isAssigned ? 'bg-green-500 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'}`}>
-                                                            {isAssigned ? <CheckCircle2 className="w-4 h-4" /> : emp.name.charAt(0)}
-                                                        </div>
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className={`text-sm font-bold truncate ${isAssigned ? 'text-green-800' : 'text-slate-700'}`}>{emp.name}</div>
-                                                            <div className="text-xs text-slate-500 flex justify-between items-center">
-                                                                <span>{emp.role}</span>
-                                                                {isAssigned && (
-                                                                    <span className="text-[10px] text-green-600 font-medium bg-green-100 px-1.5 rounded">
-                                                                        {existingAssignment?.startDate ? new Date(existingAssignment.startDate).toLocaleDateString() : 'Active'}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            {assignedOther && !isAssigned && <div className="text-orange-500 text-[10px] italic mt-0.5">Déjà affecté ailleurs</div>}
-                                                        </div>
-                                                        <div className="opacity-0 group-hover:opacity-100 text-slate-400">
-                                                            {isAssigned ? <Settings className="w-4 h-4"/> : <UserPlus className="w-4 h-4"/>}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                            {filteredEmployees.length === 0 && (
-                                                <div className="col-span-full text-center py-8 text-slate-400 italic">
-                                                    {showAllEmployees ? "Aucun employé trouvé." : "Aucun membre affecté. Cliquez sur 'Ajouter / Voir Tout' pour ajouter des membres."}
+                                    <div className="overflow-y-auto p-4 space-y-6">
+                                        {/* SECTION CADRES */}
+                                        {managers.length > 0 && (
+                                            <div>
+                                                <h5 className="font-bold text-indigo-800 mb-3 flex items-center gap-2 text-sm border-b border-indigo-100 pb-1">
+                                                    <Briefcase className="w-4 h-4"/> Encadrement & Validation (Reçoit les demandes)
+                                                </h5>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                                    {managers.map(emp => renderEmployeeCard(emp))}
                                                 </div>
-                                            )}
+                                            </div>
+                                        )}
+
+                                        {/* SECTION EQUIPE */}
+                                        <div>
+                                            <h5 className="font-bold text-slate-700 mb-3 flex items-center gap-2 text-sm border-b border-slate-100 pb-1">
+                                                <Users className="w-4 h-4"/> Équipe Soignante
+                                            </h5>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                                {staff.length > 0 ? staff.map(emp => renderEmployeeCard(emp)) : (
+                                                    <div className="text-slate-400 italic text-sm col-span-3">Aucun membre dans l'équipe.</div>
+                                                )}
+                                            </div>
                                         </div>
+
+                                        {filteredEmployees.length === 0 && (
+                                            <div className="text-center py-8 text-slate-400 italic">
+                                                {showAllEmployees ? "Aucun employé trouvé." : "Aucun membre affecté. Cliquez sur 'Ajouter / Voir Tout' pour ajouter des membres."}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )}

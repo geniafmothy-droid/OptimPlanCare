@@ -150,11 +150,11 @@ function App() {
       const allNotifs = await db.fetchNotifications();
       const now = new Date().getTime();
       const filtered = allNotifs.filter(n => {
-          // Si recipientId est défini, on cible UNIQUEMENT cette personne
+          // STRICT FILTERING: If recipientId is set, it MUST match the current user.
           if (n.recipientId) {
               return n.recipientId === currentUser?.employeeId;
           }
-          // Sinon, on utilise le rôle (Broadcast)
+          // If no specific recipient, use Role broadcast
           const isTarget = n.recipientRole === 'ALL' || n.recipientRole === currentUser?.role;
           if (!isTarget) return false;
           
