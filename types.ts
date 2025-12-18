@@ -3,7 +3,7 @@ export type ShiftCode =
   | 'M' | 'T5' | 'T6' | 'S' | 'IT' | 'NT' | 'CA' | 'RH' | 'FO' | 'ETP' | 'DP' | 'OFF' | 'RC' | 'HS' | 'F' | 'RTT' | 'INT'
   | 'MAL' | 'AT' | 'ABS'; // Added specific absenteeism codes
 
-export type UserRole = 'ADMIN' | 'DIRECTOR' | 'CADRE' | 'INFIRMIER' | 'AIDE_SOIGNANT' | 'MANAGER' | 'CADRE_SUP' | 'AGENT_ADMIN';
+export type UserRole = 'ADMIN' | 'DIRECTOR' | 'CADRE' | 'INFIRMIER' | 'AIDE_SOIGNANT' | 'MANAGER' | 'CADRE_SUP' | 'AGENT_ADMIN' | 'MEDECIN' | 'SECRETAIRE';
 
 export interface ShiftDefinition {
   code: ShiftCode;
@@ -125,7 +125,7 @@ export interface Employee {
   id: string;
   matricule: string;
   name: string;
-  role: 'Infirmier' | 'Aide-Soignant' | 'Cadre' | 'Cadre Supérieur' | 'Manager' | 'Directeur' | 'Intérimaire' | 'Agent Administratif'; 
+  role: 'Infirmier' | 'Aide-Soignant' | 'Cadre' | 'Cadre Supérieur' | 'Manager' | 'Directeur' | 'Intérimaire' | 'Agent Administratif' | 'Médecin' | 'Secrétaire'; 
   systemRole?: UserRole; 
   fte: number; 
   leaveBalance: number; 

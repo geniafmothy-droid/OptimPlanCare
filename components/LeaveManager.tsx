@@ -143,8 +143,18 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
 
     // 3. Filter employees for Calendar/Forecast views
     const viewableEmployees = useMemo(() => {
-        // Base list: Filtered by Sidebar (if any) OR All
-        let baseList = (filteredEmployees && filteredEmployees.length > 0) ? filteredEmployees : employees;
+        let baseList: Employee[];
+
+        // Priority 1: Service Selection (Strict filtering)
+        if (activeServiceId) {
+            baseList = employees.filter(e => 
+                assignmentsList.some(a => a.employeeId === e.id && a.serviceId === activeServiceId)
+            );
+        } 
+        // Priority 2: Global View (filteredEmployees from parent or all)
+        else {
+            baseList = filteredEmployees || employees;
+        }
         
         // Apply Security Scope (Cadre/Director only see their teams)
         if (currentUser.role === 'CADRE' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE_SUP') {
@@ -152,7 +162,7 @@ export const LeaveManager: React.FC<LeaveManagerProps> = ({ employees, filteredE
         }
         
         return baseList;
-    }, [employees, filteredEmployees, userServiceIds, currentUser]);
+    }, [employees, filteredEmployees, userServiceIds, currentUser, activeServiceId, assignmentsList]);
 
     // --- FORECAST DATA PREP ---
     const pendingRequests = useMemo(() => {

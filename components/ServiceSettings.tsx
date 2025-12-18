@@ -1,17 +1,18 @@
 
 import React, { useState, useEffect } from 'react';
-import { Service, Skill, SkillRequirement, Employee, ServiceAssignment } from '../types';
-import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X, Search, UserPlus, UserMinus, ArrowRight, Filter, Scale, Briefcase } from 'lucide-react';
+import { Service, Skill, SkillRequirement, Employee, ServiceAssignment, UserRole } from '../types';
+import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X, Search, UserPlus, UserMinus, ArrowRight, Filter, Scale, Briefcase, History, AlertTriangle } from 'lucide-react';
 import * as db from '../services/db';
 
 interface ServiceSettingsProps {
-    service: Service | null | undefined; // Passed for initial context, but we manage the list here
+    service: Service | null | undefined;
     onReload: () => void;
+    currentUser?: { role: UserRole, employeeId?: string };
 }
 
 type TabType = 'general' | 'rules' | 'members' | 'config';
 
-export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initialService, onReload }) => {
+export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initialService, onReload, currentUser }) => {
     // Global Data State
     const [services, setServices] = useState<Service[]>([]);
     const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
@@ -23,6 +24,10 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
     const [activeTab, setActiveTab] = useState<TabType>('general');
     const [isLoading, setIsLoading] = useState(false);
     const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
+    // Create Service Modal State
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [newServiceName, setNewServiceName] = useState('');
 
     // Editing State (Local Buffer)
     const [editName, setEditName] = useState('');
@@ -86,14 +91,20 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
         }
     };
 
-    const handleCreateService = async () => {
-        const name = prompt("Nom du nouveau service ?");
-        if (!name) return;
+    const handleCreateClick = () => {
+        setNewServiceName('');
+        setIsCreateModalOpen(true);
+    };
+
+    const handleConfirmCreate = async () => {
+        if (!newServiceName.trim()) return;
         setIsLoading(true);
         try {
-            await db.createService(name);
-            await loadAllData(); // Refresh list
+            await db.createService(newServiceName.trim());
+            await loadAllData(); // Refresh local list
+            onReload(); // Refresh global app context (sidebar)
             setNotification({ type: 'success', message: "Service créé avec succès." });
+            setIsCreateModalOpen(false);
         } catch (e: any) {
             setNotification({ type: 'error', message: e.message });
         } finally {
@@ -109,6 +120,7 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
             await db.deleteService(selectedServiceId);
             setSelectedServiceId(null);
             await loadAllData();
+            onReload(); // Refresh global app context
             setNotification({ type: 'success', message: "Service supprimé." });
         } catch (e: any) {
             setNotification({ type: 'error', message: e.message });
@@ -187,8 +199,19 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
 
     // --- MEMBER MANAGEMENT ---
 
+    const isActiveAssignment = (assignment: ServiceAssignment) => {
+        const today = new Date().toISOString().split('T')[0];
+        return !assignment.endDate || assignment.endDate >= today;
+    };
+
     const openAssignmentModal = (emp: Employee) => {
-        const existing = allAssignments.find(a => a.employeeId === emp.id && a.serviceId === selectedServiceId);
+        // Find active assignment for this service
+        const existing = allAssignments.find(a => 
+            a.employeeId === emp.id && 
+            a.serviceId === selectedServiceId &&
+            isActiveAssignment(a)
+        );
+
         setAssignmentModal({
             isOpen: true,
             employee: emp,
@@ -227,7 +250,7 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                 );
                 setNotification({ type: 'success', message: "Membre ajouté au service." });
             }
-            setAssignmentModal({ ...assignmentModal, isOpen: false });
+            setAssignmentModal(prev => ({ ...prev, isOpen: false }));
             await loadAllData();
             onReload();
         } catch (e: any) {
@@ -237,19 +260,41 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
         }
     };
 
-    const handleRemoveAssignment = async () => {
-        if (!assignmentModal.currentAssignment) return;
-        if (!confirm("Retirer ce membre du service ?")) return;
+    // TERMINATE / UNASSIGN LOGIC
+    const handleTerminateAssignment = async (e: React.MouseEvent) => {
+        e.preventDefault(); 
+        e.stopPropagation(); 
+
+        if (!assignmentModal.employee || !selectedServiceId || !assignmentModal.currentAssignment) {
+            alert("Erreur: Données d'affectation introuvables.");
+            return;
+        }
+        
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Confirmation Dialog
+        const confirmed = window.confirm(`Désaffecter ${assignmentModal.employee.name} de ce service ?\n\nLa date de fin sera fixée à aujourd'hui (${today}).`);
+        if (!confirmed) return;
         
         setIsLoading(true);
         try {
-            await db.deleteServiceAssignment(assignmentModal.currentAssignment.id);
-            setNotification({ type: 'success', message: "Membre retiré du service." });
-            setAssignmentModal({ ...assignmentModal, isOpen: false });
+            // Update the End Date to Today
+            await db.updateServiceAssignment(
+                assignmentModal.currentAssignment.id,
+                assignmentModal.employee.id,
+                selectedServiceId,
+                assignmentModal.currentAssignment.startDate, // Keep original start
+                today // Set end to today
+            );
+
+            setNotification({ type: 'success', message: `Affectation terminée au ${today}.` });
+            setAssignmentModal(prev => ({ ...prev, isOpen: false, currentAssignment: null })); 
+            
             await loadAllData();
             onReload();
         } catch (e: any) {
-            alert(e.message);
+            console.error("Terminate Assignment Error:", e);
+            setNotification({ type: 'error', message: "Erreur lors de la désaffectation : " + e.message });
         } finally {
             setIsLoading(false);
         }
@@ -261,7 +306,35 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
         return (
             <div className="p-8 text-center bg-white rounded-xl shadow">
                 <p className="mb-4 text-slate-500">Aucun service configuré.</p>
-                <button onClick={handleCreateService} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 mx-auto"><Plus className="w-4 h-4"/> Créer un service</button>
+                <button onClick={handleCreateClick} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 mx-auto hover:bg-blue-700 transition-colors">
+                    <Plus className="w-4 h-4"/> Créer un service
+                </button>
+                
+                {/* Modal for First Service Creation */}
+                {isCreateModalOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95">
+                            <h3 className="text-lg font-bold text-slate-800 mb-4">Créer un Nouveau Service</h3>
+                            <div className="mb-4">
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nom du service</label>
+                                <input 
+                                    type="text" 
+                                    value={newServiceName} 
+                                    onChange={(e) => setNewServiceName(e.target.value)}
+                                    className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                                    placeholder="ex: Réanimation A"
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="flex justify-end gap-3">
+                                <button onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded text-sm">Annuler</button>
+                                <button onClick={handleConfirmCreate} disabled={!newServiceName.trim() || isLoading} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded text-sm font-bold shadow-sm">
+                                    {isLoading ? 'Création...' : 'Créer'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
@@ -272,26 +345,43 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
     const filteredEmployees = allEmployees.filter(emp => {
         const search = memberSearch.toLowerCase();
         const matchesSearch = emp.name.toLowerCase().includes(search) || emp.matricule.toLowerCase().includes(search);
-        const isAssigned = allAssignments.some(a => a.employeeId === emp.id && a.serviceId === selectedServiceId);
+        
+        // Use helper to check for ACTIVE assignment
+        const isAssignedActive = allAssignments.some(a => 
+            a.employeeId === emp.id && 
+            a.serviceId === selectedServiceId &&
+            isActiveAssignment(a)
+        );
 
         if (showAllEmployees) {
             return matchesSearch;
         }
-        return matchesSearch && isAssigned;
+        return matchesSearch && isAssignedActive;
     });
 
     // Separer les cadres/managers du reste de l'équipe
     const managers = filteredEmployees.filter(e => ['Cadre', 'Manager', 'Directeur', 'Cadre Supérieur'].includes(e.role));
     const staff = filteredEmployees.filter(e => !managers.includes(e));
 
-    const activeMembersCount = allAssignments.filter(a => a.serviceId === selectedServiceId).length;
+    const activeMembersCount = allAssignments.filter(a => 
+        a.serviceId === selectedServiceId && isActiveAssignment(a)
+    ).length;
 
     const renderEmployeeCard = (emp: Employee) => {
-        const existingAssignment = allAssignments.find(a => a.employeeId === emp.id && a.serviceId === selectedServiceId);
+        // Find active assignment
+        const existingAssignment = allAssignments.find(a => 
+            a.employeeId === emp.id && 
+            a.serviceId === selectedServiceId &&
+            isActiveAssignment(a)
+        );
         const isAssigned = !!existingAssignment;
         
-        // Check if assigned elsewhere
-        const assignedOther = allAssignments.find(a => a.employeeId === emp.id && a.serviceId !== selectedServiceId);
+        // Check if assigned elsewhere (active)
+        const assignedOther = allAssignments.find(a => 
+            a.employeeId === emp.id && 
+            a.serviceId !== selectedServiceId &&
+            isActiveAssignment(a)
+        );
         const isManagerRole = ['Cadre', 'Manager', 'Directeur', 'Cadre Supérieur'].includes(emp.role);
 
         return (
@@ -326,12 +416,45 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
         );
     };
 
+    const orderedDays = [1, 2, 3, 4, 5, 6, 0].filter(d => config.openDays?.includes(d));
+
+    // Get history for the modal
+    const getEmployeeHistory = (empId: string) => {
+        return allAssignments.filter(a => a.employeeId === empId).sort((a,b) => b.startDate.localeCompare(a.startDate));
+    };
+
     return (
         <div className="flex flex-col md:flex-row gap-6 h-[700px]">
+            {/* ... Modal and Sidebar Code ... */}
+            {isCreateModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95">
+                        <h3 className="text-lg font-bold text-slate-800 mb-4">Créer un Nouveau Service</h3>
+                        <div className="mb-4">
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nom du service</label>
+                            <input 
+                                type="text" 
+                                value={newServiceName} 
+                                onChange={(e) => setNewServiceName(e.target.value)}
+                                className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                                placeholder="ex: Réanimation A"
+                                autoFocus
+                            />
+                        </div>
+                        <div className="flex justify-end gap-3">
+                            <button onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded text-sm">Annuler</button>
+                            <button onClick={handleConfirmCreate} disabled={!newServiceName.trim() || isLoading} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded text-sm font-bold shadow-sm">
+                                {isLoading ? 'Création...' : 'Créer'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* LEFT SIDEBAR: SERVICE LIST */}
             <div className="w-full md:w-64 bg-white rounded-xl shadow border border-slate-200 flex flex-col overflow-hidden">
                 <div className="p-4 border-b border-slate-200 bg-slate-50">
-                    <button onClick={handleCreateService} className="w-full bg-white border border-blue-200 text-blue-600 px-3 py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-50 shadow-sm transition-colors">
+                    <button onClick={handleCreateClick} className="w-full bg-white border border-blue-200 text-blue-600 px-3 py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-50 shadow-sm transition-colors">
                         <Plus className="w-4 h-4" /> Nouveau Service
                     </button>
                 </div>
@@ -361,10 +484,16 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
             {/* MAIN CONTENT */}
             <div className="flex-1 bg-white rounded-xl shadow border border-slate-200 flex flex-col overflow-hidden relative">
                 
-                {/* ASSIGNMENT MODAL */}
+                {/* ASSIGNMENT MODAL (FIXED POSITION) */}
                 {assignmentModal.isOpen && assignmentModal.employee && (
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95">
+                    <div 
+                        className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+                        onClick={() => setAssignmentModal(prev => ({ ...prev, isOpen: false }))} // Close on backdrop click
+                    >
+                        <div 
+                            className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in zoom-in-95 flex flex-col max-h-[90vh]"
+                            onClick={e => e.stopPropagation()} // Prevent close on modal click
+                        >
                             <div className="flex justify-between items-start mb-4">
                                 <div>
                                     <h3 className="text-lg font-bold text-slate-800">Affectation Service</h3>
@@ -395,12 +524,14 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                 </div>
                             </div>
 
-                            <div className="flex gap-2 justify-end">
+                            <div className="flex gap-2 justify-end mb-4 border-b border-slate-100 pb-4">
                                 {assignmentModal.currentAssignment && (
                                     <button 
-                                        onClick={handleRemoveAssignment} 
+                                        type="button"
+                                        onClick={handleTerminateAssignment} 
                                         disabled={isLoading}
-                                        className="mr-auto px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded text-sm font-medium flex items-center gap-2"
+                                        className="mr-auto px-4 py-2 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 rounded text-sm font-bold flex items-center gap-2 transition-colors"
+                                        title="Mettre fin à l'affectation aujourd'hui"
                                     >
                                         <Trash2 className="w-4 h-4"/> Désaffecter
                                     </button>
@@ -419,6 +550,30 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                     {isLoading ? 'Enregistrement...' : 'Valider'}
                                 </button>
                             </div>
+
+                            {/* ASSIGNMENT HISTORY (ADMIN ONLY) */}
+                            {currentUser?.role === 'ADMIN' && (
+                                <div className="flex-1 overflow-y-auto">
+                                    <h4 className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1">
+                                        <History className="w-3 h-3"/> Historique des affectations
+                                    </h4>
+                                    <div className="space-y-1">
+                                        {getEmployeeHistory(assignmentModal.employee.id).map(assign => {
+                                            const srv = services.find(s => s.id === assign.serviceId);
+                                            const isCurrent = isActiveAssignment(assign);
+                                            return (
+                                                <div key={assign.id} className={`text-xs p-2 rounded flex justify-between border ${isCurrent ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
+                                                    <span className="font-semibold text-slate-700">{srv?.name || 'Service inconnu'}</span>
+                                                    <span className="text-slate-500">
+                                                        {new Date(assign.startDate).toLocaleDateString()} -> {assign.endDate ? new Date(assign.endDate).toLocaleDateString() : 'Actif'}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
+                                        {getEmployeeHistory(assignmentModal.employee.id).length === 0 && <p className="text-xs text-slate-400 italic">Aucun historique.</p>}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -557,14 +712,13 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                         </div>
                                     </div>
 
-                                    {/* Matrice des Objectifs Hebdomadaires */}
+                                    {/* Matrice des Objectifs Hebdomadaires - TRANSPOSED */}
                                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                                         <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-blue-700">
                                             <LayoutGrid className="w-5 h-5" /> Objectifs Journaliers Spécifiques
                                         </h4>
                                         <p className="text-xs text-slate-500 mb-4">
-                                            Définissez ici les exceptions (ex: Le lundi, il faut 2 "S" au lieu de 0). 
-                                            Laissez vide pour utiliser l'effectif min par défaut défini ci-dessus.
+                                            Définissez ici les exceptions. Compétences en lignes, jours ouverts en colonnes.
                                         </p>
                                         
                                         {(!config.requiredSkills || config.requiredSkills.length === 0) ? (
@@ -576,28 +730,25 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                                 <table className="w-full text-sm border-collapse">
                                                     <thead>
                                                         <tr>
-                                                            <th className="p-2 border bg-slate-100 text-left w-32">Jour</th>
-                                                            {config.requiredSkills.map((code: string) => (
-                                                                <th key={code} className="p-2 border bg-slate-50 text-center w-20">
-                                                                    {code}
+                                                            <th className="p-2 border bg-slate-100 text-left w-32 font-bold text-slate-600">Compétence</th>
+                                                            {orderedDays.map(dayIdx => (
+                                                                <th key={dayIdx} className="p-2 border bg-slate-50 text-center w-20">
+                                                                    {daysOfWeek[dayIdx] === 'Dim' ? 'Dimanche' : daysOfWeek[dayIdx]}
                                                                 </th>
                                                             ))}
                                                         </tr>
                                                     </thead>
                                                     <tbody>
-                                                        {[1, 2, 3, 4, 5, 6, 0].map(dayIdx => {
-                                                            const isOpen = config.openDays?.includes(dayIdx);
-                                                            if (!isOpen) return null; // Don't show closed days in matrix
-
+                                                        {config.requiredSkills.map((code: string) => {
+                                                            const defaultVal = config.skillRequirements?.find((r:any) => r.skillCode === code)?.minStaff || 0;
                                                             return (
-                                                                <tr key={dayIdx}>
-                                                                    <td className="p-2 border font-medium text-slate-700">
-                                                                        {daysOfWeek[dayIdx] === 'Dim' ? 'Dimanche' : daysOfWeek[dayIdx]}
+                                                                <tr key={code}>
+                                                                    <td className="p-2 border font-bold text-slate-700 bg-slate-50/50">
+                                                                        {code}
+                                                                        <div className="text-[10px] text-slate-400 font-normal">Min: {defaultVal}</div>
                                                                     </td>
-                                                                    {config.requiredSkills.map((code: string) => {
+                                                                    {orderedDays.map(dayIdx => {
                                                                         const target = config.shiftTargets?.[dayIdx]?.[code];
-                                                                        const defaultVal = config.skillRequirements?.find((r:any) => r.skillCode === code)?.minStaff || 0;
-                                                                        
                                                                         return (
                                                                             <td key={`${dayIdx}-${code}`} className="p-1 border text-center relative group">
                                                                                 <input 
@@ -608,7 +759,6 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                                                                     value={target !== undefined ? target : ''}
                                                                                     onChange={(e) => {
                                                                                         const val = e.target.value === '' ? undefined : parseInt(e.target.value);
-                                                                                        // If val is defined, update. If empty, remove key to fallback to default
                                                                                         if (val === undefined) {
                                                                                             const newTargets = {...config.shiftTargets};
                                                                                             if(newTargets[dayIdx]) {
@@ -627,6 +777,24 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                                             );
                                                         })}
                                                     </tbody>
+                                                    <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300">
+                                                        <tr>
+                                                            <td className="p-2 border-r text-right text-slate-600">TOTAL CIBLE</td>
+                                                            {orderedDays.map(dayIdx => {
+                                                                let dayTotal = 0;
+                                                                config.requiredSkills.forEach((code: string) => {
+                                                                    const specificTarget = config.shiftTargets?.[dayIdx]?.[code];
+                                                                    const defaultVal = config.skillRequirements?.find((r:any) => r.skillCode === code)?.minStaff || 0;
+                                                                    dayTotal += (specificTarget !== undefined ? specificTarget : defaultVal);
+                                                                });
+                                                                return (
+                                                                    <td key={`total-${dayIdx}`} className="p-2 border text-center text-blue-800">
+                                                                        {dayTotal}
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                        </tr>
+                                                    </tfoot>
                                                 </table>
                                             </div>
                                         )}

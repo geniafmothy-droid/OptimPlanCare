@@ -87,6 +87,22 @@ function App() {
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // --- SCOPE & SECURITY MEMOS ---
+  
+  // 1. IDs of services assigned to the current user
+  const myServiceIds = useMemo(() => {
+      if (!currentUser?.employeeId) return [];
+      return assignmentsList
+          .filter(a => a.employeeId === currentUser.employeeId)
+          .map(a => a.serviceId);
+  }, [currentUser, assignmentsList]);
+
+  // 2. Is the user allowed to see everything? (Admin, Director, Cadre Sup)
+  const isGlobalViewer = useMemo(() => {
+      if (!currentUser) return false;
+      return ['ADMIN', 'DIRECTOR', 'CADRE_SUP'].includes(currentUser.role);
+  }, [currentUser]);
+
   // --- Initial Data Load ---
   useEffect(() => {
     loadData();
@@ -134,9 +150,7 @@ function App() {
       setAssignmentsList(assignData);
       setPreferences(prefsData.filter(p => p.status === 'VALIDATED')); 
       
-      if (servicesData.length > 0 && !activeServiceId) {
-          setActiveServiceId(servicesData[0].id);
-      }
+      // Auto-select first service if none selected (logic moved to effect/login)
     } catch (error: any) {
       console.error(error);
       setToast({ message: `Erreur: ${error.message || "Problème de connexion"}`, type: "error" });
@@ -151,14 +165,9 @@ function App() {
       const allNotifs = await db.fetchNotifications();
       const now = new Date().getTime();
 
-      // 1. Identify User's Service Scope
-      const myServiceIds = assignmentsList
-          .filter(a => a.employeeId === currentUser.employeeId)
-          .map(a => a.serviceId);
-
-      // 2. Build list of names in my scope (to filter legacy broadcast messages)
+      // Build list of names in my scope (to filter legacy broadcast messages)
       const myTeamNames = new Set<string>();
-      if (['CADRE', 'CADRE_SUP', 'DIRECTOR', 'MANAGER'].includes(currentUser.role)) {
+      if (!isGlobalViewer && ['CADRE', 'MANAGER'].includes(currentUser.role)) {
           const relevantAssignments = assignmentsList.filter(a => myServiceIds.includes(a.serviceId));
           const relevantEmpIds = relevantAssignments.map(a => a.employeeId);
           employees.filter(e => relevantEmpIds.includes(e.id)).forEach(e => myTeamNames.add(e.name));
@@ -177,21 +186,13 @@ function App() {
               return n.recipientId === currentUser.employeeId;
           }
 
-          // B. Role Broadcast (Requires Scope Check for Managers)
+          // B. Role Broadcast
           const isRoleMatch = n.recipientRole === 'ALL' || n.recipientRole === currentUser.role;
           if (!isRoleMatch) return false;
 
           // Scope Logic for Managers receiving Broadcasts
-          if (['CADRE', 'CADRE_SUP', 'DIRECTOR', 'MANAGER'].includes(currentUser.role)) {
-              // Admin sees everything
-              if (currentUser.role === 'ADMIN') return true;
-
-              // If manager has no service assigned, they see nothing from broadcasts
+          if (!isGlobalViewer && ['CADRE', 'MANAGER'].includes(currentUser.role)) {
               if (myServiceIds.length === 0) return false;
-
-              // If notification has 'actionType', assume it's related to an employee action.
-              // Check if the message contains a name from my team.
-              // This is a heuristic because we don't always have senderId in older notifications.
               if (n.actionType === 'LEAVE_VALIDATION' || n.type === 'info' || n.type === 'warning') {
                   const relatesToTeam = Array.from(myTeamNames).some(name => n.message.startsWith(name) || n.title.includes(name));
                   return relatesToTeam;
@@ -209,9 +210,11 @@ function App() {
       if (employee) {
           const myAssignment = assignmentsList.find(a => a.employeeId === employee.id);
           if (myAssignment) serviceToSelect = myAssignment.serviceId;
-          // If manager/cadre with no assignment, maybe default to first service
-          else if (['CADRE', 'CADRE_SUP', 'MANAGER'].includes(role) && servicesList.length > 0) {
-              serviceToSelect = servicesList[0].id;
+          // If manager/cadre with no assignment, default logic
+          else if (['CADRE', 'MANAGER'].includes(role) && servicesList.length > 0) {
+              // Usually we don't auto-select if not assigned, to force assignment or empty view
+              // But for UX, if list > 0, maybe select first? 
+              // Better to leave blank if restricted.
           }
       }
       setActiveServiceId(serviceToSelect);
@@ -364,6 +367,8 @@ function App() {
       return employees.filter(emp => {
         const roleMatch = selectedRoles.length === 0 || selectedRoles.includes(emp.role);
         const skillMatch = skillFilter === 'all' || emp.skills.includes(skillFilter);
+        
+        // Qualification Match (Active Service)
         let qualificationMatch = true;
         if (showQualifiedOnly && activeService?.config) {
             const reqSkills = activeService.config.requiredSkills || [];
@@ -371,16 +376,44 @@ function App() {
                 qualificationMatch = emp.skills.some(s => reqSkills.includes(s));
             }
         }
+
+        // --- SECURITY & SCOPE FILTERING ---
         let assignmentMatch = true;
+        
         if (activeServiceId) {
+            // Case 1: Specific Service Selected
+            
+            // Is the employee assigned to this service?
             const isAssigned = assignmentsList.some(a => a.employeeId === emp.id && a.serviceId === activeServiceId);
-            if (!isAssigned) {
+            if (!isAssigned) assignmentMatch = false;
+
+            // Security: Can current user view this service?
+            if (!isGlobalViewer && !myServiceIds.includes(activeServiceId)) {
+                // Restricted user trying to view a service they are NOT assigned to -> Block content
                 assignmentMatch = false;
             }
         } else {
-            assignmentMatch = true;
+            // Case 2: Global View (No service selected)
+            
+            if (isGlobalViewer) {
+                // Admin/Director sees everyone (typically everyone assigned to any service, or just everyone)
+                assignmentMatch = true;
+            } else {
+                // Restricted User in "Global View" -> Union of their services
+                // Find services of the employee being checked
+                const empAssignments = assignmentsList.filter(a => a.employeeId === emp.id);
+                const empServiceIds = empAssignments.map(a => a.serviceId);
+                
+                // Check intersection: Do they share at least one service with the current user?
+                const hasCommonService = empServiceIds.some(id => myServiceIds.includes(id));
+                
+                // Always show self
+                if (emp.id === currentUser?.employeeId) assignmentMatch = true;
+                else assignmentMatch = hasCommonService;
+            }
         }
 
+        // --- STATUS & ABSENCE FILTERING ---
         let statusMatch = true;
         let absenceTypeMatch = true;
         
@@ -417,7 +450,7 @@ function App() {
 
         return roleMatch && skillMatch && qualificationMatch && assignmentMatch && statusMatch && absenceTypeMatch;
       });
-  }, [employees, selectedRoles, skillFilter, showQualifiedOnly, activeServiceId, assignmentsList, gridStartDate, gridDuration, statusFilter, absenceTypeFilter, activeService, currentUser]);
+  }, [employees, selectedRoles, skillFilter, showQualifiedOnly, activeServiceId, assignmentsList, gridStartDate, gridDuration, statusFilter, absenceTypeFilter, activeService, currentUser, isGlobalViewer, myServiceIds]);
 
   
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
@@ -529,7 +562,7 @@ function App() {
         <div className="flex items-center gap-3">
           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-slate-600 dark:text-slate-300 rounded hover:bg-slate-100 dark:hover:bg-slate-700 lg:hidden"><Menu className="w-6 h-6" /></button>
           <div className="bg-blue-600 p-2 rounded-lg"><Calendar className="w-5 h-5 text-white" /></div>
-          <div><h1 className="text-lg font-bold text-slate-800 dark:text-white leading-tight hidden sm:block">OptiPlan</h1><p className="text-xs text-slate-500 dark:text-slate-400">{activeService ? activeService.name : 'Vue Globale'}</p></div>
+          <div><h1 className="text-lg font-bold text-slate-800 dark:text-white leading-tight hidden sm:block">OptiPlan</h1><p className="text-xs text-slate-500 dark:text-slate-400">{activeService ? activeService.name : (isGlobalViewer ? 'Vue Globale' : 'Mes Services')}</p></div>
         </div>
         
         <div className="flex items-center gap-2 md:gap-4">
@@ -668,15 +701,21 @@ function App() {
                       
                       {/* NEW SERVICE SELECTOR LIST */}
                       <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                          <button 
-                              onClick={() => setActiveServiceId('')}
-                              className={`w-full text-left p-3 rounded-lg border transition-all ${activeServiceId === '' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:border-slate-600'}`}
-                          >
-                              <div className="font-bold text-sm">Vue Globale</div>
-                              <div className="text-xs opacity-70 mt-1">Tous les services</div>
-                          </button>
+                          {/* GLOBAL VIEW BUTTON: ONLY VISIBLE IF PERMITTED */}
+                          {isGlobalViewer && (
+                              <button 
+                                  onClick={() => setActiveServiceId('')}
+                                  className={`w-full text-left p-3 rounded-lg border transition-all ${activeServiceId === '' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:border-slate-600'}`}
+                              >
+                                  <div className="font-bold text-sm">Vue Globale</div>
+                                  <div className="text-xs opacity-70 mt-1">Tous les services</div>
+                              </button>
+                          )}
 
                           {servicesList.map(s => {
+                              // HIDE SERVICE IF USER IS RESTRICTED AND NOT ASSIGNED
+                              if (!isGlobalViewer && !myServiceIds.includes(s.id)) return null;
+
                               const empCount = assignmentsList.filter(a => a.serviceId === s.id).length;
                               const skillCount = s.config?.requiredSkills?.length || 0;
                               const isActive = activeServiceId === s.id;
@@ -689,10 +728,10 @@ function App() {
                                   >
                                       <div className="font-bold text-sm mb-2">{s.name}</div>
                                       <div className="flex gap-3 text-[10px]">
-                                          <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${isActive ? 'bg-blue-500' : 'bg-slate-900'}`}>
+                                          <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${isActive ? 'bg-white text-blue-900 font-bold shadow-sm' : 'bg-slate-900'}`}>
                                               <Users className="w-3 h-3" /> {empCount}
                                           </div>
-                                          <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${isActive ? 'bg-blue-500' : 'bg-slate-900'}`}>
+                                          <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${isActive ? 'bg-white text-blue-900 font-bold shadow-sm' : 'bg-slate-900'}`}>
                                               <Tag className="w-3 h-3" /> {skillCount}
                                           </div>
                                       </div>
@@ -708,7 +747,7 @@ function App() {
                       <div>
                           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><Briefcase className="w-3 h-3" /> Rôles</h3>
                           <div className="space-y-1">
-                              {['Infirmier', 'Aide-Soignant', 'Cadre', 'Cadre Supérieur', 'Manager', 'Directeur'].map(role => (
+                              {['Infirmier', 'Aide-Soignant', 'Cadre', 'Cadre Supérieur', 'Manager', 'Directeur', 'Médecin', 'Secrétaire'].map(role => (
                                   <label key={role} className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white">
                                       <input type="checkbox" checked={selectedRoles.includes(role)} onChange={() => toggleRoleFilter(role)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />
                                       {role}
@@ -859,7 +898,7 @@ function App() {
                        <RuleSettings />
 
                        {/* 2. SERVICES */}
-                       <ServiceSettings service={activeService} onReload={loadData} />
+                       <ServiceSettings service={activeService} onReload={loadData} currentUser={currentUser} />
                        
                        {/* 3. CODES HORAIRES & ABSENCES */}
                        <ShiftCodeSettings />

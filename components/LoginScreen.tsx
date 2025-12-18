@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Employee, UserRole } from '../types';
-import { ShieldCheck, User, Users, Activity } from 'lucide-react';
+import { ShieldCheck, User, Users, Activity, Stethoscope, FileText } from 'lucide-react';
 
 interface LoginScreenProps {
     employees: Employee[];
@@ -19,10 +19,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ employees, onLogin }) 
     );
     const cadres = employees.filter(e => e.role === 'Cadre' || e.role === 'Manager');
     const directors = employees.filter(e => e.role === 'Directeur');
+    const medecins = employees.filter(e => e.role === 'Médecin');
+    const secretaires = employees.filter(e => e.role === 'Secrétaire');
 
     const getListForRole = () => {
         if (selectedRole === 'CADRE') return cadres;
         if (selectedRole === 'DIRECTOR') return directors;
+        if (selectedRole === 'MEDECIN') return medecins;
+        if (selectedRole === 'SECRETAIRE') return secretaires;
         return infirmiers; // Default bucket for everyone else (Personnel Soignant & Admin)
     };
 
@@ -70,10 +74,22 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ employees, onLogin }) 
                                 <div className="text-xs text-slate-500">Gestion d'équipe</div>
                             </button>
 
+                            <button onClick={() => setSelectedRole('MEDECIN')} className="p-6 border rounded-xl hover:bg-slate-50 hover:border-blue-500 transition-all text-left group">
+                                <Stethoscope className="w-8 h-8 text-teal-600 mb-3 group-hover:scale-110 transition-transform" />
+                                <div className="font-bold text-slate-800">Médecin</div>
+                                <div className="text-xs text-slate-500">Personnel Médical</div>
+                            </button>
+
+                            <button onClick={() => setSelectedRole('SECRETAIRE')} className="p-6 border rounded-xl hover:bg-slate-50 hover:border-blue-500 transition-all text-left group">
+                                <FileText className="w-8 h-8 text-pink-600 mb-3 group-hover:scale-110 transition-transform" />
+                                <div className="font-bold text-slate-800">Secrétaire</div>
+                                <div className="text-xs text-slate-500">Administratif</div>
+                            </button>
+
                             <button onClick={() => setSelectedRole('INFIRMIER')} className="p-6 border rounded-xl hover:bg-slate-50 hover:border-blue-500 transition-all text-left group">
                                 <Activity className="w-8 h-8 text-green-600 mb-3 group-hover:scale-110 transition-transform" />
-                                <div className="font-bold text-slate-800">Équipe & Admin</div>
-                                <div className="text-xs text-slate-500">IDE / AS / Agents / Intérim</div>
+                                <div className="font-bold text-slate-800">Équipe Soignante</div>
+                                <div className="text-xs text-slate-500">IDE / AS / Agents</div>
                             </button>
                         </div>
                     ) : (
@@ -88,7 +104,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ employees, onLogin }) 
                                         onClick={() => onLogin(selectedRole, emp)}
                                         className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-slate-100 border border-transparent hover:border-slate-200 transition-all"
                                     >
-                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${selectedRole === 'CADRE' ? 'bg-blue-500' : selectedRole === 'DIRECTOR' ? 'bg-orange-500' : 'bg-green-500'}`}>
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${
+                                            selectedRole === 'CADRE' ? 'bg-blue-500' : 
+                                            selectedRole === 'DIRECTOR' ? 'bg-orange-500' : 
+                                            selectedRole === 'MEDECIN' ? 'bg-teal-500' : 
+                                            selectedRole === 'SECRETAIRE' ? 'bg-pink-500' : 'bg-green-500'
+                                        }`}>
                                             {emp.name.charAt(0)}
                                         </div>
                                         <div className="text-left">

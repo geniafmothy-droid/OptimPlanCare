@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { UserRole } from '../types';
-import { Users, Edit2, Shield, Briefcase, CheckCircle2, ChevronDown, ChevronUp, Plus, X } from 'lucide-react';
+import { Users, Edit2, Shield, Briefcase, CheckCircle2, ChevronDown, ChevronUp, Plus, X, Stethoscope, FileText } from 'lucide-react';
 
 interface RoleDefinition {
     id: string;
@@ -18,6 +18,8 @@ const DEFAULT_ROLES: RoleDefinition[] = [
     { id: '4', code: 'INFIRMIER', label: 'Infirmier (IDE)', description: 'Personnel soignant qualifié.', isSystem: true },
     { id: '5', code: 'AIDE_SOIGNANT', label: 'Aide-Soignant (AS)', description: 'Personnel soignant assistant.', isSystem: true },
     { id: '6', code: 'AGENT_ADMIN', label: 'Agent Administratif', description: 'Gestion administrative, secrétariat.', isSystem: true },
+    { id: '7', code: 'MEDECIN', label: 'Médecin', description: 'Personnel médical, prescriptions et soins.', isSystem: true },
+    { id: '8', code: 'SECRETAIRE', label: 'Secrétaire', description: 'Accueil, prise de rendez-vous et gestion administrative.', isSystem: true },
 ];
 
 export const RoleSettings: React.FC = () => {
@@ -53,6 +55,25 @@ export const RoleSettings: React.FC = () => {
         setNewDesc('');
     };
 
+    const getRoleIcon = (code: string) => {
+        switch(code) {
+            case 'ADMIN': return <Shield className="w-5 h-5"/>;
+            case 'MEDECIN': return <Stethoscope className="w-5 h-5"/>;
+            case 'SECRETAIRE': return <FileText className="w-5 h-5"/>;
+            case 'AGENT_ADMIN': return <FileText className="w-5 h-5"/>;
+            default: return <Users className="w-5 h-5"/>;
+        }
+    };
+
+    const getRoleColor = (code: string) => {
+        switch(code) {
+            case 'ADMIN': return 'bg-purple-100 text-purple-600';
+            case 'MEDECIN': return 'bg-teal-100 text-teal-600';
+            case 'SECRETAIRE': return 'bg-pink-100 text-pink-600';
+            default: return 'bg-blue-100 text-blue-600';
+        }
+    };
+
     return (
         <div className={`bg-white rounded-xl shadow border border-slate-200 overflow-hidden flex flex-col transition-all ${isExpanded ? 'max-h-[800px]' : 'h-16'}`}>
             <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
@@ -78,8 +99,8 @@ export const RoleSettings: React.FC = () => {
                     {roles.map(role => (
                         <div key={role.id} className="border rounded-lg p-4 flex items-center justify-between hover:shadow-md transition-all">
                             <div className="flex items-center gap-4">
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${role.code === 'ADMIN' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
-                                    {role.code === 'ADMIN' ? <Shield className="w-5 h-5"/> : <Users className="w-5 h-5"/>}
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${getRoleColor(role.code)}`}>
+                                    {getRoleIcon(role.code)}
                                 </div>
                                 <div>
                                     <div className="font-bold text-slate-800 text-sm">{role.label} <span className="text-xs text-slate-400 font-normal">({role.code})</span></div>

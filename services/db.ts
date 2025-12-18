@@ -88,6 +88,13 @@ export const deleteServiceAssignment = async (id: string) => {
     if (error) throw new Error(error.message);
 };
 
+// New helper for robust deletion
+export const deleteServiceAssignmentByComposite = async (employeeId: string, serviceId: string) => {
+    // Using explicit .eq chains instead of .match for better compatibility
+    const { error } = await supabase.from('service_assignments').delete().eq('employee_id', employeeId).eq('service_id', serviceId);
+    if (error) throw new Error(error.message);
+};
+
 // --- Skills Management ---
 export const fetchSkills = async (): Promise<Skill[]> => {
     const { data, error } = await supabase.from('skills').select('*').order('code');
@@ -140,7 +147,9 @@ const normalizeRole = (rawRole: string): Employee['role'] => {
     if (/^direct/i.test(r)) return 'Directeur';
     if (/^manager/i.test(r)) return 'Manager';
     if (/^int[eé]rim/i.test(r)) return 'Intérimaire';
-    if (/^agent/i.test(r) || /^admin/i.test(r) || /^secr[eé]taire/i.test(r)) return 'Agent Administratif';
+    if (/^m[eé]decin/i.test(r) || /^dr/i.test(r) || /^docteur/i.test(r)) return 'Médecin';
+    if (/^secr[eé]taire/i.test(r)) return 'Secrétaire';
+    if (/^agent/i.test(r) || /^admin/i.test(r)) return 'Agent Administratif';
     return (r.charAt(0).toUpperCase() + r.slice(1)) as any;
 };
 
@@ -462,7 +471,6 @@ export const fetchWorkPreferences = async (): Promise<WorkPreference[]> => {
     const { data, error } = await supabase.from('work_preferences').select('*');
     if (error) {
         if(error.code !== '42P01') console.error("Fetch Preferences Error:", error.message);
-        // Don't throw, just return empty to allow app to load
         return [];
     }
     return data.map((p: any) => ({
@@ -571,7 +579,6 @@ export const fetchSurveyResponses = async () => {
         .order('date', { ascending: false });
     
     if (error) {
-        // Table missing (42P01) or Relation missing (PGRST200)
         if (error.code === '42P01' || error.code === 'PGRST200') {
             console.warn(`Fetch Survey: Table or relation issue (${error.code}). Returning empty list.`);
             return [];

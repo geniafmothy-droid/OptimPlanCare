@@ -162,6 +162,8 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
                         <option value="Aide-Soignant">Aide-Soignant</option>
                         <option value="Cadre">Cadre</option>
                         <option value="Directeur">Directeur</option>
+                        <option value="Médecin">Médecin</option>
+                        <option value="Secrétaire">Secrétaire</option>
                         <option value="Agent Administratif">Agent Administratif</option>
                     </select>
                 </div>
@@ -270,6 +272,8 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
                                                 <option value="Cadre">Cadre</option>
                                                 <option value="Manager">Manager</option>
                                                 <option value="Directeur">Directeur</option>
+                                                <option value="Médecin">Médecin</option>
+                                                <option value="Secrétaire">Secrétaire</option>
                                                 <option value="Intérimaire">Intérimaire</option>
                                                 <option value="Agent Administratif">Agent Administratif</option>
                                             </select>
