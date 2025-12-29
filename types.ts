@@ -229,3 +229,13 @@ export interface HazardEvent {
     impactedEmployeeId?: string; // If absence
     resolution?: string;
 }
+
+// Added GuardArchive interface used in services/db.ts
+export interface GuardArchive {
+    id: string;
+    year: number;
+    month: number;
+    data: any;
+    archivedAt: string;
+    archivedBy: string;
+}

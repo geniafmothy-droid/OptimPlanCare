@@ -63,25 +63,38 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
         setEditingEmp({
             matricule: '',
             name: '',
-            role: (availableRoles.length > 0 ? availableRoles.find(r => r.code === 'INFIRMIER')?.label : 'Infirmier') as any,
+            role: 'Infirmier',
             fte: 1.0,
             skills: [],
             shifts: {},
-            leaveCounters: { CA: 25, RTT: 0, HS: 0, RC: 0 }
+            leaveCounters: { CA: 25, RTT: 0, HS: 0, RC: 0 },
+            leaveBalance: 0
         });
         setIsCreating(true);
         setIsModalOpen(true);
     };
 
     const handleSave = async () => {
-        if (!editingEmp || !editingEmp.name || !editingEmp.matricule) return;
+        if (!editingEmp || !editingEmp.name?.trim() || !editingEmp.matricule?.trim()) {
+            alert("Le nom et le matricule sont obligatoires.");
+            return;
+        }
+
         setIsSaving(true);
         try {
-            await db.upsertEmployee(editingEmp as Employee);
+            // S'assurer que les valeurs numériques sont propres
+            const empToSave = {
+                ...editingEmp,
+                fte: Number(editingEmp.fte) || 1.0,
+                leaveBalance: Number(editingEmp.leaveBalance) || 0
+            } as Employee;
+
+            await db.upsertEmployee(empToSave);
             setIsModalOpen(false);
             onReload();
         } catch (error: any) {
-            alert("Échec : " + error.message);
+            console.error("Save Error:", error);
+            alert("Erreur lors de l'enregistrement : " + error.message);
         } finally {
             setIsSaving(false);
         }
@@ -171,50 +184,50 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
                 </div>
             )}
 
-            {!isReadOnly && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto pb-20">
-                    {filteredEmployees.map(emp => {
-                        const empServices = getEmployeeServices(emp.id);
-                        return (
-                            <div key={emp.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 hover:shadow-md transition-shadow group relative">
-                                <div className="flex items-start justify-between mb-3">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold">
-                                            {emp.name.charAt(0)}
-                                        </div>
-                                        <div>
-                                            <div className="font-bold text-slate-800 line-clamp-1" title={emp.name}>{emp.name}</div>
-                                            <div className="text-xs text-slate-500 font-mono">{emp.matricule}</div>
-                                        </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto pb-20">
+                {filteredEmployees.map(emp => {
+                    const empServices = getEmployeeServices(emp.id);
+                    return (
+                        <div key={emp.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 hover:shadow-md transition-shadow group relative">
+                            <div className="flex items-start justify-between mb-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold">
+                                        {emp.name.charAt(0)}
                                     </div>
+                                    <div>
+                                        <div className="font-bold text-slate-800 line-clamp-1" title={emp.name}>{emp.name}</div>
+                                        <div className="text-xs text-slate-500 font-mono">{emp.matricule}</div>
+                                    </div>
+                                </div>
+                                {!isReadOnly && (
                                     <button onClick={() => handleDelete(emp.id)} className="p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <Trash2 className="w-4 h-4" />
                                     </button>
-                                </div>
-                                <div className="space-y-2 text-sm text-slate-600">
-                                    <div className="flex items-center gap-2">
-                                        <Briefcase className="w-3.5 h-3.5 text-slate-400" />
-                                        <span className="font-medium">{emp.role}</span>
-                                    </div>
-                                    <div className="flex items-start gap-2">
-                                        <Store className="w-3.5 h-3.5 text-slate-400 mt-0.5" />
-                                        <span className="text-xs font-semibold text-blue-600 line-clamp-1">
-                                            {empServices.length > 0 ? empServices.join(', ') : 'Non affecté'}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <Percent className="w-3.5 h-3.5 text-slate-400" />
-                                        <span>{Math.round(emp.fte * 100)}%</span>
-                                    </div>
-                                </div>
-                                <button onClick={() => handleEdit(emp)} className="mt-4 w-full py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 text-sm font-medium rounded-lg border border-slate-200 flex items-center justify-center gap-2 transition-colors">
-                                    <Edit2 className="w-3.5 h-3.5" /> Modifier
-                                </button>
+                                )}
                             </div>
-                        );
-                    })}
-                </div>
-            )}
+                            <div className="space-y-2 text-sm text-slate-600">
+                                <div className="flex items-center gap-2">
+                                    <Briefcase className="w-3.5 h-3.5 text-slate-400" />
+                                    <span className="font-medium">{emp.role}</span>
+                                </div>
+                                <div className="flex items-start gap-2">
+                                    <Store className="w-3.5 h-3.5 text-slate-400 mt-0.5" />
+                                    <span className="text-xs font-semibold text-blue-600 line-clamp-1">
+                                        {empServices.length > 0 ? empServices.join(', ') : 'Non affecté'}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Percent className="w-3.5 h-3.5 text-slate-400" />
+                                    <span>{Math.round(emp.fte * 100)}%</span>
+                                </div>
+                            </div>
+                            <button onClick={() => handleEdit(emp)} className="mt-4 w-full py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 text-sm font-medium rounded-lg border border-slate-200 flex items-center justify-center gap-2 transition-colors">
+                                <Edit2 className="w-3.5 h-3.5" /> {isReadOnly ? 'Consulter' : 'Modifier'}
+                            </button>
+                        </div>
+                    );
+                })}
+            </div>
 
             {isModalOpen && editingEmp && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -224,7 +237,7 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
                                 {isCreating ? <Plus className="w-5 h-5 text-blue-600"/> : <Edit2 className="w-5 h-5 text-blue-600"/>}
                                 {isCreating ? 'Nouvel Employé' : `Fiche : ${editingEmp.name}`}
                             </h3>
-                            {!isReadOnly && <button onClick={() => setIsModalOpen(false)}><X className="w-6 h-6 text-slate-400 hover:text-slate-600" /></button>}
+                            <button onClick={() => setIsModalOpen(false)}><X className="w-6 h-6 text-slate-400 hover:text-slate-600" /></button>
                         </div>
                         <div className="flex-1 overflow-y-auto p-6">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -235,15 +248,21 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="col-span-2">
                                             <label className="block text-sm font-medium text-slate-700 mb-1">Nom Complet</label>
-                                            <input type="text" value={editingEmp.name} onChange={e => !isReadOnly && setEditingEmp({...editingEmp, name: e.target.value})} disabled={isReadOnly} className="w-full p-2 border rounded-lg"/>
+                                            <input type="text" value={editingEmp.name || ''} onChange={e => !isReadOnly && setEditingEmp({...editingEmp, name: e.target.value})} disabled={isReadOnly} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"/>
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-slate-700 mb-1">Matricule</label>
-                                            <input type="text" value={editingEmp.matricule} onChange={e => !isReadOnly && setEditingEmp({...editingEmp, matricule: e.target.value})} disabled={isReadOnly} className="w-full p-2 border rounded-lg font-mono"/>
+                                            <input type="text" value={editingEmp.matricule || ''} onChange={e => !isReadOnly && setEditingEmp({...editingEmp, matricule: e.target.value})} disabled={isReadOnly} className="w-full p-2 border rounded-lg font-mono focus:ring-2 focus:ring-blue-500 outline-none"/>
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-slate-700 mb-1">Fonction</label>
-                                            <select value={editingEmp.role} onChange={e => !isReadOnly && setEditingEmp({...editingEmp, role: e.target.value as any})} disabled={isReadOnly} className="w-full p-2 border rounded-lg bg-white">
+                                            <select 
+                                                value={editingEmp.role || ''} 
+                                                onChange={e => !isReadOnly && setEditingEmp({...editingEmp, role: e.target.value as any})} 
+                                                disabled={isReadOnly} 
+                                                className="w-full p-2 border rounded-lg bg-white outline-none"
+                                            >
+                                                <option value="" disabled>Sélectionner...</option>
                                                 {availableRoles.map(role => (
                                                     <option key={role.id} value={role.label}>{role.label}</option>
                                                 ))}
@@ -254,7 +273,7 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-2">Quotité (FTE)</label>
                                         <div className="flex items-center gap-4">
-                                            <input type="range" min="0.1" max="1.0" step="0.1" value={editingEmp.fte} onChange={e => !isReadOnly && setEditingEmp({...editingEmp, fte: parseFloat(e.target.value)})} disabled={isReadOnly} className="flex-1"/>
+                                            <input type="range" min="0.1" max="1.0" step="0.1" value={editingEmp.fte || 1.0} onChange={e => !isReadOnly && setEditingEmp({...editingEmp, fte: parseFloat(e.target.value)})} disabled={isReadOnly} className="flex-1"/>
                                             <span className="font-bold text-blue-600 w-12 text-right">{Math.round((editingEmp.fte || 1) * 100)}%</span>
                                         </div>
                                     </div>
@@ -295,7 +314,7 @@ export const TeamManager: React.FC<TeamManagerProps> = ({ employees, allSkills, 
                             <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
                                 <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg text-sm font-medium">Annuler</button>
                                 <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm">
-                                    {isSaving ? '...' : <><Save className="w-4 h-4" /> Enregistrer</>}
+                                    {isSaving ? <Plus className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Enregistrer
                                 </button>
                             </div>
                         )}
