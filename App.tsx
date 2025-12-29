@@ -149,8 +149,6 @@ function App() {
       setServicesList(servicesData);
       setAssignmentsList(assignData);
       setPreferences(prefsData.filter(p => p.status === 'VALIDATED')); 
-      
-      // Auto-select first service if none selected (logic moved to effect/login)
     } catch (error: any) {
       console.error(error);
       setToast({ message: `Erreur: ${error.message || "Problème de connexion"}`, type: "error" });
@@ -210,12 +208,6 @@ function App() {
       if (employee) {
           const myAssignment = assignmentsList.find(a => a.employeeId === employee.id);
           if (myAssignment) serviceToSelect = myAssignment.serviceId;
-          // If manager/cadre with no assignment, default logic
-          else if (['CADRE', 'MANAGER'].includes(role) && servicesList.length > 0) {
-              // Usually we don't auto-select if not assigned, to force assignment or empty view
-              // But for UX, if list > 0, maybe select first? 
-              // Better to leave blank if restricted.
-          }
       }
       setActiveServiceId(serviceToSelect);
       setCurrentUser({
@@ -223,11 +215,7 @@ function App() {
           employeeId: employee?.id,
           name: employee ? employee.name : (role === 'ADMIN' ? 'Administrateur' : 'Directeur / Directrice')
       });
-      if (role === 'INFIRMIER' || role === 'AIDE_SOIGNANT') {
-          setActiveTab('planning');
-      } else {
-          setActiveTab('planning');
-      }
+      setActiveTab('planning');
       setToast({ message: `Bienvenue, ${employee ? employee.name : role}`, type: "success" });
   };
 
@@ -381,33 +369,19 @@ function App() {
         let assignmentMatch = true;
         
         if (activeServiceId) {
-            // Case 1: Specific Service Selected
-            
-            // Is the employee assigned to this service?
             const isAssigned = assignmentsList.some(a => a.employeeId === emp.id && a.serviceId === activeServiceId);
             if (!isAssigned) assignmentMatch = false;
 
-            // Security: Can current user view this service?
             if (!isGlobalViewer && !myServiceIds.includes(activeServiceId)) {
-                // Restricted user trying to view a service they are NOT assigned to -> Block content
                 assignmentMatch = false;
             }
         } else {
-            // Case 2: Global View (No service selected)
-            
             if (isGlobalViewer) {
-                // Admin/Director sees everyone (typically everyone assigned to any service, or just everyone)
                 assignmentMatch = true;
             } else {
-                // Restricted User in "Global View" -> Union of their services
-                // Find services of the employee being checked
                 const empAssignments = assignmentsList.filter(a => a.employeeId === emp.id);
                 const empServiceIds = empAssignments.map(a => a.serviceId);
-                
-                // Check intersection: Do they share at least one service with the current user?
                 const hasCommonService = empServiceIds.some(id => myServiceIds.includes(id));
-                
-                // Always show self
                 if (emp.id === currentUser?.employeeId) assignmentMatch = true;
                 else assignmentMatch = hasCommonService;
             }
@@ -547,7 +521,6 @@ function App() {
       
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       
-      {/* SATISFACTION SURVEY MODAL */}
       <SatisfactionSurveyModal 
           isOpen={isSurveyOpen} 
           onClose={() => setIsSurveyOpen(false)} 
@@ -556,9 +529,7 @@ function App() {
 
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
 
-      {/* HEADER ... (rest of header identical) */}
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 h-16 flex items-center justify-between px-4 md:px-6 shadow-sm sticky top-0 z-40 no-print">
-        {/* ... Header Content ... */}
         <div className="flex items-center gap-3">
           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-slate-600 dark:text-slate-300 rounded hover:bg-slate-100 dark:hover:bg-slate-700 lg:hidden"><Menu className="w-6 h-6" /></button>
           <div className="bg-blue-600 p-2 rounded-lg"><Calendar className="w-5 h-5 text-white" /></div>
@@ -579,14 +550,12 @@ function App() {
                    </div>
                </div>
            )}
-           {/* ... rest of header buttons ... */}
            <div className="h-6 w-px bg-slate-300 dark:bg-slate-600 mx-1 hidden md:block"></div>
            <div className="flex items-center gap-3">
              <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 text-slate-600 dark:text-yellow-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">
                  {isDarkMode ? <Sun className="w-5 h-5"/> : <Moon className="w-5 h-5"/>}
              </button>
              
-             {/* Notifs etc */}
              <div className="relative">
                  <button onClick={() => setIsNotifOpen(!isNotifOpen)} className="p-2 relative rounded-full hover:bg-slate-100 dark:hover:bg-slate-700">
                      <Bell className="w-5 h-5 text-slate-600 dark:text-slate-300" />
@@ -631,9 +600,7 @@ function App() {
       </header>
       
       <div className="flex-1 flex overflow-hidden relative">
-        {/* SIDEBAR ... (identical) */}
         <aside className={`fixed lg:static inset-y-0 left-0 z-50 bg-slate-900 text-white border-r border-slate-700 flex flex-col overflow-y-auto transition-all duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'} ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-72'} w-72 no-print lg:shadow-none`}>
-          {/* ... Sidebar Navigation ... */}
           <div className="hidden lg:flex justify-end p-2 border-b border-slate-800">
              <button onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
                  {isSidebarCollapsed ? <ChevronRight className="w-5 h-5"/> : <ChevronLeft className="w-5 h-5"/>}
@@ -650,7 +617,6 @@ function App() {
                 {!isSidebarCollapsed && <span>Cycles & Horaires</span>}
             </button>
             
-            {/* ... other tabs ... */}
             {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP' || currentUser.role === 'MANAGER') && (
                 <>
                 <button onClick={() => setActiveTab('scenarios')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'scenarios' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Scénarios" : ""}>
@@ -693,15 +659,11 @@ function App() {
             )}
           </nav>
           
-          {/* ... Sidebar Filters ... (Same as original) */}
           {!isSidebarCollapsed && (
               <div className="p-4 space-y-6 animate-in fade-in duration-300">
                   <div>
                       <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2"><Store className="w-3 h-3" /> Service</h3>
-                      
-                      {/* NEW SERVICE SELECTOR LIST */}
                       <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                          {/* GLOBAL VIEW BUTTON: ONLY VISIBLE IF PERMITTED */}
                           {isGlobalViewer && (
                               <button 
                                   onClick={() => setActiveServiceId('')}
@@ -713,13 +675,10 @@ function App() {
                           )}
 
                           {servicesList.map(s => {
-                              // HIDE SERVICE IF USER IS RESTRICTED AND NOT ASSIGNED
                               if (!isGlobalViewer && !myServiceIds.includes(s.id)) return null;
-
                               const empCount = assignmentsList.filter(a => a.serviceId === s.id).length;
                               const skillCount = s.config?.requiredSkills?.length || 0;
                               const isActive = activeServiceId === s.id;
-
                               return (
                                   <button
                                       key={s.id}
@@ -741,13 +700,11 @@ function App() {
                       </div>
                   </div>
                   
-                  {/* FILTERS */}
                   <div className="space-y-4">
-                      {/* ROLES */}
                       <div>
                           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><Briefcase className="w-3 h-3" /> Rôles</h3>
                           <div className="space-y-1">
-                              {['Infirmier', 'Aide-Soignant', 'Cadre', 'Cadre Supérieur', 'Manager', 'Directeur', 'Médecin', 'Secrétaire'].map(role => (
+                              {['Infirmier', 'Aide-Soignant', 'Cadre', 'Cadre Supérieur', 'Manager', 'Directeur', 'Médecin', 'Secrétaire', 'Sage-Femme'].map(role => (
                                   <label key={role} className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white">
                                       <input type="checkbox" checked={selectedRoles.includes(role)} onChange={() => toggleRoleFilter(role)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />
                                       {role}
@@ -756,7 +713,6 @@ function App() {
                           </div>
                       </div>
 
-                      {/* COMPETENCES */}
                       <div>
                           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><CheckSquare className="w-3 h-3" /> Compétences</h3>
                           <select value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} className="w-full p-2 bg-slate-800 border border-slate-700 rounded text-sm mb-2 text-slate-200 outline-none">
@@ -768,36 +724,6 @@ function App() {
                               Qualifiés uniquement
                           </label>
                       </div>
-
-                      {/* STATUT */}
-                      <div>
-                          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Statut (Période)</h3>
-                          <div className="flex flex-wrap gap-1">
-                              <button onClick={() => setStatusFilter('all')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'all' ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>
-                                  <Users className="w-3 h-3" /> Tous
-                              </button>
-                              <button onClick={() => setStatusFilter('present')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'present' ? 'bg-green-600 text-white border-green-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>
-                                  <UserCheck className="w-3 h-3" /> Présents
-                              </button>
-                              <button onClick={() => setStatusFilter('absent')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'absent' ? 'bg-red-600 text-white border-red-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>
-                                  <UserX className="w-3 h-3" /> Absents
-                              </button>
-                              <button onClick={() => setStatusFilter('holiday')} className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all ${statusFilter === 'holiday' ? 'bg-amber-500 text-white border-amber-500' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>
-                                  <Flag className="w-3 h-3" /> Fériés
-                              </button>
-                          </div>
-                      </div>
-
-                      {/* ABSENCE TYPES */}
-                      <div>
-                          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Type d'absence</h3>
-                          <div className="flex flex-wrap gap-1">
-                              <button onClick={() => setAbsenceTypeFilter('all')} className={`px-2 py-1 rounded-full text-xs border ${absenceTypeFilter === 'all' ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>Tous</button>
-                              {['CA', 'RTT', 'MAL', 'RH', 'RC', 'HS', 'FO', 'F'].map(code => (
-                                  <button key={code} onClick={() => setAbsenceTypeFilter(code)} className={`px-2 py-1 rounded-full text-xs border ${absenceTypeFilter === code ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>{code}</button>
-                              ))}
-                          </div>
-                      </div>
                   </div>
               </div>
           )}
@@ -806,9 +732,7 @@ function App() {
         <main className="flex-1 overflow-hidden flex flex-col relative bg-slate-50/50 dark:bg-slate-900/50">
            {activeTab === 'planning' && (
              <>
-               {/* Planning specific header and grid */}
                <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-2 flex items-center gap-2 justify-between flex-wrap no-print">
-                  {/* ... (View mode buttons) ... */}
                   <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700 p-1 rounded-lg">
                       <button onClick={() => setViewMode('month')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'month' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Mois</button>
                       <button onClick={() => setViewMode('week')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'week' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Semaine</button>
@@ -832,17 +756,12 @@ function App() {
                            <button onClick={handlePrint} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Imprimer"><Printer className="w-4 h-4" /></button>
                            <button onClick={handleExportCSV} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Export CSV"><Download className="w-4 h-4" /></button>
                            <button onClick={handleImportClick} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Import CSV"><Upload className="w-4 h-4" /></button>
-                           
                            <button onClick={handleCopyPlanning} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Copier M-1"><Copy className="w-4 h-4" /></button>
-                           
                            <button onClick={() => openActionModal('RESET')} className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-800" title="Réinitialiser Planning"><Trash2 className="w-4 h-4" /></button>
-
                            {currentUser.role === 'ADMIN' && (
                                <button onClick={() => openActionModal('RESET_LEAVES')} className="p-2 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/30 rounded-lg border border-orange-200 dark:border-orange-800" title="Réinit. Absences"><Eraser className="w-4 h-4" /></button>
                            )}
-
                            <div className="h-6 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div>
-
                            <button onClick={() => setIsHazardOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-medium hover:bg-amber-600 shadow-sm transition-colors">
                               <AlertTriangle className="w-3.5 h-3.5" />
                               <span className="hidden sm:inline">Gérer Aléa</span>
@@ -856,7 +775,6 @@ function App() {
                   </div>
                </div>
 
-               {/* ... (rest of App.tsx remains the same) ... */}
                <div className="flex-1 overflow-hidden flex flex-col p-4">
                   <div className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm overflow-hidden flex flex-col">
                      <ScheduleGrid 
@@ -868,7 +786,7 @@ function App() {
                         onRangeSelect={handleRangeSelect}
                         highlightNight={highlightNight} 
                         highlightedViolations={violationHighlights}
-                        preferences={preferences} // Pass preferences for visual cues
+                        preferences={preferences} 
                      />
                   </div>
                   {(viewMode !== 'hourly' && viewMode !== 'day') && <div className="mt-4"><StaffingSummary employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} /></div>}
@@ -887,26 +805,26 @@ function App() {
            {activeTab === 'cycles' && <CycleViewer employees={filteredEmployees} currentUser={currentUser} />}
            {activeTab === 'attractivity' && <AttractivityPanel />}
            {activeTab === 'stats' && <StatsPanel employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />}
-           {activeTab === 'team' && <TeamManager employees={employees} allSkills={skillsList} currentUser={currentUser} onReload={loadData} />}
+           {activeTab === 'team' && (
+              <TeamManager 
+                  employees={employees} 
+                  allSkills={skillsList} 
+                  currentUser={currentUser} 
+                  onReload={loadData} 
+                  services={servicesList}
+                  assignments={assignmentsList}
+              />
+           )}
            {activeTab === 'leaves' && <LeaveManager employees={employees} filteredEmployees={filteredEmployees} onReload={loadData} currentUser={currentUser} activeServiceId={activeServiceId} assignmentsList={assignmentsList} serviceConfig={activeService?.config} />}
            {activeTab === 'surveys' && <SurveyResults />}
            {activeTab === 'settings' && (
                <div className="p-6 max-w-6xl mx-auto space-y-8 w-full overflow-y-auto">
                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Paramètres Généraux</h2>
                    <div className="flex flex-col gap-6">
-                       {/* 1. REGLES METIER */}
                        <RuleSettings />
-
-                       {/* 2. SERVICES */}
                        <ServiceSettings service={activeService} onReload={loadData} currentUser={currentUser} />
-                       
-                       {/* 3. CODES HORAIRES & ABSENCES */}
                        <ShiftCodeSettings />
-
-                       {/* 4. COMPETENCES & HORAIRES */}
                        <SkillsSettings skills={skillsList} onReload={loadData} />
-
-                       {/* 5. ROLES & FONCTIONS */}
                        <RoleSettings />
                    </div>
                </div>
@@ -934,7 +852,6 @@ function App() {
         </div>
       )}
 
-      {/* Hazard, Action Modal... (rest of modals same as original) */}
       {isHazardOpen && <HazardManager isOpen={isHazardOpen} onClose={() => setIsHazardOpen(false)} employees={filteredEmployees} currentDate={currentDate} onResolve={() => { loadData(); setToast({message: 'Aléa résolu', type: 'success'})}} />}
 
       {actionModal && (

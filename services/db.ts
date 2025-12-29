@@ -1,6 +1,6 @@
 
 import { supabase } from '../lib/supabase';
-import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus, WorkPreference, SurveyResponse } from '../types';
+import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus, WorkPreference, SurveyResponse, RoleDefinition } from '../types';
 import { MOCK_EMPLOYEES } from '../constants';
 
 // --- System Diagnostics ---
@@ -20,7 +20,6 @@ export const checkConnection = async (): Promise<{ success: boolean; latency: nu
 export const fetchServices = async (): Promise<Service[]> => {
     const { data, error } = await supabase.from('services').select('*').order('name');
     if (error) { 
-        // Table might not exist yet in fresh instance
         if (error.code === '42P01') return []; 
         console.error("Fetch Services Error:", error.message);
         return []; 
@@ -88,9 +87,7 @@ export const deleteServiceAssignment = async (id: string) => {
     if (error) throw new Error(error.message);
 };
 
-// New helper for robust deletion
 export const deleteServiceAssignmentByComposite = async (employeeId: string, serviceId: string) => {
-    // Using explicit .eq chains instead of .match for better compatibility
     const { error } = await supabase.from('service_assignments').delete().eq('employee_id', employeeId).eq('service_id', serviceId);
     if (error) throw new Error(error.message);
 };
@@ -136,6 +133,34 @@ export const deleteSkill = async (id: string) => {
     if (error) throw new Error(error.message);
 };
 
+// --- Roles Management ---
+export const fetchRoles = async (): Promise<RoleDefinition[]> => {
+    const { data, error } = await supabase.from('roles').select('*').order('label');
+    if (error) {
+        if (error.code === '42P01') return [
+            { id: '1', code: 'ADMIN', label: 'Administrateur', description: 'Accès total', isSystem: true },
+            { id: '2', code: 'DIRECTOR', label: 'Directeur / Directrice', description: 'Validation finale', isSystem: true },
+            { id: '3', code: 'CADRE', label: 'Cadre de Santé', description: 'Gestion équipe', isSystem: true },
+            { id: '4', code: 'INFIRMIER', label: 'Infirmier', description: 'Personnel soignant', isSystem: true },
+            { id: '5', code: 'AIDE_SOIGNANT', label: 'Aide-Soignant', description: 'Assistant soignant', isSystem: true },
+            { id: '9', code: 'SAGE_FEMME', label: 'Sage-Femme', description: 'Maïeutique', isSystem: true }
+        ];
+        return [];
+    }
+    return data || [];
+};
+
+export const upsertRole = async (role: RoleDefinition) => {
+    const { error } = await supabase.from('roles').upsert({
+        id: role.id.startsWith('custom') ? undefined : role.id,
+        code: role.code,
+        label: role.label,
+        description: role.description,
+        is_system: role.isSystem
+    });
+    if (error) throw new Error(error.message);
+};
+
 // --- Employee & Shift Management ---
 
 const normalizeRole = (rawRole: string): Employee['role'] => {
@@ -149,6 +174,7 @@ const normalizeRole = (rawRole: string): Employee['role'] => {
     if (/^int[eé]rim/i.test(r)) return 'Intérimaire';
     if (/^m[eé]decin/i.test(r) || /^dr/i.test(r) || /^docteur/i.test(r)) return 'Médecin';
     if (/^secr[eé]taire/i.test(r)) return 'Secrétaire';
+    if (/^sage[- ]femme/i.test(r) || /^sf/i.test(r)) return 'Sage-Femme';
     if (/^agent/i.test(r) || /^admin/i.test(r)) return 'Agent Administratif';
     return (r.charAt(0).toUpperCase() + r.slice(1)) as any;
 };
@@ -159,7 +185,6 @@ export const fetchEmployeesWithShifts = async (): Promise<Employee[]> => {
     .order('name');
 
   if (empError) {
-      // Handle known table errors gracefully
       if(empError.code === '42P01') return [];
       throw new Error("Impossible de charger les employés : " + empError.message);
   }
@@ -250,8 +275,6 @@ export const clearLeavesAndNotificationsInRange = async (year: number, month: nu
     const startStr = toLocalISOString(startDate);
     const endStr = toLocalISOString(endDate);
 
-    // 1. Identifier les demandes de congés qui se terminent ou commencent dans ce mois
-    // (Une approximation raisonnable pour nettoyer le mois)
     const { data: requests, error: reqError } = await supabase
         .from('leave_requests')
         .select('id')
@@ -261,7 +284,6 @@ export const clearLeavesAndNotificationsInRange = async (year: number, month: nu
 
     const requestIds = requests?.map(r => r.id) || [];
 
-    // 2. Supprimer les notifications liées à ces demandes
     if (requestIds.length > 0) {
         const { error: notifError } = await supabase
             .from('notifications')
@@ -270,7 +292,6 @@ export const clearLeavesAndNotificationsInRange = async (year: number, month: nu
         
         if (notifError) console.warn("Erreur suppression notifications", notifError);
 
-        // 3. Supprimer les demandes
         const { error: delReqError } = await supabase
             .from('leave_requests')
             .delete()
@@ -279,7 +300,6 @@ export const clearLeavesAndNotificationsInRange = async (year: number, month: nu
         if (delReqError) throw new Error(delReqError.message);
     }
 
-    // 4. Supprimer les shifts correspondants aux absences dans la grille
     const ABSENCE_CODES = ['CA', 'RTT', 'MAL', 'RC', 'HS', 'FO', 'F', 'AT', 'ABS', 'CSS', 'PATER', 'MALADIE'];
     const { error: shiftError } = await supabase
         .from('shifts')
@@ -399,7 +419,8 @@ export const bulkImportEmployees = async (employees: Employee[]) => {
                  name: emp.name, 
                  role: emp.role, 
                  fte: emp.fte, 
-                 leave_balance: emp.leaveBalance,
+                 // Fix: Access leaveBalance instead of leave_balance on Employee object
+                 leave_balance: emp.leaveBalance, 
                  leave_data: { counters: emp.leaveCounters, history: emp.leaveData?.history || [] }, 
                  skills: emp.skills
              }, { onConflict: 'matricule' }).select().single();
@@ -486,11 +507,16 @@ export const fetchWorkPreferences = async (): Promise<WorkPreference[]> => {
     }));
 };
 
+/**
+ * Creates a new work preference record in the database.
+ * @param pref The preference data without ID and status.
+ */
 export const createWorkPreference = async (pref: Omit<WorkPreference, 'id' | 'status'>) => {
     const { error } = await supabase.from('work_preferences').insert([{
             employee_id: pref.employeeId, 
             start_date: pref.startDate, 
             end_date: pref.endDate,
+            // Fixed property name error: changed pref.recurring_days to pref.recurringDays
             recurring_days: pref.recurringDays, 
             type: pref.type, 
             reason: pref.reason, 

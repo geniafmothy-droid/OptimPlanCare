@@ -4,17 +4,36 @@ import { ShiftDefinition } from '../types';
 import { SHIFT_TYPES } from '../constants';
 import { Palette, Edit2, ChevronDown, ChevronUp, Clock, AlertTriangle, X, Check, Trash2, Save, Plus } from 'lucide-react';
 
+const PRESET_BG_COLORS = [
+    'bg-blue-100', 'bg-blue-200', 'bg-blue-400', 
+    'bg-green-100', 'bg-green-200', 'bg-emerald-200',
+    'bg-red-100', 'bg-red-200', 'bg-red-600',
+    'bg-orange-100', 'bg-orange-300', 'bg-orange-400',
+    'bg-yellow-100', 'bg-amber-200', 
+    'bg-purple-100', 'bg-indigo-200',
+    'bg-pink-100', 'bg-rose-200',
+    'bg-slate-100', 'bg-slate-200', 'bg-white', 'bg-black'
+];
+
+const PRESET_TEXT_COLORS = [
+    'text-blue-900', 'text-blue-600',
+    'text-green-900', 'text-green-600',
+    'text-red-900', 'text-red-600',
+    'text-orange-900',
+    'text-amber-900',
+    'text-purple-900',
+    'text-slate-900', 'text-slate-600', 'text-slate-400',
+    'text-white', 'text-gray-300'
+];
+
 export const ShiftCodeSettings: React.FC = () => {
     const [isExpanded, setIsExpanded] = useState(true);
-    // Local state for UI demo purposes (since constant file is read-only in browser)
     const [codes, setCodes] = useState<ShiftDefinition[]>(Object.values(SHIFT_TYPES));
     
-    // Edit/Create Modal State
     const [editingCode, setEditingCode] = useState<ShiftDefinition | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
 
-    // Form fields
     const [formCode, setFormCode] = useState('');
     const [formLabel, setFormLabel] = useState('');
     const [formDesc, setFormDesc] = useState('');
@@ -90,7 +109,6 @@ export const ShiftCodeSettings: React.FC = () => {
             setCodes([...codes, newCode]);
         } else {
             if (!editingCode) return;
-            // Update local list
             setCodes(prev => prev.map(c => c.code === editingCode.code ? {
                 ...c,
                 label: formLabel,
@@ -108,11 +126,10 @@ export const ShiftCodeSettings: React.FC = () => {
         setIsModalOpen(false);
         setEditingCode(null);
         setIsCreating(false);
-        alert(isCreating ? "Nouveau code créé." : "Modifications enregistrées.");
     };
 
     const handleDelete = (code: string) => {
-        if (confirm(`Êtes-vous sûr de vouloir supprimer le code "${code}" ?\nAttention : Cela peut impacter l'historique des plannings.`)) {
+        if (confirm(`Supprimer le code "${code}" ?`)) {
             setCodes(prev => prev.filter(c => c.code !== code));
         }
     };
@@ -140,13 +157,13 @@ export const ShiftCodeSettings: React.FC = () => {
             <div className={`flex-1 overflow-y-auto p-0 ${!isExpanded && 'hidden'}`}>
                 <div className="p-4 bg-blue-50 border-b border-blue-100 text-xs text-blue-800 flex gap-2">
                     <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                    <span>Ces codes sont utilisés pour la génération du planning et le calcul des heures. Les modifications impactent tout l'historique.</span>
+                    <span>Ces codes sont utilisés pour la génération du planning et le calcul des heures.</span>
                 </div>
                 <table className="w-full text-sm text-left">
                     <thead className="bg-slate-50 text-slate-500 uppercase font-medium text-xs sticky top-0 z-10">
                         <tr>
                             <th className="px-6 py-3 w-20 text-center">Code</th>
-                            <th className="px-6 py-3">Libellé & Description</th>
+                            <th className="px-6 py-3">Libellé</th>
                             <th className="px-6 py-3">Type</th>
                             <th className="px-6 py-3">Horaires</th>
                             <th className="px-6 py-3 w-24 text-right">Action</th>
@@ -174,8 +191,7 @@ export const ShiftCodeSettings: React.FC = () => {
                                 <td className="px-6 py-4">
                                     {def.isWork && def.duration ? (
                                         <div className="flex flex-col text-xs text-slate-600">
-                                            <div className="flex items-center gap-1"><Clock className="w-3 h-3"/> {def.duration}h (Pause: {def.breakDuration}h)</div>
-                                            {def.startHour && <div>Plage: {def.startHour}h - {def.endHour}h</div>}
+                                            <div className="flex items-center gap-1"><Clock className="w-3 h-3"/> {def.duration}h</div>
                                         </div>
                                     ) : (
                                         <span className="text-slate-300">-</span>
@@ -183,20 +199,8 @@ export const ShiftCodeSettings: React.FC = () => {
                                 </td>
                                 <td className="px-6 py-4 text-right">
                                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button 
-                                            onClick={() => handleEditClick(def)}
-                                            className="p-1.5 hover:bg-slate-100 rounded text-slate-400 hover:text-blue-600 transition-colors"
-                                            title="Modifier"
-                                        >
-                                            <Edit2 className="w-4 h-4" />
-                                        </button>
-                                        <button 
-                                            onClick={() => handleDelete(def.code)}
-                                            className="p-1.5 hover:bg-red-50 rounded text-slate-400 hover:text-red-600 transition-colors"
-                                            title="Supprimer"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
+                                        <button onClick={() => handleEditClick(def)} className="p-1.5 hover:bg-slate-100 rounded text-slate-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>
+                                        <button onClick={() => handleDelete(def.code)} className="p-1.5 hover:bg-red-50 rounded text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                                     </div>
                                 </td>
                             </tr>
@@ -205,40 +209,26 @@ export const ShiftCodeSettings: React.FC = () => {
                 </table>
             </div>
 
-            {/* MODAL EDIT / CREATE */}
             {isModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl p-6 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center mb-6 border-b pb-4">
                             <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
                                 {isCreating ? <Plus className="w-5 h-5 text-blue-600"/> : <Edit2 className="w-5 h-5 text-blue-600"/>}
                                 {isCreating ? 'Créer un nouveau Code' : `Modifier : ${editingCode?.code}`}
                             </h3>
-                            <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                                <X className="w-5 h-5"/>
-                            </button>
+                            <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
                         </div>
 
-                        <div className="space-y-4">
+                        <div className="space-y-6">
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Code (ex: CM)</label>
-                                    <input 
-                                        type="text" 
-                                        value={formCode} 
-                                        onChange={e => setFormCode(e.target.value.toUpperCase())} 
-                                        className="w-full p-2 border rounded font-bold uppercase"
-                                        disabled={!isCreating}
-                                        maxLength={5}
-                                    />
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Code</label>
+                                    <input type="text" value={formCode} onChange={e => setFormCode(e.target.value.toUpperCase())} className="w-full p-2 border rounded font-bold uppercase" disabled={!isCreating} maxLength={5}/>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Type d'activité</label>
-                                    <select 
-                                        value={formIsWork ? 'WORK' : 'ABSENCE'} 
-                                        onChange={e => setFormIsWork(e.target.value === 'WORK')}
-                                        className="w-full p-2 border rounded bg-white"
-                                    >
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Type</label>
+                                    <select value={formIsWork ? 'WORK' : 'ABSENCE'} onChange={e => setFormIsWork(e.target.value === 'WORK')} className="w-full p-2 border rounded bg-white">
                                         <option value="ABSENCE">Absence / Repos</option>
                                         <option value="WORK">Travail / Poste</option>
                                     </select>
@@ -246,36 +236,53 @@ export const ShiftCodeSettings: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Libellé (ex: Congé Maternité)</label>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Libellé</label>
                                 <input type="text" value={formLabel} onChange={e => setFormLabel(e.target.value)} className="w-full p-2 border rounded"/>
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Description</label>
-                                <input type="text" value={formDesc} onChange={e => setFormDesc(e.target.value)} className="w-full p-2 border rounded"/>
-                            </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            {/* NUANCIER COULEURS */}
+                            <div className="space-y-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Couleur Fond (Tailwind)</label>
-                                    <input type="text" value={formColor} onChange={e => setFormColor(e.target.value)} className="w-full p-2 border rounded font-mono text-xs" placeholder="bg-blue-200"/>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Couleur de fond</label>
+                                    <div className="grid grid-cols-6 sm:grid-cols-11 gap-2">
+                                        {PRESET_BG_COLORS.map(c => (
+                                            <button 
+                                                key={c} 
+                                                onClick={() => setFormColor(c)}
+                                                className={`w-8 h-8 rounded border-2 transition-all ${c} ${formColor === c ? 'border-blue-600 scale-110 shadow-md' : 'border-transparent hover:scale-105'}`}
+                                                title={c}
+                                            />
+                                        ))}
+                                    </div>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Couleur Texte (Tailwind)</label>
-                                    <input type="text" value={formTextColor} onChange={e => setFormTextColor(e.target.value)} className="w-full p-2 border rounded font-mono text-xs" placeholder="text-blue-900"/>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Couleur du texte</label>
+                                    <div className="grid grid-cols-6 sm:grid-cols-7 gap-2">
+                                        {PRESET_TEXT_COLORS.map(c => (
+                                            <button 
+                                                key={c} 
+                                                onClick={() => setFormTextColor(c)}
+                                                className={`w-8 h-8 rounded border-2 flex items-center justify-center transition-all bg-white ${c} ${formTextColor === c ? 'border-blue-600 scale-110 shadow-md' : 'border-slate-200 hover:scale-105'}`}
+                                                title={c}
+                                            >
+                                                Ab
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
-
-                            <div className="p-3 bg-slate-50 rounded border border-slate-200 flex justify-center">
-                                <div className={`w-16 h-10 flex items-center justify-center rounded font-bold text-sm shadow-sm ${formColor} ${formTextColor}`}>
-                                    {formCode || 'APERÇU'}
+                                <div className="flex items-center gap-4 pt-2 border-t border-slate-200">
+                                    <span className="text-xs font-bold text-slate-500 uppercase">Aperçu :</span>
+                                    <div className={`px-4 py-2 rounded font-bold text-sm shadow-sm min-w-[60px] text-center ${formColor} ${formTextColor}`}>
+                                        {formCode || 'ABC'}
+                                    </div>
                                 </div>
                             </div>
                             
                             {formIsWork && (
-                                <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded border border-slate-200">
+                                <div className="grid grid-cols-2 gap-3 bg-blue-50/50 p-3 rounded border border-blue-100">
                                     <div className="col-span-2 text-xs font-bold text-blue-600 mb-1 border-b border-blue-200 pb-1">Paramètres Horaires</div>
                                     <div>
-                                        <label className="block text-[10px] uppercase text-slate-500">Durée Totale (h)</label>
+                                        <label className="block text-[10px] uppercase text-slate-500">Durée (h)</label>
                                         <input type="number" step="0.5" value={formDuration} onChange={e => setFormDuration(parseFloat(e.target.value))} className="w-full p-1 border rounded"/>
                                     </div>
                                     <div>
@@ -283,11 +290,11 @@ export const ShiftCodeSettings: React.FC = () => {
                                         <input type="number" step="0.5" value={formBreak} onChange={e => setFormBreak(parseFloat(e.target.value))} className="w-full p-1 border rounded"/>
                                     </div>
                                     <div>
-                                        <label className="block text-[10px] uppercase text-slate-500">Début (ex: 7.5 pour 7h30)</label>
+                                        <label className="block text-[10px] uppercase text-slate-500">Début (ex: 7.5)</label>
                                         <input type="number" step="0.5" value={formStart} onChange={e => setFormStart(parseFloat(e.target.value))} className="w-full p-1 border rounded"/>
                                     </div>
                                     <div>
-                                        <label className="block text-[10px] uppercase text-slate-500">Fin (ex: 15.0 pour 15h)</label>
+                                        <label className="block text-[10px] uppercase text-slate-500">Fin (ex: 15.0)</label>
                                         <input type="number" step="0.5" value={formEnd} onChange={e => setFormEnd(parseFloat(e.target.value))} className="w-full p-1 border rounded"/>
                                     </div>
                                 </div>
