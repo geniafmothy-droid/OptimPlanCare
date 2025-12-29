@@ -24,6 +24,8 @@ export interface Skill {
   label: string;
   defaultDuration?: number;
   defaultBreak?: number;
+  color?: string; // New: Background color class
+  textColor?: string; // New: Text color class
 }
 
 export interface SkillRequirement {
@@ -169,7 +171,7 @@ export interface ServiceConfig {
     maxConsecutiveDays?: number; // New rule
     minWeekendGap?: number; // Days between weekends worked
     activeRules?: ValidationRule[]; // List of active rules with priorities
-    fteConstraintMode?: 'NONE' | 'DIALYSIS_STANDARD'; // New: Special logic selector
+    fteConstraintMode?: 'NONE' | 'DIALYSIS_STANDARD' | 'MATERNITY_STANDARD'; // Mode Maternité ajouté
 }
 
 export interface Service {

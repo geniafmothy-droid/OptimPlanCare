@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Employee, ConstraintViolation, ServiceConfig } from '../types';
-import { AlertTriangle, CheckCircle, XCircle, Info } from 'lucide-react';
+import { AlertTriangle, CheckCircle, XCircle, Info, Baby } from 'lucide-react';
 import { checkConstraints } from '../utils/validation';
 
 interface ConstraintCheckerProps {
@@ -15,6 +15,8 @@ export const ConstraintChecker: React.FC<ConstraintCheckerProps> = ({ employees,
   const violations: ConstraintViolation[] = React.useMemo(() => {
     return checkConstraints(employees, startDate, days, serviceConfig);
   }, [employees, startDate, days, serviceConfig]);
+
+  const isMaternity = serviceConfig?.fteConstraintMode === 'MATERNITY_STANDARD';
 
   return (
     <div className="bg-white rounded-lg shadow h-full flex flex-col">
@@ -31,13 +33,23 @@ export const ConstraintChecker: React.FC<ConstraintCheckerProps> = ({ employees,
       <div className="bg-blue-50 p-3 text-xs text-blue-800 border-b border-blue-100 flex gap-2">
         <Info className="w-4 h-4 flex-shrink-0" />
         <div>
-          <p className="font-semibold">Règles actives :</p>
+          <p className="font-semibold flex items-center gap-1">
+              Règles actives {isMaternity && <span className="flex items-center gap-1 text-pink-600 font-bold">(<Baby className="w-3 h-3"/> Maternité)</span>} :
+          </p>
           <ul className="list-disc pl-3 mt-1 space-y-0.5">
-            <li>Dimanche = RH (si service fermé)</li>
             <li>48h max / 7 jours glissants</li>
-            <li>Max 1 samedi travaillé sur 2</li>
-            <li>Poste S suivi impérativement de NT/Repos</li>
-            <li>Effectifs : 4 IT, 1 T5, 1 T6</li>
+            <li>Poste S suivi impérativement de Repos</li>
+            {isMaternity ? (
+                <>
+                    <li className="text-pink-700 font-medium">100% : 1 Week-end sur 2</li>
+                    <li className="text-pink-700 font-medium">80% : Cycle strict (WE, RH, Nuit Ven, RH)</li>
+                </>
+            ) : (
+                <>
+                    <li>Max 1 samedi travaillé sur 2</li>
+                    <li>Effectifs : 4 IT, 1 T5, 1 T6</li>
+                </>
+            )}
           </ul>
         </div>
       </div>

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Service, Skill, SkillRequirement, Employee, ServiceAssignment, UserRole } from '../types';
-import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X, Search, UserPlus, UserMinus, ArrowRight, Filter, Scale, Briefcase, History, AlertTriangle } from 'lucide-react';
+import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X, Search, UserPlus, UserMinus, ArrowRight, Filter, Scale, Briefcase, History, AlertTriangle, Baby } from 'lucide-react';
 import * as db from '../services/db';
 
 interface ServiceSettingsProps {
@@ -136,8 +136,6 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
             // 1. Update Service Name & Config
             await db.updateService(selectedServiceId, editName);
             await db.updateServiceConfig(selectedServiceId, config);
-
-            // Note: Member assignments are now handled atomically in the modal
             
             await loadAllData();
             onReload(); // Refresh parent app
@@ -185,680 +183,169 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
     const updateShiftTarget = (dayIndex: number, skillCode: string, count: number) => {
         const currentTargets = config.shiftTargets || {};
         const dayTargets = currentTargets[dayIndex] || {};
-        
         const newDayTargets = { ...dayTargets, [skillCode]: count };
-        
-        setConfig({
-            ...config,
-            shiftTargets: {
-                ...currentTargets,
-                [dayIndex]: newDayTargets
-            }
-        });
+        setConfig({ ...config, shiftTargets: { ...currentTargets, [dayIndex]: newDayTargets } });
     };
 
     // --- MEMBER MANAGEMENT ---
-
     const isActiveAssignment = (assignment: ServiceAssignment) => {
         const today = new Date().toISOString().split('T')[0];
         return !assignment.endDate || assignment.endDate >= today;
     };
 
     const openAssignmentModal = (emp: Employee) => {
-        // Find active assignment for this service
         const existing = allAssignments.find(a => 
             a.employeeId === emp.id && 
             a.serviceId === selectedServiceId &&
             isActiveAssignment(a)
         );
-
-        setAssignmentModal({
-            isOpen: true,
-            employee: emp,
-            currentAssignment: existing || null
-        });
+        setAssignmentModal({ isOpen: true, employee: emp, currentAssignment: existing || null });
         setAssignStartDate(existing?.startDate || new Date().toISOString().split('T')[0]);
         setAssignEndDate(existing?.endDate || '');
     };
 
     const handleSaveAssignment = async () => {
         if (!selectedServiceId || !assignmentModal.employee) return;
-        if (!assignStartDate) {
-            alert("Une date de début est requise.");
-            return;
-        }
-
+        if (!assignStartDate) { alert("Une date de début est requise."); return; }
         setIsLoading(true);
         try {
             if (assignmentModal.currentAssignment) {
-                // Update
-                await db.updateServiceAssignment(
-                    assignmentModal.currentAssignment.id,
-                    assignmentModal.employee.id,
-                    selectedServiceId,
-                    assignStartDate,
-                    assignEndDate || undefined
-                );
-                setNotification({ type: 'success', message: "Affectation mise à jour." });
+                await db.updateServiceAssignment(assignmentModal.currentAssignment.id, assignmentModal.employee.id, selectedServiceId, assignStartDate, assignEndDate || undefined);
             } else {
-                // Create
-                await db.createServiceAssignment(
-                    assignmentModal.employee.id,
-                    selectedServiceId,
-                    assignStartDate,
-                    assignEndDate || undefined
-                );
-                setNotification({ type: 'success', message: "Membre ajouté au service." });
+                await db.createServiceAssignment(assignmentModal.employee.id, selectedServiceId, assignStartDate, assignEndDate || undefined);
             }
             setAssignmentModal(prev => ({ ...prev, isOpen: false }));
             await loadAllData();
             onReload();
-        } catch (e: any) {
-            alert(e.message);
-        } finally {
-            setIsLoading(false);
-        }
+        } catch (e: any) { alert(e.message); } finally { setIsLoading(false); }
     };
 
-    // TERMINATE / UNASSIGN LOGIC
     const handleTerminateAssignment = async (e: React.MouseEvent) => {
-        e.preventDefault(); 
-        e.stopPropagation(); 
-
-        if (!assignmentModal.employee || !selectedServiceId || !assignmentModal.currentAssignment) {
-            alert("Erreur: Données d'affectation introuvables.");
-            return;
-        }
-        
+        e.preventDefault(); e.stopPropagation(); 
+        if (!assignmentModal.employee || !selectedServiceId || !assignmentModal.currentAssignment) return;
         const today = new Date().toISOString().split('T')[0];
-        
-        // Confirmation Dialog
-        const confirmed = window.confirm(`Désaffecter ${assignmentModal.employee.name} de ce service ?\n\nLa date de fin sera fixée à aujourd'hui (${today}).`);
-        if (!confirmed) return;
-        
+        if (!window.confirm(`Désaffecter ${assignmentModal.employee.name} ?`)) return;
         setIsLoading(true);
         try {
-            // Update the End Date to Today
-            await db.updateServiceAssignment(
-                assignmentModal.currentAssignment.id,
-                assignmentModal.employee.id,
-                selectedServiceId,
-                assignmentModal.currentAssignment.startDate, // Keep original start
-                today // Set end to today
-            );
-
-            setNotification({ type: 'success', message: `Affectation terminée au ${today}.` });
+            await db.updateServiceAssignment(assignmentModal.currentAssignment.id, assignmentModal.employee.id, selectedServiceId, assignmentModal.currentAssignment.startDate, today);
             setAssignmentModal(prev => ({ ...prev, isOpen: false, currentAssignment: null })); 
-            
-            await loadAllData();
-            onReload();
-        } catch (e: any) {
-            console.error("Terminate Assignment Error:", e);
-            setNotification({ type: 'error', message: "Erreur lors de la désaffectation : " + e.message });
-        } finally {
-            setIsLoading(false);
-        }
+            await loadAllData(); onReload();
+        } catch (e: any) { alert(e.message); } finally { setIsLoading(false); }
     };
 
     const daysOfWeek = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
-
-    if (services.length === 0 && !isLoading) {
-        return (
-            <div className="p-8 text-center bg-white rounded-xl shadow">
-                <p className="mb-4 text-slate-500">Aucun service configuré.</p>
-                <button onClick={handleCreateClick} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 mx-auto hover:bg-blue-700 transition-colors">
-                    <Plus className="w-4 h-4"/> Créer un service
-                </button>
-                
-                {/* Modal for First Service Creation */}
-                {isCreateModalOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95">
-                            <h3 className="text-lg font-bold text-slate-800 mb-4">Créer un Nouveau Service</h3>
-                            <div className="mb-4">
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nom du service</label>
-                                <input 
-                                    type="text" 
-                                    value={newServiceName} 
-                                    onChange={(e) => setNewServiceName(e.target.value)}
-                                    className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none"
-                                    placeholder="ex: Réanimation A"
-                                    autoFocus
-                                />
-                            </div>
-                            <div className="flex justify-end gap-3">
-                                <button onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded text-sm">Annuler</button>
-                                <button onClick={handleConfirmCreate} disabled={!newServiceName.trim() || isLoading} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded text-sm font-bold shadow-sm">
-                                    {isLoading ? 'Création...' : 'Créer'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </div>
-        );
-    }
-
     const selectedService = services.find(s => s.id === selectedServiceId);
-    
-    // Filter employees based on search AND assignment status (unless showAll is true)
     const filteredEmployees = allEmployees.filter(emp => {
         const search = memberSearch.toLowerCase();
         const matchesSearch = emp.name.toLowerCase().includes(search) || emp.matricule.toLowerCase().includes(search);
-        
-        // Use helper to check for ACTIVE assignment
-        const isAssignedActive = allAssignments.some(a => 
-            a.employeeId === emp.id && 
-            a.serviceId === selectedServiceId &&
-            isActiveAssignment(a)
-        );
-
-        if (showAllEmployees) {
-            return matchesSearch;
-        }
-        return matchesSearch && isAssignedActive;
+        const isAssignedActive = allAssignments.some(a => a.employeeId === emp.id && a.serviceId === selectedServiceId && isActiveAssignment(a));
+        return showAllEmployees ? matchesSearch : (matchesSearch && isAssignedActive);
     });
 
-    // Separer les cadres/managers du reste de l'équipe
     const managers = filteredEmployees.filter(e => ['Cadre', 'Manager', 'Directeur', 'Cadre Supérieur'].includes(e.role));
     const staff = filteredEmployees.filter(e => !managers.includes(e));
-
-    const activeMembersCount = allAssignments.filter(a => 
-        a.serviceId === selectedServiceId && isActiveAssignment(a)
-    ).length;
+    const activeMembersCount = allAssignments.filter(a => a.serviceId === selectedServiceId && isActiveAssignment(a)).length;
 
     const renderEmployeeCard = (emp: Employee) => {
-        // Find active assignment
-        const existingAssignment = allAssignments.find(a => 
-            a.employeeId === emp.id && 
-            a.serviceId === selectedServiceId &&
-            isActiveAssignment(a)
-        );
+        const existingAssignment = allAssignments.find(a => a.employeeId === emp.id && a.serviceId === selectedServiceId && isActiveAssignment(a));
         const isAssigned = !!existingAssignment;
-        
-        // Check if assigned elsewhere (active)
-        const assignedOther = allAssignments.find(a => 
-            a.employeeId === emp.id && 
-            a.serviceId !== selectedServiceId &&
-            isActiveAssignment(a)
-        );
+        const assignedOther = allAssignments.find(a => a.employeeId === emp.id && a.serviceId !== selectedServiceId && isActiveAssignment(a));
         const isManagerRole = ['Cadre', 'Manager', 'Directeur', 'Cadre Supérieur'].includes(emp.role);
-
         return (
-            <div 
-                key={emp.id} 
-                onClick={() => openAssignmentModal(emp)}
-                className={`p-3 rounded-lg border cursor-pointer flex items-center gap-3 transition-all group ${
-                    isAssigned 
-                    ? (isManagerRole ? 'bg-indigo-50 border-indigo-200 ring-1 ring-indigo-200' : 'bg-green-50 border-green-200 ring-1 ring-green-200')
-                    : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-blue-300'
-                }`}
-            >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${isAssigned ? (isManagerRole ? 'bg-indigo-600 text-white' : 'bg-green-500 text-white') : 'bg-slate-100 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'}`}>
-                    {isAssigned ? <CheckCircle2 className="w-4 h-4" /> : emp.name.charAt(0)}
-                </div>
-                <div className="flex-1 min-w-0">
-                    <div className={`text-sm font-bold truncate ${isAssigned ? (isManagerRole ? 'text-indigo-900' : 'text-green-800') : 'text-slate-700'}`}>{emp.name}</div>
-                    <div className="text-xs text-slate-500 flex justify-between items-center">
-                        <span>{emp.role}</span>
-                        {isAssigned && (
-                            <span className={`text-[10px] font-medium px-1.5 rounded ${isManagerRole ? 'text-indigo-600 bg-indigo-100' : 'text-green-600 bg-green-100'}`}>
-                                {existingAssignment?.startDate ? new Date(existingAssignment.startDate).toLocaleDateString() : 'Active'}
-                            </span>
-                        )}
-                    </div>
-                    {assignedOther && !isAssigned && <div className="text-orange-500 text-[10px] italic mt-0.5">Déjà affecté ailleurs</div>}
-                </div>
-                <div className="opacity-0 group-hover:opacity-100 text-slate-400">
-                    {isAssigned ? <Settings className="w-4 h-4"/> : <UserPlus className="w-4 h-4"/>}
-                </div>
+            <div key={emp.id} onClick={() => openAssignmentModal(emp)} className={`p-3 rounded-lg border cursor-pointer flex items-center gap-3 transition-all group ${isAssigned ? (isManagerRole ? 'bg-indigo-50 border-indigo-200 ring-1 ring-indigo-200' : 'bg-green-50 border-green-200 ring-1 ring-green-200') : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-blue-300'}`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${isAssigned ? (isManagerRole ? 'bg-indigo-600 text-white' : 'bg-green-500 text-white') : 'bg-slate-100 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'}`}>{isAssigned ? <CheckCircle2 className="w-4 h-4" /> : emp.name.charAt(0)}</div>
+                <div className="flex-1 min-w-0"><div className={`text-sm font-bold truncate ${isAssigned ? (isManagerRole ? 'text-indigo-900' : 'text-green-800') : 'text-slate-700'}`}>{emp.name}</div><div className="text-xs text-slate-500 flex justify-between items-center"><span>{emp.role}</span>{isAssigned && <span className={`text-[10px] font-medium px-1.5 rounded ${isManagerRole ? 'text-indigo-600 bg-indigo-100' : 'text-green-600 bg-green-100'}`}>{existingAssignment?.startDate ? new Date(existingAssignment.startDate).toLocaleDateString() : 'Active'}</span>}</div>{assignedOther && !isAssigned && <div className="text-orange-500 text-[10px] italic mt-0.5">Déjà affecté ailleurs</div>}</div><div className="opacity-0 group-hover:opacity-100 text-slate-400">{isAssigned ? <Settings className="w-4 h-4"/> : <UserPlus className="w-4 h-4"/>}</div>
             </div>
         );
     };
 
     const orderedDays = [1, 2, 3, 4, 5, 6, 0].filter(d => config.openDays?.includes(d));
 
-    // Get history for the modal
-    const getEmployeeHistory = (empId: string) => {
-        return allAssignments.filter(a => a.employeeId === empId).sort((a,b) => b.startDate.localeCompare(a.startDate));
-    };
-
     return (
         <div className="flex flex-col md:flex-row gap-6 h-[700px]">
-            {/* ... Modal and Sidebar Code ... */}
             {isCreateModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95">
-                        <h3 className="text-lg font-bold text-slate-800 mb-4">Créer un Nouveau Service</h3>
-                        <div className="mb-4">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nom du service</label>
-                            <input 
-                                type="text" 
-                                value={newServiceName} 
-                                onChange={(e) => setNewServiceName(e.target.value)}
-                                className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none"
-                                placeholder="ex: Réanimation A"
-                                autoFocus
-                            />
-                        </div>
-                        <div className="flex justify-end gap-3">
-                            <button onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded text-sm">Annuler</button>
-                            <button onClick={handleConfirmCreate} disabled={!newServiceName.trim() || isLoading} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded text-sm font-bold shadow-sm">
-                                {isLoading ? 'Création...' : 'Créer'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"><div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95"><h3 className="text-lg font-bold text-slate-800 mb-4">Créer un Nouveau Service</h3><div className="mb-4"><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nom du service</label><input type="text" value={newServiceName} onChange={(e) => setNewServiceName(e.target.value)} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="ex: Réanimation A" autoFocus/></div><div className="flex justify-end gap-3"><button onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded text-sm">Annuler</button><button onClick={handleConfirmCreate} disabled={!newServiceName.trim() || isLoading} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded text-sm font-bold shadow-sm">{isLoading ? 'Création...' : 'Créer'}</button></div></div></div>
             )}
 
-            {/* LEFT SIDEBAR: SERVICE LIST */}
-            <div className="w-full md:w-64 bg-white rounded-xl shadow border border-slate-200 flex flex-col overflow-hidden">
-                <div className="p-4 border-b border-slate-200 bg-slate-50">
-                    <button onClick={handleCreateClick} className="w-full bg-white border border-blue-200 text-blue-600 px-3 py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-50 shadow-sm transition-colors">
-                        <Plus className="w-4 h-4" /> Nouveau Service
-                    </button>
-                </div>
-                <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                    {services.map(s => (
-                        <button
-                            key={s.id}
-                            onClick={() => handleSelectService(s)}
-                            className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
-                                selectedServiceId === s.id 
-                                ? 'bg-blue-600 text-white shadow-md' 
-                                : 'text-slate-600 hover:bg-slate-100'
-                            }`}
-                        >
-                            <span>{s.name}</span>
-                            {selectedServiceId === s.id && <Settings className="w-3.5 h-3.5 opacity-80" />}
-                        </button>
-                    ))}
-                </div>
-                <div className="p-3 border-t border-slate-200 bg-slate-50 text-center">
-                    <button className="text-xs text-red-500 hover:underline" onClick={() => {/* Placeholder for DB Repair */}}>
-                        Réparer Base
-                    </button>
-                </div>
-            </div>
+            <div className="w-full md:w-64 bg-white rounded-xl shadow border border-slate-200 flex flex-col overflow-hidden"><div className="p-4 border-b border-slate-200 bg-slate-50"><button onClick={handleCreateClick} className="w-full bg-white border border-blue-200 text-blue-600 px-3 py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-50 shadow-sm transition-colors"><Plus className="w-4 h-4" /> Nouveau Service</button></div><div className="flex-1 overflow-y-auto p-2 space-y-1">{services.map(s => (<button key={s.id} onClick={() => handleSelectService(s)} className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${selectedServiceId === s.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-100'}`}><span>{s.name}</span>{selectedServiceId === s.id && <Settings className="w-3.5 h-3.5 opacity-80" />}</button>))}</div></div>
 
-            {/* MAIN CONTENT */}
             <div className="flex-1 bg-white rounded-xl shadow border border-slate-200 flex flex-col overflow-hidden relative">
-                
-                {/* ASSIGNMENT MODAL (FIXED POSITION) */}
                 {assignmentModal.isOpen && assignmentModal.employee && (
-                    <div 
-                        className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-                        onClick={() => setAssignmentModal(prev => ({ ...prev, isOpen: false }))} // Close on backdrop click
-                    >
-                        <div 
-                            className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in zoom-in-95 flex flex-col max-h-[90vh]"
-                            onClick={e => e.stopPropagation()} // Prevent close on modal click
-                        >
-                            <div className="flex justify-between items-start mb-4">
-                                <div>
-                                    <h3 className="text-lg font-bold text-slate-800">Affectation Service</h3>
-                                    <div className="text-sm text-blue-600 font-medium">{assignmentModal.employee.name}</div>
-                                </div>
-                                <button onClick={() => setAssignmentModal({...assignmentModal, isOpen: false})} className="p-1 hover:bg-slate-100 rounded"><X className="w-5 h-5 text-slate-400"/></button>
-                            </div>
-
-                            <div className="space-y-4 mb-6">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Date de début</label>
-                                    <input 
-                                        type="date" 
-                                        value={assignStartDate} 
-                                        onChange={(e) => setAssignStartDate(e.target.value)} 
-                                        className="w-full p-2 border rounded bg-slate-50"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Date de fin (Optionnel)</label>
-                                    <input 
-                                        type="date" 
-                                        value={assignEndDate} 
-                                        onChange={(e) => setAssignEndDate(e.target.value)} 
-                                        className="w-full p-2 border rounded bg-slate-50"
-                                    />
-                                    <p className="text-[10px] text-slate-400 mt-1">Laissez vide pour une affectation indéterminée.</p>
-                                </div>
-                            </div>
-
-                            <div className="flex gap-2 justify-end mb-4 border-b border-slate-100 pb-4">
-                                {assignmentModal.currentAssignment && (
-                                    <button 
-                                        type="button"
-                                        onClick={handleTerminateAssignment} 
-                                        disabled={isLoading}
-                                        className="mr-auto px-4 py-2 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 rounded text-sm font-bold flex items-center gap-2 transition-colors"
-                                        title="Mettre fin à l'affectation aujourd'hui"
-                                    >
-                                        <Trash2 className="w-4 h-4"/> Désaffecter
-                                    </button>
-                                )}
-                                <button 
-                                    onClick={() => setAssignmentModal({...assignmentModal, isOpen: false})} 
-                                    className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded text-sm font-medium"
-                                >
-                                    Annuler
-                                </button>
-                                <button 
-                                    onClick={handleSaveAssignment} 
-                                    disabled={isLoading}
-                                    className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded text-sm font-medium shadow-sm"
-                                >
-                                    {isLoading ? 'Enregistrement...' : 'Valider'}
-                                </button>
-                            </div>
-
-                            {/* ASSIGNMENT HISTORY (ADMIN ONLY) */}
-                            {currentUser?.role === 'ADMIN' && (
-                                <div className="flex-1 overflow-y-auto">
-                                    <h4 className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1">
-                                        <History className="w-3 h-3"/> Historique des affectations
-                                    </h4>
-                                    <div className="space-y-1">
-                                        {getEmployeeHistory(assignmentModal.employee.id).map(assign => {
-                                            const srv = services.find(s => s.id === assign.serviceId);
-                                            const isCurrent = isActiveAssignment(assign);
-                                            return (
-                                                <div key={assign.id} className={`text-xs p-2 rounded flex justify-between border ${isCurrent ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
-                                                    <span className="font-semibold text-slate-700">{srv?.name || 'Service inconnu'}</span>
-                                                    <span className="text-slate-500">
-                                                        {new Date(assign.startDate).toLocaleDateString()} -> {assign.endDate ? new Date(assign.endDate).toLocaleDateString() : 'Actif'}
-                                                    </span>
-                                                </div>
-                                            );
-                                        })}
-                                        {getEmployeeHistory(assignmentModal.employee.id).length === 0 && <p className="text-xs text-slate-400 italic">Aucun historique.</p>}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setAssignmentModal(prev => ({ ...prev, isOpen: false }))}><div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in zoom-in-95 flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}><div className="flex justify-between items-start mb-4"><div><h3 className="text-lg font-bold text-slate-800">Affectation Service</h3><div className="text-sm text-blue-600 font-medium">{assignmentModal.employee.name}</div></div><button onClick={() => setAssignmentModal({...assignmentModal, isOpen: false})} className="p-1 hover:bg-slate-100 rounded"><X className="w-5 h-5 text-slate-400"/></button></div><div className="space-y-4 mb-6"><div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Date de début</label><input type="date" value={assignStartDate} onChange={(e) => setAssignStartDate(e.target.value)} className="w-full p-2 border rounded bg-slate-50"/></div><div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Date de fin (Optionnel)</label><input type="date" value={assignEndDate} onChange={(e) => setAssignEndDate(e.target.value)} className="w-full p-2 border rounded bg-slate-50"/><p className="text-[10px] text-slate-400 mt-1">Laissez vide pour une affectation indéterminée.</p></div></div><div className="flex gap-2 justify-end mb-4 border-b border-slate-100 pb-4">{assignmentModal.currentAssignment && (<button type="button" onClick={handleTerminateAssignment} disabled={isLoading} className="mr-auto px-4 py-2 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 rounded text-sm font-bold flex items-center gap-2 transition-colors" title="Mettre fin à l'affectation aujourd'hui"><Trash2 className="w-4 h-4"/> Désaffecter</button>)}<button onClick={() => setAssignmentModal({...assignmentModal, isOpen: false})} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded text-sm font-medium">Annuler</button><button onClick={handleSaveAssignment} disabled={isLoading} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded text-sm font-medium shadow-sm">{isLoading ? 'Enregistrement...' : 'Valider'}</button></div></div></div>
                 )}
 
                 {!selectedService ? (
                     <div className="flex-1 flex items-center justify-center text-slate-400">Sélectionnez un service</div>
                 ) : (
                     <>
-                        {/* HEADER */}
                         <div className="p-6 border-b border-slate-200 flex justify-between items-start bg-slate-50">
-                            <div className="flex-1">
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nom du Service</label>
-                                <input 
-                                    type="text" 
-                                    value={editName} 
-                                    onChange={(e) => setEditName(e.target.value)}
-                                    className="text-xl font-bold text-slate-800 bg-transparent border-b border-dashed border-slate-300 focus:border-blue-500 outline-none w-full max-w-md pb-1"
-                                />
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <button onClick={handleDeleteService} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Supprimer le service">
-                                    <Trash2 className="w-5 h-5" />
-                                </button>
-                                <button 
-                                    onClick={handleSave} 
-                                    disabled={isLoading}
-                                    className="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-sm font-bold transition-all disabled:opacity-50"
-                                >
-                                    {isLoading ? <span className="animate-spin">⌛</span> : <Save className="w-4 h-4" />}
-                                    Enregistrer Config
-                                </button>
-                            </div>
+                            <div className="flex-1"><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nom du Service</label><input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="text-xl font-bold text-slate-800 bg-transparent border-b border-dashed border-slate-300 focus:border-blue-500 outline-none w-full max-w-md pb-1"/></div>
+                            <div className="flex items-center gap-3"><button onClick={handleDeleteService} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Supprimer le service"><Trash2 className="w-5 h-5" /></button><button onClick={handleSave} disabled={isLoading} className="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-sm font-bold transition-all disabled:opacity-50">{isLoading ? <span className="animate-spin">⌛</span> : <Save className="w-4 h-4" />}Enregistrer Config</button></div>
                         </div>
 
-                        {/* NOTIFICATION AREA */}
-                        {notification && (
-                            <div className={`px-6 py-3 text-sm font-medium flex items-center gap-2 ${notification.type === 'success' ? 'bg-green-50 text-green-700 border-b border-green-100' : 'bg-red-50 text-red-700 border-b border-red-100'}`}>
-                                {notification.type === 'success' ? <CheckCircle2 className="w-4 h-4"/> : <AlertCircle className="w-4 h-4"/>}
-                                {notification.message}
-                                <button onClick={() => setNotification(null)} className="ml-auto opacity-50 hover:opacity-100"><X className="w-4 h-4"/></button>
-                            </div>
-                        )}
+                        {notification && (<div className={`px-6 py-3 text-sm font-medium flex items-center gap-2 ${notification.type === 'success' ? 'bg-green-50 text-green-700 border-b border-green-100' : 'bg-red-50 text-red-700 border-b border-red-100'}`}>{notification.type === 'success' ? <CheckCircle2 className="w-4 h-4"/> : <AlertCircle className="w-4 h-4"/>}{notification.message}<button onClick={() => setNotification(null)} className="ml-auto opacity-50 hover:opacity-100"><X className="w-4 h-4"/></button></div>)}
 
-                        {/* TABS HEADER */}
                         <div className="px-6 pt-4 border-b border-slate-200 flex gap-6 overflow-x-auto">
-                            <button onClick={() => setActiveTab('general')} className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'general' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-                                <Settings className="w-4 h-4" /> Général
-                            </button>
-                            <button onClick={() => setActiveTab('config')} className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'config' ? 'border-purple-600 text-purple-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-                                <LayoutGrid className="w-4 h-4" /> Compétences & Effectifs
-                            </button>
-                            <button onClick={() => setActiveTab('rules')} className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'rules' ? 'border-orange-600 text-orange-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-                                <Shield className="w-4 h-4" /> Règles & Équité
-                            </button>
-                            <button onClick={() => setActiveTab('members')} className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'members' ? 'border-green-600 text-green-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-                                <Users className="w-4 h-4" /> Membres ({activeMembersCount})
-                            </button>
+                            <button onClick={() => setActiveTab('general')} className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'general' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}><Settings className="w-4 h-4" /> Général</button>
+                            <button onClick={() => setActiveTab('config')} className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'config' ? 'border-purple-600 text-purple-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}><LayoutGrid className="w-4 h-4" /> Compétences & Effectifs</button>
+                            <button onClick={() => setActiveTab('rules')} className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'rules' ? 'border-orange-600 text-orange-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}><Shield className="w-4 h-4" /> Règles & Équité</button>
+                            <button onClick={() => setActiveTab('members')} className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'members' ? 'border-green-600 text-green-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}><Users className="w-4 h-4" /> Membres ({activeMembersCount})</button>
                         </div>
 
-                        {/* TAB CONTENT */}
                         <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
-                            
-                            {/* 1. GENERAL TAB */}
                             {activeTab === 'general' && (
                                 <div className="space-y-6 max-w-2xl">
                                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                                         <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Calendar className="w-5 h-5 text-blue-500"/> Jours d'ouverture</h4>
-                                        <p className="text-sm text-slate-500 mb-4">Sélectionnez les jours où le service est actif. Les jours décochés seront automatiquement marqués en Repos Hebdo (RH) lors de la génération.</p>
-                                        <div className="flex gap-2 flex-wrap">
-                                            {[1, 2, 3, 4, 5, 6, 0].map(dayIdx => {
-                                                const isOpen = config.openDays?.includes(dayIdx);
-                                                return (
-                                                    <button
-                                                        key={dayIdx}
-                                                        onClick={() => toggleOpenDay(dayIdx)}
-                                                        className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${
-                                                            isOpen 
-                                                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
-                                                            : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'
-                                                        }`}
-                                                    >
-                                                        {daysOfWeek[dayIdx] === 'Dim' ? 'Dimanche' : daysOfWeek[dayIdx]}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
+                                        <p className="text-sm text-slate-500 mb-4">Sélectionnez les jours où le service est actif.</p>
+                                        <div className="flex gap-2 flex-wrap">{[1, 2, 3, 4, 5, 6, 0].map(dayIdx => { const isOpen = config.openDays?.includes(dayIdx); return (<button key={dayIdx} onClick={() => toggleOpenDay(dayIdx)} className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${isOpen ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'}`}>{daysOfWeek[dayIdx] === 'Dim' ? 'Dimanche' : daysOfWeek[dayIdx]}</button>); })}</div>
                                     </div>
                                 </div>
                             )}
 
-                            {/* 2. CONFIG TAB (SKILLS & TARGETS) */}
                             {activeTab === 'config' && (
                                 <div className="space-y-8">
-                                    {/* Compétences Actives */}
                                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                                        <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-purple-700">
-                                            <CheckCircle2 className="w-5 h-5" /> Compétences & Amplitude
-                                        </h4>
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-sm text-left">
-                                                <thead className="bg-slate-50 text-slate-500 uppercase font-medium text-xs">
-                                                    <tr>
-                                                        <th className="p-3 w-10">Actif</th>
-                                                        <th className="p-3 w-20">Code</th>
-                                                        <th className="p-3">Compétence</th>
-                                                        <th className="p-3 w-32">Effectif Min (Défaut)</th>
-                                                        <th className="p-3 w-32">Début</th>
-                                                        <th className="p-3 w-32">Fin</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-slate-100">
-                                                    {availableSkills.map(s => {
-                                                        const isSelected = config.requiredSkills?.includes(s.code);
-                                                        const req = config.skillRequirements?.find((r: SkillRequirement) => r.skillCode === s.code);
-                                                        return (
-                                                            <tr key={s.id} className={isSelected ? 'bg-purple-50/30' : ''}>
-                                                                <td className="p-3 text-center">
-                                                                    <input type="checkbox" checked={!!isSelected} onChange={() => toggleSkill(s.code)} className="w-4 h-4 text-purple-600 rounded" />
-                                                                </td>
-                                                                <td className="p-3 font-mono font-bold text-xs">{s.code}</td>
-                                                                <td className="p-3 text-slate-700">{s.label}</td>
-                                                                <td className="p-3">
-                                                                    <input type="number" min="0" disabled={!isSelected} value={req?.minStaff || 0} onChange={(e) => updateSkillReq(s.code, 'minStaff', parseInt(e.target.value))} className="w-full p-1.5 border rounded text-center disabled:bg-slate-50" />
-                                                                </td>
-                                                                <td className="p-3">
-                                                                    <input type="time" disabled={!isSelected} value={req?.startTime || '00:00'} onChange={(e) => updateSkillReq(s.code, 'startTime', e.target.value)} className="w-full p-1.5 border rounded text-xs disabled:bg-slate-50" />
-                                                                </td>
-                                                                <td className="p-3">
-                                                                    <input type="time" disabled={!isSelected} value={req?.endTime || '00:00'} onChange={(e) => updateSkillReq(s.code, 'endTime', e.target.value)} className="w-full p-1.5 border rounded text-xs disabled:bg-slate-50" />
-                                                                </td>
-                                                            </tr>
-                                                        );
-                                                    })}
-                                                </tbody>
-                                            </table>
-                                        </div>
+                                        <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-purple-700"><CheckCircle2 className="w-5 h-5" /> Compétences & Amplitude</h4>
+                                        <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-medium text-xs"><tr><th className="p-3 w-10">Actif</th><th className="p-3 w-20">Code</th><th className="p-3">Compétence</th><th className="p-3 w-32">Effectif Min (Défaut)</th><th className="p-3 w-32">Début</th><th className="p-3 w-32">Fin</th></tr></thead><tbody className="divide-y divide-slate-100">{availableSkills.map(s => { const isSelected = config.requiredSkills?.includes(s.code); const req = config.skillRequirements?.find((r: SkillRequirement) => r.skillCode === s.code); return (<tr key={s.id} className={isSelected ? 'bg-purple-50/30' : ''}><td className="p-3 text-center"><input type="checkbox" checked={!!isSelected} onChange={() => toggleSkill(s.code)} className="w-4 h-4 text-purple-600 rounded" /></td><td className="p-3 font-mono font-bold text-xs">{s.code}</td><td className="p-3 text-slate-700">{s.label}</td><td className="p-3"><input type="number" min="0" disabled={!isSelected} value={req?.minStaff || 0} onChange={(e) => updateSkillReq(s.code, 'minStaff', parseInt(e.target.value))} className="w-full p-1.5 border rounded text-center disabled:bg-slate-50" /></td><td className="p-3"><input type="time" disabled={!isSelected} value={req?.startTime || '00:00'} onChange={(e) => updateSkillReq(s.code, 'startTime', e.target.value)} className="w-full p-1.5 border rounded text-xs disabled:bg-slate-50" /></td><td className="p-3"><input type="time" disabled={!isSelected} value={req?.endTime || '00:00'} onChange={(e) => updateSkillReq(s.code, 'endTime', e.target.value)} className="w-full p-1.5 border rounded text-xs disabled:bg-slate-50" /></td></tr>); })}</tbody></table></div>
                                     </div>
 
-                                    {/* Matrice des Objectifs Hebdomadaires - TRANSPOSED */}
                                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                                        <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-blue-700">
-                                            <LayoutGrid className="w-5 h-5" /> Objectifs Journaliers Spécifiques
-                                        </h4>
-                                        <p className="text-xs text-slate-500 mb-4">
-                                            Définissez ici les exceptions. Compétences en lignes, jours ouverts en colonnes.
-                                        </p>
-                                        
-                                        {(!config.requiredSkills || config.requiredSkills.length === 0) ? (
-                                            <div className="text-center p-4 bg-slate-50 text-slate-400 italic rounded">
-                                                Activez d'abord des compétences ci-dessus.
-                                            </div>
-                                        ) : (
-                                            <div className="overflow-x-auto">
-                                                <table className="w-full text-sm border-collapse">
-                                                    <thead>
-                                                        <tr>
-                                                            <th className="p-2 border bg-slate-100 text-left w-32 font-bold text-slate-600">Compétence</th>
-                                                            {orderedDays.map(dayIdx => (
-                                                                <th key={dayIdx} className="p-2 border bg-slate-50 text-center w-20">
-                                                                    {daysOfWeek[dayIdx] === 'Dim' ? 'Dimanche' : daysOfWeek[dayIdx]}
-                                                                </th>
-                                                            ))}
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {config.requiredSkills.map((code: string) => {
-                                                            const defaultVal = config.skillRequirements?.find((r:any) => r.skillCode === code)?.minStaff || 0;
-                                                            return (
-                                                                <tr key={code}>
-                                                                    <td className="p-2 border font-bold text-slate-700 bg-slate-50/50">
-                                                                        {code}
-                                                                        <div className="text-[10px] text-slate-400 font-normal">Min: {defaultVal}</div>
-                                                                    </td>
-                                                                    {orderedDays.map(dayIdx => {
-                                                                        const target = config.shiftTargets?.[dayIdx]?.[code];
-                                                                        return (
-                                                                            <td key={`${dayIdx}-${code}`} className="p-1 border text-center relative group">
-                                                                                <input 
-                                                                                    type="number" 
-                                                                                    min="0"
-                                                                                    className={`w-full h-full text-center outline-none font-bold ${target !== undefined ? 'text-blue-600 bg-blue-50' : 'text-slate-400'}`}
-                                                                                    placeholder={defaultVal.toString()}
-                                                                                    value={target !== undefined ? target : ''}
-                                                                                    onChange={(e) => {
-                                                                                        const val = e.target.value === '' ? undefined : parseInt(e.target.value);
-                                                                                        if (val === undefined) {
-                                                                                            const newTargets = {...config.shiftTargets};
-                                                                                            if(newTargets[dayIdx]) {
-                                                                                                delete newTargets[dayIdx][code];
-                                                                                                setConfig({...config, shiftTargets: newTargets});
-                                                                                            }
-                                                                                        } else {
-                                                                                            updateShiftTarget(dayIdx, code, val);
-                                                                                        }
-                                                                                    }}
-                                                                                />
-                                                                            </td>
-                                                                        );
-                                                                    })}
-                                                                </tr>
-                                                            );
-                                                        })}
-                                                    </tbody>
-                                                    <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300">
-                                                        <tr>
-                                                            <td className="p-2 border-r text-right text-slate-600">TOTAL CIBLE</td>
-                                                            {orderedDays.map(dayIdx => {
-                                                                let dayTotal = 0;
-                                                                config.requiredSkills.forEach((code: string) => {
-                                                                    const specificTarget = config.shiftTargets?.[dayIdx]?.[code];
-                                                                    const defaultVal = config.skillRequirements?.find((r:any) => r.skillCode === code)?.minStaff || 0;
-                                                                    dayTotal += (specificTarget !== undefined ? specificTarget : defaultVal);
-                                                                });
-                                                                return (
-                                                                    <td key={`total-${dayIdx}`} className="p-2 border text-center text-blue-800">
-                                                                        {dayTotal}
-                                                                    </td>
-                                                                );
-                                                            })}
-                                                        </tr>
-                                                    </tfoot>
-                                                </table>
-                                            </div>
-                                        )}
+                                        <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-blue-700"><LayoutGrid className="w-5 h-5" /> Objectifs Journaliers Spécifiques</h4>
+                                        <p className="text-xs text-slate-500 mb-4">Définissez ici les exceptions journalières.</p>
+                                        {(!config.requiredSkills || config.requiredSkills.length === 0) ? (<div className="text-center p-4 bg-slate-50 text-slate-400 italic rounded">Activez d'abord des compétences ci-dessus.</div>) : (<div className="overflow-x-auto"><table className="w-full text-sm border-collapse"><thead><tr><th className="p-2 border bg-slate-100 text-left w-32 font-bold text-slate-600">Compétence</th>{orderedDays.map(dayIdx => (<th key={dayIdx} className="p-2 border bg-slate-50 text-center w-20">{daysOfWeek[dayIdx] === 'Dim' ? 'Dimanche' : daysOfWeek[dayIdx]}</th>))}</tr></thead><tbody>{config.requiredSkills.map((code: string) => { const defaultVal = config.skillRequirements?.find((r:any) => r.skillCode === code)?.minStaff || 0; return (<tr key={code}><td className="p-2 border font-bold text-slate-700 bg-slate-50/50">{code}<div className="text-[10px] text-slate-400 font-normal">Min: {defaultVal}</div></td>{orderedDays.map(dayIdx => { const target = config.shiftTargets?.[dayIdx]?.[code]; return (<td key={`${dayIdx}-${code}`} className="p-1 border text-center relative group"><input type="number" min="0" className={`w-full h-full text-center outline-none font-bold ${target !== undefined ? 'text-blue-600 bg-blue-50' : 'text-slate-400'}`} placeholder={defaultVal.toString()} value={target !== undefined ? target : ''} onChange={(e) => { const val = e.target.value === '' ? undefined : parseInt(e.target.value); if (val === undefined) { const newTargets = {...config.shiftTargets}; if(newTargets[dayIdx]) { delete newTargets[dayIdx][code]; setConfig({...config, shiftTargets: newTargets}); } } else { updateShiftTarget(dayIdx, code, val); } }}/></td>); })}</tr>); })}</tbody><tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300"><tr><td className="p-2 border-r text-right text-slate-600">TOTAL CIBLE</td>{orderedDays.map(dayIdx => { let dayTotal = 0; config.requiredSkills.forEach((code: string) => { const specificTarget = config.shiftTargets?.[dayIdx]?.[code]; const defaultVal = config.skillRequirements?.find((r:any) => r.skillCode === code)?.minStaff || 0; dayTotal += (specificTarget !== undefined ? specificTarget : defaultVal); }); return (<td key={`total-${dayIdx}`} className="p-2 border text-center text-blue-800">{dayTotal}</td>); })}</tr></tfoot></table></div>)}
                                     </div>
                                 </div>
                             )}
 
-                            {/* 3. RULES TAB */}
                             {activeTab === 'rules' && (
                                 <div className="space-y-6 max-w-2xl">
                                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
                                         <h4 className="font-bold text-slate-800 flex items-center gap-2"><Shield className="w-5 h-5 text-orange-600"/> Règles d'Équité</h4>
-                                        
-                                        <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1">Cible Samedis Travaillés (%)</label>
-                                            <input 
-                                                type="number" 
-                                                value={config.equityRules?.targetSaturdayPercentage || 50}
-                                                onChange={e => setConfig({...config, equityRules: {...config.equityRules, targetSaturdayPercentage: parseInt(e.target.value)}})}
-                                                className="w-full p-2 border rounded"
-                                            />
-                                            <p className="text-xs text-slate-500 mt-1">Ex: 50% = 1 samedi sur 2.</p>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1">Cible Nuits (%)</label>
-                                            <input 
-                                                type="number" 
-                                                value={config.equityRules?.targetNightPercentage || 33}
-                                                onChange={e => setConfig({...config, equityRules: {...config.equityRules, targetNightPercentage: parseInt(e.target.value)}})}
-                                                className="w-full p-2 border rounded"
-                                            />
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1">Jours consécutifs maximum</label>
-                                            <input 
-                                                type="number" 
-                                                value={config.maxConsecutiveDays || 5}
-                                                onChange={e => setConfig({...config, maxConsecutiveDays: parseInt(e.target.value)})}
-                                                className="w-full p-2 border rounded"
-                                            />
-                                        </div>
+                                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Cible Samedis Travaillés (%)</label><input type="number" value={config.equityRules?.targetSaturdayPercentage || 50} onChange={e => setConfig({...config, equityRules: {...config.equityRules, targetSaturdayPercentage: parseInt(e.target.value)}})} className="w-full p-2 border rounded"/><p className="text-xs text-slate-500 mt-1">Ex: 50% = 1 samedi sur 2.</p></div>
+                                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Cible Nuits (%)</label><input type="number" value={config.equityRules?.targetNightPercentage || 33} onChange={e => setConfig({...config, equityRules: {...config.equityRules, targetNightPercentage: parseInt(e.target.value)}})} className="w-full p-2 border rounded"/></div>
+                                        <div><label className="block text-sm font-medium text-slate-700 mb-1">Jours consécutifs maximum</label><input type="number" value={config.maxConsecutiveDays || 5} onChange={e => setConfig({...config, maxConsecutiveDays: parseInt(e.target.value)})} className="w-full p-2 border rounded"/></div>
 
                                         <div className="pt-4 border-t border-slate-200">
-                                            <h5 className="font-bold text-slate-800 flex items-center gap-2 mb-2">
-                                                <Scale className="w-4 h-4 text-purple-600" />
-                                                Mode Spécifique FTE (Dialyse)
-                                            </h5>
-                                            <div className="bg-purple-50 p-3 rounded-lg border border-purple-100">
-                                                <label className="flex items-center gap-3 cursor-pointer">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={config.fteConstraintMode === 'DIALYSIS_STANDARD'}
-                                                        onChange={(e) => setConfig({...config, fteConstraintMode: e.target.checked ? 'DIALYSIS_STANDARD' : 'NONE'})}
-                                                        className="w-5 h-5 text-purple-600 rounded"
-                                                    />
+                                            <h5 className="font-bold text-slate-800 flex items-center gap-2 mb-2"><Scale className="w-4 h-4 text-purple-600" /> Mode de contraintes spécifique</h5>
+                                            <div className="space-y-3">
+                                                <label className={`flex items-center gap-3 cursor-pointer p-3 rounded-lg border transition-all ${config.fteConstraintMode === 'DIALYSIS_STANDARD' ? 'bg-purple-50 border-purple-200' : 'bg-white border-slate-200'}`}>
+                                                    <input type="radio" name="constraintMode" checked={config.fteConstraintMode === 'DIALYSIS_STANDARD'} onChange={() => setConfig({...config, fteConstraintMode: 'DIALYSIS_STANDARD'})} className="w-5 h-5 text-purple-600"/>
                                                     <div>
-                                                        <div className="font-bold text-purple-900 text-sm">Activer les règles de quotité stricte (Dialyse)</div>
-                                                        <ul className="text-xs text-purple-700 mt-1 list-disc list-inside">
-                                                            <li>80% : Entre 2 et 3 jours travaillés (Lun-Sam)</li>
-                                                            <li>100% : Entre 3 et 4 jours travaillés (Lun-Sam)</li>
-                                                        </ul>
+                                                        <div className="font-bold text-purple-900 text-sm">Mode Dialyse Stricte</div>
+                                                        <div className="text-[10px] text-purple-700">80%: 2-3j/sem, 100%: 3-4j/sem (Lun-Sam).</div>
                                                     </div>
+                                                </label>
+                                                <label className={`flex items-center gap-3 cursor-pointer p-3 rounded-lg border transition-all ${config.fteConstraintMode === 'MATERNITY_STANDARD' ? 'bg-pink-50 border-pink-200' : 'bg-white border-slate-200'}`}>
+                                                    <input type="radio" name="constraintMode" checked={config.fteConstraintMode === 'MATERNITY_STANDARD'} onChange={() => setConfig({...config, fteConstraintMode: 'MATERNITY_STANDARD'})} className="w-5 h-5 text-pink-600"/>
+                                                    <div>
+                                                        <div className="font-bold text-pink-900 text-sm flex items-center gap-1"><Baby className="w-3 h-3"/> Mode Maternité</div>
+                                                        <div className="text-[10px] text-pink-700">100%: 1 WE sur 2. 80%: Cycle (WE, RH, Vendredi Nuit, RH).</div>
+                                                    </div>
+                                                </label>
+                                                <label className={`flex items-center gap-3 cursor-pointer p-3 rounded-lg border transition-all ${config.fteConstraintMode === 'NONE' || !config.fteConstraintMode ? 'bg-slate-50 border-slate-300' : 'bg-white border-slate-200'}`}>
+                                                    <input type="radio" name="constraintMode" checked={config.fteConstraintMode === 'NONE' || !config.fteConstraintMode} onChange={() => setConfig({...config, fteConstraintMode: 'NONE'})} className="w-5 h-5 text-slate-600"/>
+                                                    <div className="font-bold text-slate-700 text-sm">Standard (Sans contraintes de quotité)</div>
                                                 </label>
                                             </div>
                                         </div>
@@ -866,71 +353,9 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                 </div>
                             )}
 
-                            {/* 4. MEMBERS TAB */}
                             {activeTab === 'members' && (
-                                <div className="bg-white p-0 rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full max-h-[550px]">
-                                    <div className="p-4 border-b bg-slate-50 flex flex-col gap-3">
-                                        <div className="flex justify-between items-center">
-                                            <h4 className="font-bold text-slate-800 flex items-center gap-2"><Users className="w-5 h-5 text-green-600"/> Affectation des membres</h4>
-                                            <div className="text-xs text-slate-500">{activeMembersCount} actifs</div>
-                                        </div>
-                                        
-                                        {/* SEARCH BAR & FILTER */}
-                                        <div className="flex flex-col sm:flex-row gap-3">
-                                            <div className="relative flex-1">
-                                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                                                <input 
-                                                    type="text" 
-                                                    placeholder="Rechercher un membre par nom ou matricule..." 
-                                                    value={memberSearch}
-                                                    onChange={(e) => setMemberSearch(e.target.value)}
-                                                    className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                                                />
-                                            </div>
-                                            <button 
-                                                onClick={() => setShowAllEmployees(!showAllEmployees)}
-                                                className={`px-3 py-2 rounded-lg text-xs font-medium border flex items-center gap-2 transition-colors whitespace-nowrap ${showAllEmployees ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
-                                            >
-                                                {showAllEmployees ? <UserMinus className="w-4 h-4"/> : <UserPlus className="w-4 h-4"/>}
-                                                {showAllEmployees ? 'Voir Membres Uniquement' : 'Ajouter / Voir Tout'}
-                                            </button>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="overflow-y-auto p-4 space-y-6">
-                                        {/* SECTION CADRES */}
-                                        {managers.length > 0 && (
-                                            <div>
-                                                <h5 className="font-bold text-indigo-800 mb-3 flex items-center gap-2 text-sm border-b border-indigo-100 pb-1">
-                                                    <Briefcase className="w-4 h-4"/> Encadrement & Validation (Reçoit les demandes)
-                                                </h5>
-                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                                                    {managers.map(emp => renderEmployeeCard(emp))}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* SECTION EQUIPE */}
-                                        <div>
-                                            <h5 className="font-bold text-slate-700 mb-3 flex items-center gap-2 text-sm border-b border-slate-100 pb-1">
-                                                <Users className="w-4 h-4"/> Équipe Soignante
-                                            </h5>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                                                {staff.length > 0 ? staff.map(emp => renderEmployeeCard(emp)) : (
-                                                    <div className="text-slate-400 italic text-sm col-span-3">Aucun membre dans l'équipe.</div>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {filteredEmployees.length === 0 && (
-                                            <div className="text-center py-8 text-slate-400 italic">
-                                                {showAllEmployees ? "Aucun employé trouvé." : "Aucun membre affecté. Cliquez sur 'Ajouter / Voir Tout' pour ajouter des membres."}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
+                                <div className="bg-white p-0 rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full max-h-[550px]"><div className="p-4 border-b bg-slate-50 flex flex-col gap-3"><div className="flex justify-between items-center"><h4 className="font-bold text-slate-800 flex items-center gap-2"><Users className="w-5 h-5 text-green-600"/> Affectation des membres</h4><div className="text-xs text-slate-500">{activeMembersCount} actifs</div></div><div className="flex flex-col sm:flex-row gap-3"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" /><input type="text" placeholder="Rechercher..." value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"/></div><button onClick={() => setShowAllEmployees(!showAllEmployees)} className={`px-3 py-2 rounded-lg text-xs font-medium border flex items-center gap-2 transition-colors whitespace-nowrap ${showAllEmployees ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{showAllEmployees ? <UserMinus className="w-4 h-4"/> : <UserPlus className="w-4 h-4"/>}{showAllEmployees ? 'Voir Membres Uniquement' : 'Ajouter / Voir Tout'}</button></div></div><div className="overflow-y-auto p-4 space-y-6">{managers.length > 0 && (<div><h5 className="font-bold text-indigo-800 mb-3 flex items-center gap-2 text-sm border-b border-indigo-100 pb-1"><Briefcase className="w-4 h-4"/> Encadrement</h5><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">{managers.map(emp => renderEmployeeCard(emp))}</div></div>)}<div><h5 className="font-bold text-slate-700 mb-3 flex items-center gap-2 text-sm border-b border-slate-100 pb-1"><Users className="w-4 h-4"/> Équipe Soignante</h5><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">{staff.length > 0 ? staff.map(emp => renderEmployeeCard(emp)) : (<div className="text-slate-400 italic text-sm col-span-3">Aucun membre.</div>)}</div></div></div></div>
                             )}
-
                         </div>
                     </>
                 )}

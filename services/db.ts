@@ -94,20 +94,36 @@ export const fetchSkills = async (): Promise<Skill[]> => {
     const { data, error } = await supabase.from('skills').select('*').order('code');
     if (error) return []; 
     return data?.map((s: any) => ({
-        id: s.id, code: s.code, label: s.label, defaultDuration: s.default_duration, defaultBreak: s.default_break
+        id: s.id, 
+        code: s.code, 
+        label: s.label, 
+        defaultDuration: s.default_duration, 
+        defaultBreak: s.default_break,
+        color: s.color,
+        textColor: s.text_color
     })) || [];
 };
 
-export const createSkill = async (code: string, label: string, defaultDuration?: number, defaultBreak?: number) => {
+export const createSkill = async (code: string, label: string, defaultDuration?: number, defaultBreak?: number, color?: string, textColor?: string) => {
     const { error } = await supabase.from('skills').insert([{ 
-        code, label, default_duration: defaultDuration, default_break: defaultBreak 
+        code, 
+        label, 
+        default_duration: defaultDuration, 
+        default_break: defaultBreak,
+        color,
+        text_color: textColor
     }]);
     if (error) throw new Error(error.message);
 };
 
-export const updateSkill = async (id: string, code: string, label: string, defaultDuration?: number, defaultBreak?: number) => {
+export const updateSkill = async (id: string, code: string, label: string, defaultDuration?: number, defaultBreak?: number, color?: string, textColor?: string) => {
     const { error } = await supabase.from('skills').update({ 
-        code, label, default_duration: defaultDuration, default_break: defaultBreak 
+        code, 
+        label, 
+        default_duration: defaultDuration, 
+        default_break: defaultBreak,
+        color,
+        text_color: textColor
     }).eq('id', id);
     if (error) throw new Error(error.message);
 };
@@ -363,6 +379,7 @@ export const fetchNotifications = async (): Promise<AppNotification[]> => {
 export const createNotification = async (notif: Omit<AppNotification, 'id' | 'date' | 'isRead'>) => {
     const { error } = await supabase.from('notifications').insert([{
             recipient_role: notif.recipientRole, recipient_id: notif.recipientId, title: notif.title,
+            // Fixed: use notif.entityId instead of notif.entity_id to match AppNotification interface
             message: notif.message, type: notif.type, action_type: notif.actionType || null, entity_id: notif.entityId || null
         }]);
     if (error) console.error("Error sending notification:", error);
