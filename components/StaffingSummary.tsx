@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState } from 'react';
 import { Employee, ShiftCode } from '../types';
 import { SHIFT_TYPES } from '../constants';
@@ -67,7 +66,7 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
 
       employees.forEach(emp => {
           const code = emp.shifts[selectedDateDetail.dateStr];
-          const def = SHIFT_TYPES[code];
+          const def = code ? (SHIFT_TYPES[code] || SHIFT_TYPES['OFF']) : SHIFT_TYPES['OFF'];
 
           if (code && def?.isWork) {
               present.push({ emp, code });
@@ -232,14 +231,17 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
                                 </div>
                                 <div className="overflow-y-auto flex-1 p-2 space-y-1">
                                     {detailLists.present.length === 0 ? <div className="text-slate-400 text-sm p-4 text-center italic">Personne ce jour.</div> : 
-                                    detailLists.present.map((item, i) => (
-                                        <div key={i} className="flex justify-between items-center p-2 hover:bg-slate-50 rounded border border-transparent hover:border-slate-100">
-                                            <span className="font-medium text-slate-700 text-sm truncate max-w-[140px]">{item.emp.name}</span>
-                                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${SHIFT_TYPES[item.code]?.color} ${SHIFT_TYPES[item.code]?.textColor}`}>
-                                                {item.code}
-                                            </span>
-                                        </div>
-                                    ))}
+                                    detailLists.present.map((item, i) => {
+                                        const def = SHIFT_TYPES[item.code] || SHIFT_TYPES['OFF'];
+                                        return (
+                                            <div key={i} className="flex justify-between items-center p-2 hover:bg-slate-50 rounded border border-transparent hover:border-slate-100">
+                                                <span className="font-medium text-slate-700 text-sm truncate max-w-[140px]">{item.emp.name}</span>
+                                                <span className={`text-xs font-bold px-2 py-0.5 rounded ${def.color} ${def.textColor}`}>
+                                                    {item.code}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
 
@@ -251,14 +253,17 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
                                 </div>
                                 <div className="overflow-y-auto flex-1 p-2 space-y-1">
                                     {detailLists.absent.length === 0 ? <div className="text-slate-400 text-sm p-4 text-center italic">Aucune absence.</div> :
-                                    detailLists.absent.map((item, i) => (
-                                        <div key={i} className="flex justify-between items-center p-2 hover:bg-slate-50 rounded border border-transparent hover:border-slate-100">
-                                            <span className="font-medium text-slate-700 text-sm truncate max-w-[140px]">{item.emp.name}</span>
-                                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${SHIFT_TYPES[item.code]?.color} ${SHIFT_TYPES[item.code]?.textColor}`}>
-                                                {item.code}
-                                            </span>
-                                        </div>
-                                    ))}
+                                    detailLists.absent.map((item, i) => {
+                                        const def = SHIFT_TYPES[item.code] || SHIFT_TYPES['OFF'];
+                                        return (
+                                            <div key={i} className="flex justify-between items-center p-2 hover:bg-slate-50 rounded border border-transparent hover:border-slate-100">
+                                                <span className="font-medium text-slate-700 text-sm truncate max-w-[140px]">{item.emp.name}</span>
+                                                <span className={`text-xs font-bold px-2 py-0.5 rounded ${def.color} ${def.textColor}`}>
+                                                    {item.code}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
 

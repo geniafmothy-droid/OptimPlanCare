@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Employee, ShiftCode, ViewMode, ConstraintViolation, WorkPreference } from '../types';
 import { SHIFT_TYPES } from '../constants';
@@ -319,7 +318,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
 
                 {dates.map((d) => {
                   const shiftCode = emp.shifts[d.str] || 'OFF';
-                  const shiftDef = SHIFT_TYPES[shiftCode];
+                  const shiftDef = SHIFT_TYPES[shiftCode] || SHIFT_TYPES['OFF'];
                   const selected = isCellSelected(emp.id, d.obj);
                   const isHighlighted = isViolation(emp.id, d.str);
                   const pref = getCellPreference(emp.id, d.str, d.dayIndex);
