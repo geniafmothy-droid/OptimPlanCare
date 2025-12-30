@@ -89,7 +89,7 @@ export const parseScheduleCSV = (csvText: string, existingEmployees: Employee[])
     
     const nomRaw = row[IDX_NOM];
     const prenomRaw = row[IDX_PRENOM];
-    const matriculeRaw = row[IDX_MATRICULE];
+    const matriculeRaw = row[IDX_MATRICULE]?.trim(); // Clean matricule
     const fonctionRaw = row[IDX_FONCTION]?.toUpperCase();
     const quotiteStr = row[IDX_QUOTITE];
 
@@ -116,7 +116,7 @@ export const parseScheduleCSV = (csvText: string, existingEmployees: Employee[])
 
     // Try to find existing employee
     const empIndex = newEmployees.findIndex(e => 
-        (matriculeRaw && e.matricule === matriculeRaw) || 
+        (matriculeRaw && e.matricule.trim() === matriculeRaw) || 
         e.name.toLowerCase() === fullName.toLowerCase() ||
         e.name.toLowerCase().includes(nomRaw.toLowerCase())
     );
@@ -138,7 +138,8 @@ export const parseScheduleCSV = (csvText: string, existingEmployees: Employee[])
     } else {
       // CREATE new
       targetEmp = {
-          id: crypto.randomUUID(), // Generate temporary ID
+          // IMPORTANT: Prefix with temp- so DB service knows to omit ID and match by matricule
+          id: `temp-${crypto.randomUUID()}`, 
           matricule: matriculeRaw || `TEMP-${Date.now()}-${Math.floor(Math.random()*1000)}`,
           name: fullName,
           role: role,
@@ -155,7 +156,7 @@ export const parseScheduleCSV = (csvText: string, existingEmployees: Employee[])
     // Apply Shifts (Shared logic)
     dateColumns.forEach(col => {
         if (col.index < row.length) {
-            const rawValue = row[col.index].toUpperCase();
+            const rawValue = row[col.index].toUpperCase().trim();
             
             // Validate shift code
             if (Object.keys(SHIFT_TYPES).includes(rawValue)) {
@@ -202,7 +203,7 @@ export const parseLeaveCSV = (csvText: string): LeaveRequest[] => {
         const row = lines[i].split(delimiter).map(c => c.trim());
         if (row.length < 6) continue;
 
-        const matricule = row[1];
+        const matricule = row[1]?.trim();
         const typeRaw = row[2].toUpperCase();
         const balanceStr = row[3];
         const startRaw = row[4];

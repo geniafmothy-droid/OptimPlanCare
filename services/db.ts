@@ -3,6 +3,9 @@ import { supabase } from '../lib/supabase';
 import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus, WorkPreference, SurveyResponse, RoleDefinition, GuardArchive } from '../types';
 import { MOCK_EMPLOYEES } from '../constants';
 
+// --- Helpers ---
+const isTempId = (id: string | undefined) => !id || id.toString().startsWith('temp-');
+
 // --- Guards Archiving ---
 export const fetchGuardArchives = async (year: number): Promise<GuardArchive[]> => {
     const { data, error } = await supabase.from('guard_archives').select('*').eq('year', year);
@@ -213,26 +216,37 @@ export const upsertEmployee = async (employee: Employee) => {
   }
 
   const payload: any = {
-      matricule: employee.matricule,
+      matricule: employee.matricule.trim(), // Trim to ensure consistency
       name: employee.name,
-      role: employee.role, // Le libellé sélectionné (ex: 'Infirmier')
+      role: employee.role, 
       fte: typeof employee.fte === 'number' ? employee.fte : 1.0,
       leave_balance: typeof employee.leaveBalance === 'number' ? employee.leaveBalance : 0,
       leave_data: currentLeaveData,
       skills: employee.skills || []
   };
 
-  // Si l'ID est un vrai UUID Supabase, on le passe pour l'update
-  if (employee.id && employee.id.length > 20) {
+  // If we have a permanent ID, use it to ensure we update the right row.
+  // If it's a temp ID, we match on matricule to prevent duplication.
+  const temp = isTempId(employee.id);
+  
+  if (!temp) {
       payload.id = employee.id;
   }
 
   const { error } = await supabase
     .from('employees')
-    .upsert(payload, { onConflict: 'matricule' })
+    .upsert(payload, { onConflict: temp ? 'matricule' : 'id' })
     .select();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+      // If we tried to update by ID but the matricule belongs to someone else, 
+      // or if upsert by ID is failing due to some unique constraint, 
+      // providing a better error message.
+      if (error.code === '23505') {
+          throw new Error(`Le matricule "${employee.matricule}" est déjà utilisé par un autre collaborateur.`);
+      }
+      throw new Error(error.message);
+  }
 };
 
 export const deleteEmployee = async (employeeId: string) => {
@@ -258,6 +272,8 @@ export const bulkImportEmployees = async (employees: Employee[]) => {
 export const bulkSaveSchedule = async (employees: Employee[]) => {
     const allShifts: {employee_id: string, date: string, shift_code: string}[] = [];
     employees.forEach(emp => {
+        if (isTempId(emp.id)) return; 
+        
         Object.entries(emp.shifts).forEach(([date, code]) => {
             allShifts.push({ employee_id: emp.id, date, shift_code: code });
         });
@@ -279,10 +295,10 @@ export const clearShiftsInRange = async (year: number, month: number, serviceId?
         const { data: assignments } = await supabase.from('service_assignments').select('employee_id').eq('service_id', serviceId);
         const empIds = (assignments || []).map((a:any) => a.employee_id);
         if (empIds.length > 0) query = query.in('employee_id', empIds);
-        else return; // Rien à supprimer
+        else return; 
     }
 
-    const { error } = await query;
+    const { error } = query as any;
     if (error) throw new Error(error.message);
 };
 
@@ -379,7 +395,6 @@ export const fetchNotifications = async (): Promise<AppNotification[]> => {
 export const createNotification = async (notif: Omit<AppNotification, 'id' | 'date' | 'isRead'>) => {
     const { error } = await supabase.from('notifications').insert([{
             recipient_role: notif.recipientRole, recipient_id: notif.recipientId, title: notif.title,
-            // Fixed: use notif.entityId instead of notif.entity_id to match AppNotification interface
             message: notif.message, type: notif.type, action_type: notif.actionType || null, entity_id: notif.entityId || null
         }]);
     if (error) console.error("Error sending notification:", error);
