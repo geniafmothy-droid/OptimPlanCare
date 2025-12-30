@@ -1,4 +1,3 @@
-
 import { Employee, ShiftCode, ServiceConfig, WorkPreference } from '../types';
 import { SHIFT_TYPES, SHIFT_HOURS } from '../constants';
 import { fetchWorkPreferences } from '../services/db';
@@ -34,22 +33,6 @@ export const getHoursLast7Days = (emp: Employee, currentDate: Date, tempShifts: 
     return total;
 };
 
-const getWorkedDaysInCurrentWeek = (emp: Employee, currentDate: Date, tempShifts: Record<string, ShiftCode>): number => {
-    const dayOfWeek = currentDate.getDay(); 
-    const diffToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    const monday = new Date(currentDate);
-    monday.setDate(currentDate.getDate() + diffToMon);
-    let count = 0;
-    const tempDate = new Date(monday);
-    while (tempDate < currentDate) {
-        const dStr = toLocalISOString(tempDate);
-        const code = tempShifts[dStr] || emp.shifts[dStr];
-        if (code && SHIFT_TYPES[code]?.isWork && tempDate.getDay() !== 0) count++;
-        tempDate.setDate(tempDate.getDate() + 1);
-    }
-    return count;
-};
-
 const getConsecutiveDaysCount = (emp: Employee, currentDate: Date, tempShifts: Record<string, ShiftCode>): number => {
     let count = 0;
     let d = new Date(currentDate);
@@ -65,7 +48,33 @@ const getConsecutiveDaysCount = (emp: Employee, currentDate: Date, tempShifts: R
     return count;
 };
 
-// --- DIALYSIS SPECIFIC TARGETS ---
+/**
+ * Calcule les effectifs cibles réels en fusionnant les paramètres par défaut 
+ * et les objectifs journaliers spécifiques du service.
+ */
+export const getEffectiveTargets = (dayOfWeek: number, config?: ServiceConfig): Record<string, number> => {
+    const targets: Record<string, number> = {};
+    if (!config) return targets;
+
+    // 1. Initialisation avec les effectifs minimums par défaut des compétences actives
+    if (config.skillRequirements) {
+        config.skillRequirements.forEach(req => {
+            if (req.minStaff > 0) targets[req.skillCode] = req.minStaff;
+        });
+    }
+
+    // 2. Surcharge avec les "Objectifs Journaliers Spécifiques" (Tableau de saisie manuelle)
+    if (config.shiftTargets?.[dayOfWeek]) {
+        const daily = config.shiftTargets[dayOfWeek];
+        Object.entries(daily).forEach(([code, val]) => {
+            if (val !== undefined && val !== null) targets[code] = val as number;
+        });
+    }
+
+    return targets;
+};
+
+// --- DIALYSIS SPECIFIC FALLBACK TARGETS ---
 const DIALYSIS_TARGETS: Record<number, Record<string, number>> = {
     1: { 'IT': 4, 'T5': 1, 'T6': 1, 'S': 2 }, 
     2: { 'IT': 4, 'T5': 1, 'T6': 1, 'S': 1 }, 
@@ -131,16 +140,18 @@ export const generateMonthlySchedule = async (
       const weekNum = getWeekNumber(currentDate);
       const isEvenWeek = weekNum % 2 === 0;
 
-      if (dayOfWeek === 0) continue; 
+      if (dayOfWeek === 0 && (!serviceConfig?.openDays || !serviceConfig.openDays.includes(0))) continue; 
 
-      // TARGET CALCULATION
-      let targets: Record<string, number> = isMaternityMode ? { 'IT': 3, 'S': 1 } : { ...DIALYSIS_TARGETS[dayOfWeek] };
-      if (serviceConfig?.shiftTargets?.[dayOfWeek]) {
-          targets = { ...serviceConfig.shiftTargets[dayOfWeek] };
+      // IA LOGIC: Prioritize custom targets from Settings over hardcoded fallbacks
+      let targets = getEffectiveTargets(dayOfWeek, serviceConfig);
+      
+      // Fallback logic if no config exists or targets are empty
+      if (Object.keys(targets).length === 0) {
+          targets = isMaternityMode ? { 'IT': 3, 'S': 1 } : { ...DIALYSIS_TARGETS[dayOfWeek] };
       }
 
-      // RULE 5: Parity for CPF
-      if (isMaternityMode) {
+      // Parity rules for Maternité CPF logic (Only if not already overridden by specific shiftTargets)
+      if (isMaternityMode && (!serviceConfig?.shiftTargets?.[dayOfWeek]?.['CPF M'] && !serviceConfig?.shiftTargets?.[dayOfWeek]?.['CPF C'])) {
           if (dayOfWeek === 3) { // Wednesday
               targets['CPF M'] = isEvenWeek ? 1 : 2;
               targets['CPF C'] = isEvenWeek ? 1 : 2;
@@ -150,7 +161,12 @@ export const generateMonthlySchedule = async (
           }
       }
 
-      const priorityOrder: ShiftCode[] = ['S', 'CPF C', 'CPF M', 'T6', 'T5', 'IT']; 
+      // Sort priority: Critical shifts first (Night S, then specific codes, then generic IT)
+      const priorityOrder: ShiftCode[] = (Object.keys(targets) as ShiftCode[]).sort((a, b) => {
+          if (a === 'S') return -1;
+          if (b === 'S') return 1;
+          return a.localeCompare(b);
+      });
 
       for (const shiftType of priorityOrder) {
           const needed = targets[shiftType] || 0;
@@ -177,11 +193,9 @@ export const generateMonthlySchedule = async (
 
                       // R4: 80% - Cycle (WE, RH, Friday Night, RH)
                       if (emp.fte >= 0.75 && emp.fte < 0.9) {
-                          // If Friday Night, ensure they didn't work this weekend
                           if (dayOfWeek === 5 && shiftType === 'S') {
                               if (equityStats[emp.id].LastWeekendWorked === currentWeekIndex) return false;
                           }
-                          // If Weekend, ensure no Friday Night last week or this week
                           if (dayOfWeek === 6) {
                               if (equityStats[emp.id].LastFridayNight === currentWeekIndex) return false;
                           }

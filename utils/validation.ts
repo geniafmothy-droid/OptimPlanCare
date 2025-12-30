@@ -1,6 +1,6 @@
-
 import { Employee, ConstraintViolation, ServiceConfig, ShiftCode } from '../types';
 import { SHIFT_TYPES, SHIFT_HOURS } from '../constants';
+import { getEffectiveTargets } from './scheduler';
 
 const getWeekNumber = (d: Date): number => {
     const date = new Date(d.getTime());
@@ -29,35 +29,53 @@ export const checkConstraints = (
         const weekNum = getWeekNumber(d);
         const isEven = weekNum % 2 === 0;
 
-        // --- STAFFING CHECKS ---
+        // IA LOGIC: Fetch dynamically configured targets
+        const targets = getEffectiveTargets(dayOfWeek, serviceConfig);
+
+        // Specific Maternité Parity Logic for CPF (Rule 5)
+        // Only if not explicitly defined in daily targets table
         if (isMaternityMode) {
-            // Rule 5: CPF parité
-            if (dayOfWeek === 3) { // Mercredi
+            if (dayOfWeek === 3 && !serviceConfig?.shiftTargets?.[dayOfWeek]?.['CPF M']) { // Mercredi
                 const countCPFM = employees.filter(e => e.shifts[dateStr] === 'CPF M').length;
                 const target = isEven ? 1 : 2;
                 if (countCPFM < target) {
-                    list.push({ employeeId: 'ALL', date: dateStr, type: 'PARITY_MISMATCH', message: `Mercredi ${isEven ? 'Pair' : 'Impair'} : Besoin de ${target} CPF M (${countCPFM}/${target})`, severity: 'error' });
+                    list.push({ 
+                        employeeId: 'ALL', 
+                        date: dateStr, 
+                        type: 'PARITY_MISMATCH', 
+                        message: `Besoin de ${target} poste(s) "CPF Matin" ce Mercredi (Semaine ${isEven ? 'Paire' : 'Impair'})`, 
+                        severity: 'error' 
+                    });
                 }
             }
-            if (dayOfWeek === 5) { // Vendredi
+            if (dayOfWeek === 5 && !serviceConfig?.shiftTargets?.[dayOfWeek]?.['CPF M']) { // Vendredi
                 const countCPFM = employees.filter(e => e.shifts[dateStr] === 'CPF M').length;
                 const target = isEven ? 2 : 1;
                 if (countCPFM < target) {
-                    list.push({ employeeId: 'ALL', date: dateStr, type: 'PARITY_MISMATCH', message: `Vendredi ${isEven ? 'Pair' : 'Impair'} : Besoin de ${target} CPF M (${countCPFM}/${target})`, severity: 'error' });
+                    list.push({ 
+                        employeeId: 'ALL', 
+                        date: dateStr, 
+                        type: 'PARITY_MISMATCH', 
+                        message: `Besoin de ${target} poste(s) "CPF Matin" ce Vendredi (Semaine ${isEven ? 'Paire' : 'Impair'})`, 
+                        severity: 'error' 
+                    });
                 }
             }
+        }
 
-            // Rule 3: Respect targets from config
-            if (serviceConfig?.shiftTargets?.[dayOfWeek]) {
-                const targets = serviceConfig.shiftTargets[dayOfWeek];
-                Object.entries(targets).forEach(([code, target]) => {
-                    const count = employees.filter(e => e.shifts[dateStr] === code).length;
-                    if (count < (target as number)) {
-                        list.push({ employeeId: 'ALL', date: dateStr, type: 'MISSING_SKILL', message: `Manque de personnel en ${code} (${count}/${target})`, severity: 'warning' });
-                    }
+        // Validate all configured targets for the service
+        Object.entries(targets).forEach(([code, target]) => {
+            const count = employees.filter(e => e.shifts[dateStr] === code).length;
+            if (count < (target as number)) {
+                list.push({ 
+                    employeeId: 'ALL', 
+                    date: dateStr, 
+                    type: 'MISSING_SKILL', 
+                    message: `Alerte effectif : ${count}/${target} agents en poste ${code}`, 
+                    severity: 'warning' 
                 });
             }
-        }
+        });
     }
 
     // 2. Check Individual Patterns
@@ -74,7 +92,7 @@ export const checkConstraints = (
           }
           if (totalHours > 48) {
               const startWindow = new Date(startDate); startWindow.setDate(startWindow.getDate() + i);
-              list.push({ employeeId: emp.id, date: startWindow.toISOString().split('T')[0], type: 'CONSECUTIVE_DAYS', message: `${emp.name}: > 48h sur 7 jours glissants (${totalHours}h)`, severity: 'error' });
+              list.push({ employeeId: emp.id, date: startWindow.toISOString().split('T')[0], type: 'CONSECUTIVE_DAYS', message: `${emp.name}: Dépassement 48h/sem (${totalHours}h)`, severity: 'error' });
           }
       }
 
@@ -85,11 +103,11 @@ export const checkConstraints = (
         const nextD = new Date(d); nextD.setDate(d.getDate() + 1);
         const nextDateStr = nextD.toISOString().split('T')[0];
 
-        // Rule 2: S -> Rest
+        // Rule 2: S -> Rest (repos obligatoire après nuit/soirée)
         if (emp.shifts[dateStr] === 'S') {
             const nextCode = emp.shifts[nextDateStr];
             if (nextCode && SHIFT_TYPES[nextCode]?.isWork) {
-                list.push({ employeeId: emp.id, date: nextDateStr, type: 'INVALID_ROTATION', message: `${emp.name}: Repos post-nuit obligatoire après S`, severity: 'error' });
+                list.push({ employeeId: emp.id, date: nextDateStr, type: 'INVALID_ROTATION', message: `${emp.name}: Repos post-nuit non respecté après poste S`, severity: 'error' });
             }
         }
       }
@@ -105,13 +123,13 @@ export const checkConstraints = (
                       const workedW1 = (emp.shifts[d1.toISOString().split('T')[0]] && SHIFT_TYPES[emp.shifts[d1.toISOString().split('T')[0]]]?.isWork);
                       const workedW2 = (emp.shifts[d2.toISOString().split('T')[0]] && SHIFT_TYPES[emp.shifts[d2.toISOString().split('T')[0]]]?.isWork);
                       if (workedW1 && workedW2) {
-                          list.push({ employeeId: emp.id, date: d2.toISOString().split('T')[0], type: 'INVALID_ROTATION', message: `${emp.name} (100%): Travail 2 WE consécutifs`, severity: 'error' });
+                          list.push({ employeeId: emp.id, date: d2.toISOString().split('T')[0], type: 'INVALID_ROTATION', message: `${emp.name} (100%): Cumul de 2 week-ends travaillés consécutifs`, severity: 'error' });
                       }
                   }
               }
           }
 
-          // 80% Rule: WE -> Friday Night cycle
+          // 80% Rule: cycle spécifique
           if (emp.fte >= 0.75 && emp.fte < 0.9) {
               for (let i = 0; i < days; i++) {
                   const d = new Date(startDate); d.setDate(d.getDate() + i);
@@ -120,7 +138,7 @@ export const checkConstraints = (
                       // Ensure not worked next sat/sun
                       const sat = new Date(d); sat.setDate(sat.getDate() + 1);
                       if (emp.shifts[sat.toISOString().split('T')[0]] && SHIFT_TYPES[emp.shifts[sat.toISOString().split('T')[0]]]?.isWork) {
-                          list.push({ employeeId: emp.id, date: dateStr, type: 'INVALID_ROTATION', message: `${emp.name} (80%): Cycle non respecté (Vendredi Nuit + WE)`, severity: 'error' });
+                          list.push({ employeeId: emp.id, date: dateStr, type: 'INVALID_ROTATION', message: `${emp.name} (80%): Cycle rompu (Poste S le vendredi interdit si WE travaillé)`, severity: 'error' });
                       }
                   }
               }
