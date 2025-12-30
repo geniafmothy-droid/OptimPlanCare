@@ -58,6 +58,7 @@ function App() {
   
   const [selectedCell, setSelectedCell] = useState<{empId: string, date: string} | null>(null);
   const [shiftEditorFilter, setShiftEditorFilter] = useState<'all' | 'work' | 'absence'>('all');
+  const [editorServiceId, setEditorServiceId] = useState<string>('');
 
   // Loading States
   const [isLoading, setIsLoading] = useState(false); 
@@ -107,7 +108,7 @@ function App() {
   }, [currentUser]);
 
   // --- Dynamic Shift Definitions ---
-  const allAvailableShifts = useMemo(() => {
+  const allBaseShifts = useMemo(() => {
     const definitions: Map<string, ShiftDefinition> = new Map();
     
     // 1. Base default shifts from constants
@@ -120,14 +121,21 @@ function App() {
         definitions.set(dc.code, dc);
     });
 
-    // 3. Filter by current active service if specified
-    const list = Array.from(definitions.values());
-    if (activeServiceId) {
-        return list.filter(l => !l.serviceId || l.serviceId === activeServiceId);
-    }
+    return Array.from(definitions.values());
+  }, [dbShiftCodes]);
 
-    return list;
-  }, [dbShiftCodes, activeServiceId]);
+  const filteredShifts = useMemo(() => {
+    return allBaseShifts.filter(shift => {
+      // 1. Filter by Service
+      if (editorServiceId && shift.serviceId && shift.serviceId !== editorServiceId) return false;
+
+      // 2. Filter by Type
+      if (shiftEditorFilter === 'all') return true;
+      if (shiftEditorFilter === 'work') return shift.isWork;
+      if (shiftEditorFilter === 'absence') return !shift.isWork && shift.code !== 'OFF';
+      return true;
+    });
+  }, [shiftEditorFilter, allBaseShifts, editorServiceId]);
 
   // --- Initial Data Load ---
   useEffect(() => {
@@ -173,7 +181,6 @@ function App() {
   };
 
   const pushToUndoStack = () => {
-      // Cloner l'état actuel des employés pour l'historique
       const snapshot = JSON.parse(JSON.stringify(employees));
       setUndoStack(prev => [snapshot, ...prev].slice(0, 20));
   };
@@ -438,6 +445,7 @@ function App() {
         return;
     }
     setShiftEditorFilter('all');
+    setEditorServiceId(activeServiceId);
     setSelectedCell({ empId, date });
     setIsEditorOpen(true);
   };
@@ -481,22 +489,12 @@ function App() {
       if (notif.actionType === 'LEAVE_VALIDATION') { setActiveTab('leaves'); setIsNotifOpen(false); }
   };
 
-  const filteredShifts = useMemo(() => {
-    return allAvailableShifts.filter(shift => {
-      if (shiftEditorFilter === 'all') return true;
-      if (shiftEditorFilter === 'work') return shift.isWork;
-      if (shiftEditorFilter === 'absence') return !shift.isWork && shift.code !== 'OFF';
-      return true;
-    });
-  }, [shiftEditorFilter, allAvailableShifts]);
-
   if (!currentUser) return <LoginScreen employees={employees} onLogin={handleLogin} />;
 
   const unreadNotifs = appNotifications.filter(n => !n.isRead).length;
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-100 dark:bg-slate-900 font-sans transition-colors duration-300">
-      {/* ... style and toasts ... */}
       <style>{`@media print { @page { size: landscape; margin: 5mm; } body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; } aside, header, .no-print { display: none !important; } .print-container { overflow: visible !important; height: auto !important; } table { width: 100% !important; } }`}</style>
       {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsSidebarOpen(false)} />}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
@@ -504,7 +502,6 @@ function App() {
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
 
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 h-16 flex items-center justify-between px-4 md:px-6 shadow-sm sticky top-0 z-40 no-print">
-        {/* ... header content ... */}
         <div className="flex items-center gap-3">
           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-slate-600 dark:text-slate-300 rounded hover:bg-slate-100 dark:hover:bg-slate-700 lg:hidden"><Menu className="w-6 h-6" /></button>
           <div className="bg-blue-600 p-2 rounded-lg"><Calendar className="w-5 h-5 text-white" /></div>
@@ -547,7 +544,6 @@ function App() {
       
       <div className="flex-1 flex overflow-hidden relative">
         <aside className={`fixed lg:static inset-y-0 left-0 z-50 bg-slate-900 text-white border-r border-slate-700 flex flex-col overflow-y-auto transition-all duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'} ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-72'} w-72 no-print lg:shadow-none`}>
-          {/* ... sidebar content ... */}
           <div className="hidden lg:flex justify-end p-2 border-b border-slate-800"><button onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">{isSidebarCollapsed ? <ChevronRight className="w-5 h-5"/> : <ChevronLeft className="w-5 h-5"/>}</button></div>
           <nav className="p-2 space-y-2 border-b border-slate-700">
             <button onClick={() => setActiveTab('planning')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'planning' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Planning" : ""}><Calendar className="w-5 h-5 flex-shrink-0" /> {!isSidebarCollapsed && <span>{currentUser.role === 'INFIRMIER' || currentUser.role === 'AIDE_SOIGNANT' ? 'Mon Planning' : 'Planning Global'}</span>}</button>
@@ -579,29 +575,13 @@ function App() {
                         ))}
                     </div>
                 </div>
-
-                {/* FILTRE TYPE D'ABSENCE */}
                 <div className="space-y-3">
                     <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">Type d'absence</h3>
                     <div className="flex flex-wrap gap-2">
-                        <button 
-                            onClick={() => setAbsenceTypeFilter('all')}
-                            className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${absenceTypeFilter === 'all' ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}
-                        >
-                            Tous
-                        </button>
-                        {['CA', 'RTT', 'MAL', 'RH', 'RC', 'HS', 'FO', 'F'].map(code => (
-                            <button 
-                                key={code}
-                                onClick={() => setAbsenceTypeFilter(code)}
-                                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${absenceTypeFilter === code ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}
-                            >
-                                {code}
-                            </button>
-                        ))}
+                        <button onClick={() => setAbsenceTypeFilter('all')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${absenceTypeFilter === 'all' ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}>Tous</button>
+                        {['CA', 'RTT', 'MAL', 'RH', 'RC', 'HS', 'FO', 'F'].map(code => (<button key={code} onClick={() => setAbsenceTypeFilter(code)} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${absenceTypeFilter === code ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}>{code}</button>))}
                     </div>
                 </div>
-
                 <div className="space-y-4"><div><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><Briefcase className="w-3 h-3" /> Rôles</h3><div className="space-y-1">{['Infirmier', 'Aide-Soignant', 'Cadre', 'Cadre Supérieur', 'Manager', 'Directeur', 'Médecin', 'Secrétaire', 'Sage-Femme'].map(role => (<label key={role} className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white"><input type="checkbox" checked={selectedRoles.includes(role)} onChange={() => toggleRoleFilter(role)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />{role}</label>))}</div></div><div><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><CheckSquare className="w-3 h-3" /> Compétences</h3><select value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} className="w-full p-2 bg-slate-800 border border-slate-700 rounded text-sm mb-2 text-slate-200 outline-none"><option value="all">Toutes</option>{skillsList.map(s => <option key={s.id} value={s.code}>{s.code} - {s.label}</option>)}</select><label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white"><input type="checkbox" checked={showQualifiedOnly} onChange={(e) => setShowQualifiedOnly(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />Qualifiés uniquement</label></div></div>
             </div>
           )}
@@ -627,7 +607,6 @@ function App() {
                            </div>
                            <button onClick={() => setHighlightNight(!highlightNight)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${highlightNight ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600'}`}><Moon className="w-3.5 h-3.5" /> Nuit Active</button>
                       </div>
-
                       <div className="flex items-center gap-2">
                            {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP' || currentUser.role === 'DIRECTOR' || currentUser.role === 'MANAGER') && (
                             <>
@@ -660,7 +639,6 @@ function App() {
                {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE') && (<div className="w-80 border-l border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-y-auto hidden xl:block p-4"><ConstraintChecker employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} serviceConfig={activeService?.config} /></div>)}
              </>
            )}
-           {/* ... tabs components ... */}
            {activeTab === 'scenarios' && <ScenarioPlanner employees={filteredEmployees} currentDate={currentDate} service={activeService} onApplySchedule={loadData} />}
            {activeTab === 'dashboard' && <Dashboard employees={filteredEmployees} currentDate={currentDate} serviceConfig={activeService?.config} onNavigateToPlanning={handleViewPlanningWithHighlights} onNavigateToScenarios={() => setActiveTab('scenarios')} onScheduleChange={loadData} />}
            {activeTab === 'cycles' && <CycleViewer employees={filteredEmployees} currentUser={currentUser} />}
@@ -673,12 +651,25 @@ function App() {
         </main>
       </div>
 
-      {/* ... Editor Modal ... */}
+      {/* --- Editor Modal --- */}
       {isEditorOpen && selectedCell && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm" onClick={() => setIsEditorOpen(false)}>
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-6 w-[450px] transform transition-all scale-100" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-slate-800 dark:text-white">Modifier le poste</h3><button onClick={() => setIsEditorOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button></div>
             <div className="text-sm text-slate-500 mb-4 bg-slate-50 dark:bg-slate-700 p-3 rounded border dark:border-slate-600">Modification pour <span className="font-semibold text-slate-700 dark:text-white">{employees.find(e => e.id === selectedCell.empId)?.name}</span> le <span className="font-semibold text-slate-700 dark:text-white">{selectedCell.date}</span></div>
+            
+            <div className="mb-4">
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 flex items-center gap-1"><Store className="w-3 h-3"/> Filtrer par Service</label>
+              <select 
+                value={editorServiceId} 
+                onChange={(e) => setEditorServiceId(e.target.value)}
+                className="w-full p-2 border rounded text-xs bg-white dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Tous les services</option>
+                {servicesList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+
             <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-lg mb-4">
               <button onClick={() => setShiftEditorFilter('all')} className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-xs font-bold transition-all ${shiftEditorFilter === 'all' ? 'bg-white dark:bg-slate-700 shadow text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Tous</button>
               <button onClick={() => setShiftEditorFilter('work')} className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-xs font-bold transition-all ${shiftEditorFilter === 'work' ? 'bg-white dark:bg-slate-700 shadow text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}><BriefcaseIcon className="w-3.5 h-3.5" /> Travail</button>
