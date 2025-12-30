@@ -16,6 +16,7 @@ export interface ShiftDefinition {
   endHour?: number;
   duration?: number; // Total presence hours
   breakDuration?: number; // Break in hours (e.g. 0.5)
+  serviceId?: string; // Lié à un service spécifique
 }
 
 export interface Skill {

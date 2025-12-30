@@ -571,7 +571,53 @@ function App() {
             {(currentUser.role === 'ADMIN') && (<button onClick={() => setActiveTab('surveys')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'surveys' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Résultats QVT" : ""}><MessageSquare className="w-5 h-5 flex-shrink-0" /> {!isSidebarCollapsed && <span>Résultats QVT</span>}</button>)}
             {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP') && (<button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Paramètres" : ""}><Settings className="w-5 h-5 flex-shrink-0" /> {!isSidebarCollapsed && <span>Paramètres</span>}</button>)}
           </nav>
-          {!isSidebarCollapsed && (<div className="p-4 space-y-6 animate-in fade-in duration-300"><div><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2"><Store className="w-3 h-3" /> Service</h3><div className="space-y-2 max-h-60 overflow-y-auto pr-1">{isGlobalViewer && (<button onClick={() => setActiveServiceId('')} className={`w-full text-left p-3 rounded-lg border transition-all ${activeServiceId === '' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:border-slate-600'}`}><div className="font-bold text-sm">Vue Globale</div><div className="text-xs opacity-70 mt-1">Tous les services</div></button>)}{servicesList.map(s => { if (!isGlobalViewer && !myServiceIds.includes(s.id)) return null; const empCount = assignmentsList.filter(a => a.serviceId === s.id).length; const skillCount = s.config?.requiredSkills?.length || 0; const isActive = activeServiceId === s.id; return (<button key={s.id} onClick={() => setActiveServiceId(s.id)} className={`w-full text-left p-3 rounded-lg border transition-all ${isActive ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:border-slate-600'}`}><div className="font-bold text-sm mb-2">{s.name}</div><div className="flex gap-3 text-[10px]"><div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${isActive ? 'bg-white text-blue-900 font-bold shadow-sm' : 'bg-slate-900'}`}><Users className="w-3 h-3" /> {empCount}</div><div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${isActive ? 'bg-white text-blue-900 font-bold shadow-sm' : 'bg-slate-900'}`}><Tag className="w-3 h-3" /> {skillCount}</div></div></button>); })}</div></div><div className="space-y-4"><div><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><Briefcase className="w-3 h-3" /> Rôles</h3><div className="space-y-1">{['Infirmier', 'Aide-Soignant', 'Cadre', 'Cadre Supérieur', 'Manager', 'Directeur', 'Médecin', 'Secrétaire', 'Sage-Femme'].map(role => (<label key={role} className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white"><input type="checkbox" checked={selectedRoles.includes(role)} onChange={() => toggleRoleFilter(role)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />{role}</label>))}</div></div><div><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><CheckSquare className="w-3 h-3" /> Compétences</h3><select value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} className="w-full p-2 bg-slate-800 border border-slate-700 rounded text-sm mb-2 text-slate-200 outline-none"><option value="all">Toutes</option>{skillsList.map(s => <option key={s.id} value={s.code}>{s.code} - {s.label}</option>)}</select><label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white"><input type="checkbox" checked={showQualifiedOnly} onChange={(e) => setShowQualifiedOnly(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />Qualifiés uniquement</label></div></div></div>)}
+          {!isSidebarCollapsed && (<div className="p-4 space-y-6 animate-in fade-in duration-300"><div><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2"><Store className="w-3 h-3" /> Service</h3><div className="space-y-2 max-h-60 overflow-y-auto pr-1">{isGlobalViewer && (<button onClick={() => setActiveServiceId('')} className={`w-full text-left p-3 rounded-lg border transition-all ${activeServiceId === '' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:border-slate-600'}`}><div className="font-bold text-sm">Vue Globale</div><div className="text-xs opacity-70 mt-1">Tous les services</div></button>)}{servicesList.map(s => { if (!isGlobalViewer && !myServiceIds.includes(s.id)) return null; const empCount = assignmentsList.filter(a => a.serviceId === s.id).length; const skillCount = s.config?.requiredSkills?.length || 0; const isActive = activeServiceId === s.id; return (<button key={s.id} onClick={() => setActiveServiceId(s.id)} className={`w-full text-left p-3 rounded-lg border transition-all ${isActive ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:border-slate-600'}`}><div className="font-bold text-sm mb-2">{s.name}</div><div className="flex gap-3 text-[10px]"><div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${isActive ? 'bg-white text-blue-900 font-bold shadow-sm' : 'bg-slate-900'}`}><Users className="w-3 h-3" /> {empCount}</div><div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${isActive ? 'bg-white text-blue-900 font-bold shadow-sm' : 'bg-slate-900'}`}><Tag className="w-3 h-3" /> {skillCount}</div></div></button>); })}</div></div>
+          
+          {/* STATUT (PÉRIODE) */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">Statut (Période)</h3>
+            <div className="flex flex-wrap gap-2">
+                {[
+                    { id: 'all', label: 'Tous', icon: <Users className="w-3.5 h-3.5" /> },
+                    { id: 'present', label: 'Présents', icon: <UserCheck className="w-3.5 h-3.5" /> },
+                    { id: 'absent', label: 'Absents', icon: <UserX className="w-3.5 h-3.5" /> },
+                    { id: 'holiday', label: 'Fériés', icon: <Flag className="w-3.5 h-3.5" /> }
+                ].map(stat => (
+                    <button 
+                        key={stat.id}
+                        onClick={() => setStatusFilter(stat.id as any)}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${statusFilter === stat.id ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}
+                    >
+                        {stat.icon}
+                        {stat.label}
+                    </button>
+                ))}
+            </div>
+          </div>
+
+          {/* TYPE D'ABSENCE */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Type d'absence</h3>
+            <div className="flex flex-wrap gap-1.5">
+                <button 
+                    onClick={() => setAbsenceTypeFilter('all')}
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${absenceTypeFilter === 'all' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'}`}
+                >
+                    Tous
+                </button>
+                {['CA', 'RTT', 'MAL', 'RH', 'RC', 'HS', 'FO', 'F'].map(code => (
+                    <button 
+                        key={code}
+                        onClick={() => setAbsenceTypeFilter(code)}
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${absenceTypeFilter === code ? 'bg-blue-600 border-blue-600 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'}`}
+                    >
+                        {code}
+                    </button>
+                ))}
+            </div>
+          </div>
+
+          <div className="space-y-4"><div><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><Briefcase className="w-3 h-3" /> Rôles</h3><div className="space-y-1">{['Infirmier', 'Aide-Soignant', 'Cadre', 'Cadre Supérieur', 'Manager', 'Directeur', 'Médecin', 'Secrétaire', 'Sage-Femme'].map(role => (<label key={role} className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white"><input type="checkbox" checked={selectedRoles.includes(role)} onChange={() => toggleRoleFilter(role)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />{role}</label>))}</div></div><div><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><CheckSquare className="w-3 h-3" /> Compétences</h3><select value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} className="w-full p-2 bg-slate-800 border border-slate-700 rounded text-sm mb-2 text-slate-200 outline-none"><option value="all">Toutes</option>{skillsList.map(s => <option key={s.id} value={s.code}>{s.code} - {s.label}</option>)}</select><label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white"><input type="checkbox" checked={showQualifiedOnly} onChange={(e) => setShowQualifiedOnly(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />Qualifiés uniquement</label></div></div></div>)}
         </aside>
 
         <main className="flex-1 overflow-hidden flex flex-col relative bg-slate-50/50 dark:bg-slate-900/50">
