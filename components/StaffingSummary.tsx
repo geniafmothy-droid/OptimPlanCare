@@ -82,18 +82,25 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
   const getTargetClass = (code: ShiftCode, count: number, isWeekend: boolean, dayIndex: number, isHoliday: boolean) => {
       const ALERT_CLASS = 'bg-red-100 text-red-700 font-bold border border-red-300 ring-1 ring-inset ring-red-200';
       
+      // 1. Priorité absolue : Jours fériés (souvent pas d'alertes d'effectifs cibles)
       if (isHoliday) return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
 
-      // 1. Check Service-specific targets
+      // 2. Priorité absolue : Vérification si le service est FERMÉ ce jour là
+      // Si le jour n'est pas dans la liste des jours d'ouverture, on ne met jamais d'alerte
+      if (serviceConfig?.openDays && !serviceConfig.openDays.includes(dayIndex)) {
+          return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
+      }
+
+      // 3. Contrôle des cibles spécifiques au service (si configurées)
       if (serviceConfig) {
-          // Priority 1: Specific day target for this code
+          // Priorité 3.1: Cible spécifique par jour pour ce code
           const daySpecificTarget = serviceConfig.shiftTargets?.[dayIndex]?.[code];
           if (daySpecificTarget !== undefined) {
               if (count < daySpecificTarget) return ALERT_CLASS;
               return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
           }
           
-          // Priority 2: Generic skill requirement minStaff
+          // Priorité 3.2: Requis générique par compétence (minStaff)
           const skillReq = serviceConfig.skillRequirements?.find(r => r.skillCode === code);
           if (skillReq) {
               if (count < skillReq.minStaff) return ALERT_CLASS;
@@ -101,9 +108,11 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
           }
       }
       
-      // 2. Default alerts for dialysis if specific targets aren't configured or if Global View
+      // 4. Règles de repli par défaut (Dialyse) si aucune cible n'est configurée
       if (!activeServiceId || (serviceConfig && serviceConfig.fteConstraintMode === 'DIALYSIS_STANDARD')) {
-          if (isWeekend) return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
+          // En dialyse standard, le dimanche (0) est fermé par défaut
+          if (dayIndex === 0) return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
+          
           if (code === 'IT' && count < 4) return ALERT_CLASS;
           if (code === 'T5' && count < 1) return ALERT_CLASS;
           if (code === 'T6' && count < 1) return ALERT_CLASS;
