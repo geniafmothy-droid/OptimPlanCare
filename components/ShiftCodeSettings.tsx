@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ShiftDefinition, Service } from '../types';
 import { SHIFT_TYPES } from '../constants';
-import { Palette, Edit2, ChevronDown, ChevronUp, Clock, AlertTriangle, X, Check, Trash2, Save, Plus, Filter, Briefcase, Umbrella, Store } from 'lucide-react';
+import { Palette, Edit2, ChevronDown, ChevronUp, Clock, AlertTriangle, X, Check, Trash2, Save, Plus, Filter, Briefcase, Umbrella, Store, Loader2 } from 'lucide-react';
 import * as db from '../services/db';
 
 const PRESET_BG_COLORS = [
@@ -29,8 +29,10 @@ const PRESET_TEXT_COLORS = [
 
 export const ShiftCodeSettings: React.FC = () => {
     const [isExpanded, setIsExpanded] = useState(true);
-    const [codes, setCodes] = useState<ShiftDefinition[]>(Object.values(SHIFT_TYPES));
+    const [codes, setCodes] = useState<ShiftDefinition[]>([]);
     const [services, setServices] = useState<Service[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
     
     // Filters
     const [filterType, setFilterType] = useState<'ALL' | 'WORK' | 'ABSENCE'>('ALL');
@@ -52,12 +54,35 @@ export const ShiftCodeSettings: React.FC = () => {
     const [formServiceId, setFormServiceId] = useState('');
 
     useEffect(() => {
-        const loadServices = async () => {
-            const s = await db.fetchServices();
-            setServices(s);
-        };
-        loadServices();
+        loadData();
     }, []);
+
+    const loadData = async () => {
+        setIsLoading(true);
+        try {
+            const [srvs, dbCodes] = await Promise.all([
+                db.fetchServices(),
+                db.fetchShiftDefinitions()
+            ]);
+            setServices(srvs);
+            
+            // Merge defaults from constants if not in DB
+            const systemCodes = Object.values(SHIFT_TYPES);
+            const finalCodes = [...dbCodes];
+            
+            systemCodes.forEach(sc => {
+                if (!finalCodes.some(f => f.code === sc.code)) {
+                    finalCodes.push(sc);
+                }
+            });
+            
+            setCodes(finalCodes);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     const resetForm = () => {
         setFormCode('');
@@ -98,18 +123,15 @@ export const ShiftCodeSettings: React.FC = () => {
         setIsModalOpen(true);
     };
 
-    const handleSave = () => {
-        if (isCreating) {
-            if (!formCode || !formLabel) {
-                alert("Le code et le libellé sont obligatoires.");
-                return;
-            }
-            if (codes.some(c => c.code === formCode)) {
-                alert("Ce code existe déjà.");
-                return;
-            }
+    const handleSave = async () => {
+        if (!formCode || !formLabel) {
+            alert("Le code et le libellé sont obligatoires.");
+            return;
+        }
 
-            const newCode: ShiftDefinition = {
+        setIsSaving(true);
+        try {
+            const newDef: ShiftDefinition = {
                 code: formCode as any,
                 label: formLabel,
                 description: formDesc,
@@ -123,32 +145,26 @@ export const ShiftCodeSettings: React.FC = () => {
                 serviceId: formServiceId || undefined
             };
 
-            setCodes([...codes, newCode]);
-        } else {
-            if (!editingCode) return;
-            setCodes(prev => prev.map(c => c.code === editingCode.code ? {
-                ...c,
-                label: formLabel,
-                description: formDesc,
-                color: formColor,
-                textColor: formTextColor,
-                isWork: formIsWork,
-                duration: formIsWork ? formDuration : 0,
-                breakDuration: formIsWork ? formBreak : 0,
-                startHour: formIsWork ? formStart : undefined,
-                endHour: formIsWork ? formEnd : undefined,
-                serviceId: formServiceId || undefined
-            } : c));
+            await db.upsertShiftDefinition(newDef);
+            setIsModalOpen(false);
+            setEditingCode(null);
+            setIsCreating(false);
+            await loadData();
+        } catch (e: any) {
+            alert("Erreur lors de la sauvegarde : " + e.message);
+        } finally {
+            setIsSaving(false);
         }
-
-        setIsModalOpen(false);
-        setEditingCode(null);
-        setIsCreating(false);
     };
 
-    const handleDelete = (code: string) => {
+    const handleDelete = async (code: string) => {
         if (confirm(`Supprimer le code "${code}" ?`)) {
-            setCodes(prev => prev.filter(c => c.code !== code));
+            try {
+                await db.deleteShiftDefinition(code);
+                await loadData();
+            } catch (e: any) {
+                alert(e.message);
+            }
         }
     };
 
@@ -205,13 +221,13 @@ export const ShiftCodeSettings: React.FC = () => {
                         </button>
                     </div>
                     <div className="text-xs text-slate-400 italic">
-                        {filteredCodes.length} codes affichés
+                        {isLoading ? 'Chargement...' : `${filteredCodes.length} codes affichés`}
                     </div>
                 </div>
 
                 <div className="p-4 bg-blue-50 border-b border-blue-100 text-[11px] text-blue-800 flex gap-2">
                     <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                    <span>Ces codes sont utilisés pour la génération du planning et le calcul des heures. Les codes peuvent être restreints à un service.</span>
+                    <span>Ces codes sont utilisés pour la génération du planning et le calcul des heures. Les codes peuvent être restreints à un service spécifique.</span>
                 </div>
 
                 <table className="w-full text-sm text-left">
@@ -239,7 +255,7 @@ export const ShiftCodeSettings: React.FC = () => {
                                         {def.serviceId && (
                                             <div className="flex items-center gap-1 text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 font-medium">
                                                 <Store className="w-2.5 h-2.5" />
-                                                {services.find(s => s.id === def.serviceId)?.name || 'Service inconnu'}
+                                                {services.find(s => s.id === def.serviceId)?.name || 'Service spécifié'}
                                             </div>
                                         )}
                                     </div>
@@ -268,7 +284,7 @@ export const ShiftCodeSettings: React.FC = () => {
                                 </td>
                             </tr>
                         ))}
-                        {filteredCodes.length === 0 && (
+                        {filteredCodes.length === 0 && !isLoading && (
                             <tr>
                                 <td colSpan={5} className="px-6 py-10 text-center text-slate-400 italic bg-white">
                                     Aucun code ne correspond à ce filtre.
@@ -338,6 +354,7 @@ export const ShiftCodeSettings: React.FC = () => {
                                         {PRESET_BG_COLORS.map(c => (
                                             <button 
                                                 key={c} 
+                                                type="button"
                                                 onClick={() => setFormColor(c)}
                                                 className={`w-8 h-8 rounded border-2 transition-all ${c} ${formColor === c ? 'border-blue-600 scale-110 shadow-md' : 'border-transparent hover:scale-105'}`}
                                                 title={c}
@@ -351,6 +368,7 @@ export const ShiftCodeSettings: React.FC = () => {
                                         {PRESET_TEXT_COLORS.map(c => (
                                             <button 
                                                 key={c} 
+                                                type="button"
                                                 onClick={() => setFormTextColor(c)}
                                                 className={`w-8 h-8 rounded border-2 flex items-center justify-center transition-all bg-white ${c} ${formTextColor === c ? 'border-blue-600 scale-110 shadow-md' : 'border-slate-200 hover:scale-105'}`}
                                                 title={c}
@@ -393,8 +411,8 @@ export const ShiftCodeSettings: React.FC = () => {
 
                         <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
                             <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded text-sm font-medium transition-colors">Annuler</button>
-                            <button onClick={handleSave} className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95">
-                                <Save className="w-4 h-4"/> Enregistrer
+                            <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95">
+                                {isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>} Enregistrer
                             </button>
                         </div>
                     </div>

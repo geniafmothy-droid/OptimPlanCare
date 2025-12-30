@@ -1,10 +1,51 @@
 
 import { supabase } from '../lib/supabase';
-import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus, WorkPreference, SurveyResponse, RoleDefinition, GuardArchive } from '../types';
+import { Employee, ShiftCode, Skill, Service, ServiceAssignment, LeaveRequestWorkflow, AppNotification, LeaveRequestStatus, WorkPreference, SurveyResponse, RoleDefinition, GuardArchive, ShiftDefinition } from '../types';
 import { MOCK_EMPLOYEES } from '../constants';
 
 // --- Helpers ---
 const isTempId = (id: string | undefined) => !id || id.toString().startsWith('temp-');
+
+// --- Shift Definitions Management ---
+export const fetchShiftDefinitions = async (): Promise<ShiftDefinition[]> => {
+    const { data, error } = await supabase.from('shift_definitions').select('*').order('code');
+    if (error) return [];
+    return data.map((d: any) => ({
+        code: d.code,
+        label: d.label,
+        description: d.description || '',
+        color: d.color,
+        textColor: d.text_color,
+        isWork: d.is_work,
+        duration: d.duration,
+        break_duration: d.break_duration,
+        startHour: d.start_hour,
+        endHour: d.end_hour,
+        serviceId: d.service_id
+    }));
+};
+
+export const upsertShiftDefinition = async (def: ShiftDefinition) => {
+    const { error } = await supabase.from('shift_definitions').upsert({
+        code: def.code,
+        label: def.label,
+        description: def.description,
+        color: def.color,
+        text_color: def.textColor,
+        is_work: def.isWork,
+        duration: def.duration,
+        break_duration: def.breakDuration,
+        start_hour: def.startHour,
+        end_hour: def.endHour,
+        service_id: def.serviceId || null
+    }, { onConflict: 'code' });
+    if (error) throw new Error(error.message);
+};
+
+export const deleteShiftDefinition = async (code: string) => {
+    const { error } = await supabase.from('shift_definitions').delete().eq('code', code);
+    if (error) throw new Error(error.message);
+};
 
 // --- Guards Archiving ---
 export const fetchGuardArchives = async (year: number): Promise<GuardArchive[]> => {
@@ -392,6 +433,7 @@ export const fetchNotifications = async (): Promise<AppNotification[]> => {
     }));
 };
 
+// Fix for property name errors in createNotification insert call
 export const createNotification = async (notif: Omit<AppNotification, 'id' | 'date' | 'isRead'>) => {
     const { error } = await supabase.from('notifications').insert([{
             recipient_role: notif.recipientRole, recipient_id: notif.recipientId, title: notif.title,

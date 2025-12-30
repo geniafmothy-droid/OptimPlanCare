@@ -50,6 +50,7 @@ function App() {
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [skillsList, setSkillsList] = useState<Skill[]>([]);
+  const [dbShiftCodes, setDbShiftCodes] = useState<ShiftDefinition[]>([]);
   const [servicesList, setServicesList] = useState<Service[]>([]);
   const [assignmentsList, setAssignmentsList] = useState<ServiceAssignment[]>([]);
   const [preferences, setPreferences] = useState<WorkPreference[]>([]);
@@ -107,31 +108,26 @@ function App() {
 
   // --- Dynamic Shift Definitions ---
   const allAvailableShifts = useMemo(() => {
-    const definitions: ShiftDefinition[] = [];
+    const definitions: Map<string, ShiftDefinition> = new Map();
     
-    // 1. Add DB Skills as Work Shifts
-    skillsList.forEach(skill => {
-        definitions.push({
-            code: skill.code as ShiftCode,
-            label: skill.label,
-            description: skill.label,
-            color: skill.color || 'bg-blue-100',
-            textColor: skill.textColor || 'text-blue-900',
-            isWork: true,
-            duration: skill.defaultDuration,
-            breakDuration: skill.defaultBreak
-        });
+    // 1. Base default shifts from constants
+    Object.values(SHIFT_TYPES).forEach(s => {
+        if (s.code !== 'OFF') definitions.set(s.code, s);
     });
 
-    // 2. Add System Absences from constants that aren't in skills
-    Object.values(SHIFT_TYPES).forEach(systemShift => {
-        if (!systemShift.isWork && systemShift.code !== 'OFF') {
-            definitions.push(systemShift);
-        }
+    // 2. Add DB defined shifts (overrides defaults or adds new ones)
+    dbShiftCodes.forEach(dc => {
+        definitions.set(dc.code, dc);
     });
 
-    return definitions;
-  }, [skillsList]);
+    // 3. Filter by current active service if specified
+    const list = Array.from(definitions.values());
+    if (activeServiceId) {
+        return list.filter(l => !l.serviceId || l.serviceId === activeServiceId);
+    }
+
+    return list;
+  }, [dbShiftCodes, activeServiceId]);
 
   // --- Initial Data Load ---
   useEffect(() => {
@@ -151,30 +147,23 @@ function App() {
       else document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
 
-  useEffect(() => {
-      if (currentUser && currentUser.employeeId && currentUser.role !== 'ADMIN' && currentUser.role !== 'DIRECTOR') {
-          const shouldShow = Math.random() < 0.3; 
-          if (shouldShow) {
-              setTimeout(() => setIsSurveyOpen(true), 2000); 
-          }
-      }
-  }, [currentUser]);
-
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [empData, skillsData, servicesData, assignData, prefsData] = await Promise.all([
+      const [empData, skillsData, servicesData, assignData, prefsData, dbCodes] = await Promise.all([
           db.fetchEmployeesWithShifts(),
           db.fetchSkills(),
           db.fetchServices(),
           db.fetchServiceAssignments(),
-          db.fetchWorkPreferences()
+          db.fetchWorkPreferences(),
+          db.fetchShiftDefinitions()
       ]);
       setEmployees(empData);
       setSkillsList(skillsData);
       setServicesList(servicesData);
       setAssignmentsList(assignData);
       setPreferences(prefsData.filter(p => p.status === 'VALIDATED')); 
+      setDbShiftCodes(dbCodes);
     } catch (error: any) {
       console.error(error);
       setToast({ message: `Erreur: ${error.message || "Problème de connexion"}`, type: "error" });
@@ -507,6 +496,7 @@ function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-100 dark:bg-slate-900 font-sans transition-colors duration-300">
+      {/* ... style and toasts ... */}
       <style>{`@media print { @page { size: landscape; margin: 5mm; } body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; } aside, header, .no-print { display: none !important; } .print-container { overflow: visible !important; height: auto !important; } table { width: 100% !important; } }`}</style>
       {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsSidebarOpen(false)} />}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
@@ -514,6 +504,7 @@ function App() {
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
 
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 h-16 flex items-center justify-between px-4 md:px-6 shadow-sm sticky top-0 z-40 no-print">
+        {/* ... header content ... */}
         <div className="flex items-center gap-3">
           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-slate-600 dark:text-slate-300 rounded hover:bg-slate-100 dark:hover:bg-slate-700 lg:hidden"><Menu className="w-6 h-6" /></button>
           <div className="bg-blue-600 p-2 rounded-lg"><Calendar className="w-5 h-5 text-white" /></div>
@@ -556,6 +547,7 @@ function App() {
       
       <div className="flex-1 flex overflow-hidden relative">
         <aside className={`fixed lg:static inset-y-0 left-0 z-50 bg-slate-900 text-white border-r border-slate-700 flex flex-col overflow-y-auto transition-all duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'} ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-72'} w-72 no-print lg:shadow-none`}>
+          {/* ... sidebar content ... */}
           <div className="hidden lg:flex justify-end p-2 border-b border-slate-800"><button onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">{isSidebarCollapsed ? <ChevronRight className="w-5 h-5"/> : <ChevronLeft className="w-5 h-5"/>}</button></div>
           <nav className="p-2 space-y-2 border-b border-slate-700">
             <button onClick={() => setActiveTab('planning')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'planning' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Planning" : ""}><Calendar className="w-5 h-5 flex-shrink-0" /> {!isSidebarCollapsed && <span>{currentUser.role === 'INFIRMIER' || currentUser.role === 'AIDE_SOIGNANT' ? 'Mon Planning' : 'Planning Global'}</span>}</button>
@@ -571,60 +563,54 @@ function App() {
             {(currentUser.role === 'ADMIN') && (<button onClick={() => setActiveTab('surveys')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'surveys' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Résultats QVT" : ""}><MessageSquare className="w-5 h-5 flex-shrink-0" /> {!isSidebarCollapsed && <span>Résultats QVT</span>}</button>)}
             {(currentUser.role === 'ADMIN' || currentUser.role === 'DIRECTOR' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP') && (<button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'} ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`} title={isSidebarCollapsed ? "Paramètres" : ""}><Settings className="w-5 h-5 flex-shrink-0" /> {!isSidebarCollapsed && <span>Paramètres</span>}</button>)}
           </nav>
-          {!isSidebarCollapsed && (<div className="p-4 space-y-6 animate-in fade-in duration-300"><div><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2"><Store className="w-3 h-3" /> Service</h3><div className="space-y-2 max-h-60 overflow-y-auto pr-1">{isGlobalViewer && (<button onClick={() => setActiveServiceId('')} className={`w-full text-left p-3 rounded-lg border transition-all ${activeServiceId === '' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:border-slate-600'}`}><div className="font-bold text-sm">Vue Globale</div><div className="text-xs opacity-70 mt-1">Tous les services</div></button>)}{servicesList.map(s => { if (!isGlobalViewer && !myServiceIds.includes(s.id)) return null; const empCount = assignmentsList.filter(a => a.serviceId === s.id).length; const skillCount = s.config?.requiredSkills?.length || 0; const isActive = activeServiceId === s.id; return (<button key={s.id} onClick={() => setActiveServiceId(s.id)} className={`w-full text-left p-3 rounded-lg border transition-all ${isActive ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:border-slate-600'}`}><div className="font-bold text-sm mb-2">{s.name}</div><div className="flex gap-3 text-[10px]"><div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${isActive ? 'bg-white text-blue-900 font-bold shadow-sm' : 'bg-slate-900'}`}><Users className="w-3 h-3" /> {empCount}</div><div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${isActive ? 'bg-white text-blue-900 font-bold shadow-sm' : 'bg-slate-900'}`}><Tag className="w-3 h-3" /> {skillCount}</div></div></button>); })}</div></div>
-          
-          {/* STATUT (PÉRIODE) */}
-          <div className="space-y-3">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">Statut (Période)</h3>
-            <div className="flex flex-wrap gap-2">
-                {[
-                    { id: 'all', label: 'Tous', icon: <Users className="w-3.5 h-3.5" /> },
-                    { id: 'present', label: 'Présents', icon: <UserCheck className="w-3.5 h-3.5" /> },
-                    { id: 'absent', label: 'Absents', icon: <UserX className="w-3.5 h-3.5" /> },
-                    { id: 'holiday', label: 'Fériés', icon: <Flag className="w-3.5 h-3.5" /> }
-                ].map(stat => (
-                    <button 
-                        key={stat.id}
-                        onClick={() => setStatusFilter(stat.id as any)}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${statusFilter === stat.id ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}
-                    >
-                        {stat.icon}
-                        {stat.label}
-                    </button>
-                ))}
-            </div>
-          </div>
+          {!isSidebarCollapsed && (
+            <div className="p-4 space-y-6 animate-in fade-in duration-300">
+                <div><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2"><Store className="w-3 h-3" /> Service</h3><div className="space-y-2 max-h-60 overflow-y-auto pr-1">{isGlobalViewer && (<button onClick={() => setActiveServiceId('')} className={`w-full text-left p-3 rounded-lg border transition-all ${activeServiceId === '' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:border-slate-600'}`}><div className="font-bold text-sm">Vue Globale</div><div className="text-xs opacity-70 mt-1">Tous les services</div></button>)}{servicesList.map(s => { if (!isGlobalViewer && !myServiceIds.includes(s.id)) return null; const empCount = assignmentsList.filter(a => a.serviceId === s.id).length; const skillCount = s.config?.requiredSkills?.length || 0; const isActive = activeServiceId === s.id; return (<button key={s.id} onClick={() => setActiveServiceId(s.id)} className={`w-full text-left p-3 rounded-lg border transition-all ${isActive ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:border-slate-600'}`}><div className="font-bold text-sm mb-2">{s.name}</div><div className="flex gap-3 text-[10px]"><div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${isActive ? 'bg-white text-blue-900 font-bold shadow-sm' : 'bg-slate-900'}`}><Users className="w-3 h-3" /> {empCount}</div><div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${isActive ? 'bg-white text-blue-900 font-bold shadow-sm' : 'bg-slate-900'}`}><Tag className="w-3 h-3" /> {skillCount}</div></div></button>); })}</div></div>
+                <div className="space-y-3">
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">Statut (Période)</h3>
+                    <div className="flex flex-wrap gap-2">
+                        {[
+                            { id: 'all', label: 'Tous', icon: <Users className="w-3.5 h-3.5" /> },
+                            { id: 'present', label: 'Présents', icon: <UserCheck className="w-3.5 h-3.5" /> },
+                            { id: 'absent', label: 'Absents', icon: <UserX className="w-3.5 h-3.5" /> },
+                            { id: 'holiday', label: 'Fériés', icon: <Flag className="w-3.5 h-3.5" /> }
+                        ].map(stat => (
+                            <button key={stat.id} onClick={() => setStatusFilter(stat.id as any)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${statusFilter === stat.id ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}>{stat.icon}{stat.label}</button>
+                        ))}
+                    </div>
+                </div>
 
-          {/* TYPE D'ABSENCE */}
-          <div className="space-y-3">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Type d'absence</h3>
-            <div className="flex flex-wrap gap-1.5">
-                <button 
-                    onClick={() => setAbsenceTypeFilter('all')}
-                    className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${absenceTypeFilter === 'all' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'}`}
-                >
-                    Tous
-                </button>
-                {['CA', 'RTT', 'MAL', 'RH', 'RC', 'HS', 'FO', 'F'].map(code => (
-                    <button 
-                        key={code}
-                        onClick={() => setAbsenceTypeFilter(code)}
-                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${absenceTypeFilter === code ? 'bg-blue-600 border-blue-600 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'}`}
-                    >
-                        {code}
-                    </button>
-                ))}
-            </div>
-          </div>
+                {/* FILTRE TYPE D'ABSENCE */}
+                <div className="space-y-3">
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">Type d'absence</h3>
+                    <div className="flex flex-wrap gap-2">
+                        <button 
+                            onClick={() => setAbsenceTypeFilter('all')}
+                            className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${absenceTypeFilter === 'all' ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}
+                        >
+                            Tous
+                        </button>
+                        {['CA', 'RTT', 'MAL', 'RH', 'RC', 'HS', 'FO', 'F'].map(code => (
+                            <button 
+                                key={code}
+                                onClick={() => setAbsenceTypeFilter(code)}
+                                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${absenceTypeFilter === code ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}
+                            >
+                                {code}
+                            </button>
+                        ))}
+                    </div>
+                </div>
 
-          <div className="space-y-4"><div><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><Briefcase className="w-3 h-3" /> Rôles</h3><div className="space-y-1">{['Infirmier', 'Aide-Soignant', 'Cadre', 'Cadre Supérieur', 'Manager', 'Directeur', 'Médecin', 'Secrétaire', 'Sage-Femme'].map(role => (<label key={role} className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white"><input type="checkbox" checked={selectedRoles.includes(role)} onChange={() => toggleRoleFilter(role)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />{role}</label>))}</div></div><div><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><CheckSquare className="w-3 h-3" /> Compétences</h3><select value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} className="w-full p-2 bg-slate-800 border border-slate-700 rounded text-sm mb-2 text-slate-200 outline-none"><option value="all">Toutes</option>{skillsList.map(s => <option key={s.id} value={s.code}>{s.code} - {s.label}</option>)}</select><label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white"><input type="checkbox" checked={showQualifiedOnly} onChange={(e) => setShowQualifiedOnly(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />Qualifiés uniquement</label></div></div></div>)}
+                <div className="space-y-4"><div><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><Briefcase className="w-3 h-3" /> Rôles</h3><div className="space-y-1">{['Infirmier', 'Aide-Soignant', 'Cadre', 'Cadre Supérieur', 'Manager', 'Directeur', 'Médecin', 'Secrétaire', 'Sage-Femme'].map(role => (<label key={role} className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white"><input type="checkbox" checked={selectedRoles.includes(role)} onChange={() => toggleRoleFilter(role)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />{role}</label>))}</div></div><div><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2"><CheckSquare className="w-3 h-3" /> Compétences</h3><select value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} className="w-full p-2 bg-slate-800 border border-slate-700 rounded text-sm mb-2 text-slate-200 outline-none"><option value="all">Toutes</option>{skillsList.map(s => <option key={s.id} value={s.code}>{s.code} - {s.label}</option>)}</select><label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-white"><input type="checkbox" checked={showQualifiedOnly} onChange={(e) => setShowQualifiedOnly(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600" />Qualifiés uniquement</label></div></div>
+            </div>
+          )}
         </aside>
 
         <main className="flex-1 overflow-hidden flex flex-col relative bg-slate-50/50 dark:bg-slate-900/50">
            {activeTab === 'planning' && (
              <>
                <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-3 flex flex-col gap-3 no-print">
-                  {/* LIGNE 1 : FONCTIONNALITÉS DE GESTION */}
                   <div className="flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2">
                            <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1.5">
@@ -645,14 +631,7 @@ function App() {
                       <div className="flex items-center gap-2">
                            {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP' || currentUser.role === 'DIRECTOR' || currentUser.role === 'MANAGER') && (
                             <>
-                            <button 
-                                onClick={handleUndo} 
-                                disabled={undoStack.length === 0 || isSaving}
-                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${undoStack.length > 0 ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50' : 'bg-slate-50 dark:bg-slate-800 text-slate-300 border-slate-200 cursor-not-allowed opacity-50'}`}
-                                title="Annuler la dernière modification"
-                            >
-                                <Undo2 className="w-4 h-4" /> Annuler
-                            </button>
+                            <button onClick={handleUndo} disabled={undoStack.length === 0 || isSaving} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${undoStack.length > 0 ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50' : 'bg-slate-50 dark:bg-slate-800 text-slate-300 border-slate-200 cursor-not-allowed opacity-50'}`} title="Annuler la dernière modification"><Undo2 className="w-4 h-4" /> Annuler</button>
                             <div className="h-6 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div>
                             <button onClick={handlePrint} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Imprimer"><Printer className="w-4 h-4" /></button>
                             <button onClick={handleExportCSV} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Export CSV"><Download className="w-4 h-4" /></button>
@@ -667,14 +646,11 @@ function App() {
                            )}
                       </div>
                   </div>
-
-                  {/* LIGNE 2 : FILTRES DE VUE */}
                   <div className="flex items-center gap-2 flex-wrap">
                       <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700 p-1 rounded-lg">
                           <button onClick={() => setViewMode('month')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'month' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Mois</button>
                           <button onClick={() => setViewMode('week')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'week' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Semaine</button>
-                          <button onClick={() => setViewMode('workweek')} title="Semaine Ouvrée (5 jours)" className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'workweek' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Ouvré</button>
-                          <button onClick={() => setViewMode('workweek6')} title="Semaine Ouvrable (6 jours)" className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'workweek6' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Ouvrable</button>
+                          <button onClick={() => setViewMode('workweek')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'workweek' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Ouvré</button>
                           <button onClick={() => setViewMode('day')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'day' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Journée</button>
                           <button onClick={() => setViewMode('hourly')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'hourly' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Horaires</button>
                       </div>
@@ -684,7 +660,7 @@ function App() {
                {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE') && (<div className="w-80 border-l border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-y-auto hidden xl:block p-4"><ConstraintChecker employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} serviceConfig={activeService?.config} /></div>)}
              </>
            )}
-
+           {/* ... tabs components ... */}
            {activeTab === 'scenarios' && <ScenarioPlanner employees={filteredEmployees} currentDate={currentDate} service={activeService} onApplySchedule={loadData} />}
            {activeTab === 'dashboard' && <Dashboard employees={filteredEmployees} currentDate={currentDate} serviceConfig={activeService?.config} onNavigateToPlanning={handleViewPlanningWithHighlights} onNavigateToScenarios={() => setActiveTab('scenarios')} onScheduleChange={loadData} />}
            {activeTab === 'cycles' && <CycleViewer employees={filteredEmployees} currentUser={currentUser} />}
@@ -697,6 +673,7 @@ function App() {
         </main>
       </div>
 
+      {/* ... Editor Modal ... */}
       {isEditorOpen && selectedCell && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm" onClick={() => setIsEditorOpen(false)}>
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-6 w-[450px] transform transition-all scale-100" onClick={e => e.stopPropagation()}>
@@ -717,7 +694,6 @@ function App() {
           </div>
         </div>
       )}
-
       {isHazardOpen && <HazardManager isOpen={isHazardOpen} onClose={() => setIsHazardOpen(false)} employees={filteredEmployees} currentDate={currentDate} onResolve={() => { loadData(); setToast({message: 'Aléa résolu', type: 'success'})}} />}
       {actionModal && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setActionModal(null)}><div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-8 w-[400px] animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}><div className="text-center mb-6"><div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 ${actionModal.type === 'GENERATE' ? 'bg-blue-100 text-blue-600' : (actionModal.type === 'RESET_LEAVES' ? 'bg-orange-100 text-orange-600' : 'bg-red-100 text-red-600')}`}>{actionModal.type === 'GENERATE' ? <Wand2 className="w-6 h-6" /> : (actionModal.type === 'RESET_LEAVES' ? <Eraser className="w-6 h-6"/> : <Trash2 className="w-6 h-6" />)}</div><h3 className="text-xl font-bold text-slate-800 dark:text-white">{actionModal.type === 'GENERATE' ? 'Génération Automatique' : (actionModal.type === 'RESET_LEAVES' ? 'Réinitialisation Absences' : 'Réinitialisation Planning')}</h3><p className="text-sm text-slate-500 dark:text-slate-400 mt-2">Veuillez confirmer la période cible pour cette action.</p></div><div className="space-y-4 mb-6"><div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mois</label><select value={actionMonth} onChange={(e) => setActionMonth(parseInt(e.target.value))} className="w-full p-2.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 dark:text-white">{Array.from({length: 12}, (_, i) => (<option key={i} value={i}>{new Date(2024, i, 1).toLocaleDateString('fr-FR', { month: 'long' })}</option>))}</select></div><div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Année</label><input type="number" value={actionYear} onChange={(e) => setActionYear(parseInt(e.target.value))} className="w-full p-2.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 dark:text-white" /></div></div>{actionModal.type === 'RESET' && activeService && (<div className="mb-6 p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 text-xs rounded-lg border border-amber-100 dark:border-amber-800 flex items-start gap-2"><AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>Attention : Seuls les plannings du service <strong>{activeService.name}</strong> seront effacés.</span></div>)}{actionModal.type === 'RESET_LEAVES' && (<div className="mb-6 p-3 bg-orange-50 dark:bg-orange-900/20 text-orange-800 dark:text-orange-300 text-xs rounded-lg border border-orange-100 dark:border-orange-800 flex items-start gap-2"><AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>Attention : Ceci supprimera <strong>toutes les demandes de congés, les validations et les notifications associées</strong> pour ce mois. Cette action est irréversible.</span></div>)}<div className="flex gap-3"><button onClick={() => setActionModal(null)} className="flex-1 py-2.5 text-slate-600 dark:text-slate-300 font-medium hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">Annuler</button><button onClick={confirmAction} disabled={isLoading} className={`flex-1 py-2.5 text-white font-medium rounded-lg shadow-sm flex items-center justify-center gap-2 ${actionModal.type === 'GENERATE' ? 'bg-blue-600 hover:bg-blue-700' : (actionModal.type === 'RESET_LEAVES' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-red-600 hover:bg-red-700')}`}>{isLoading && <Loader2 className="w-4 h-4 animate-spin" />} Confirmer</button></div></div></div>)}
     </div>
