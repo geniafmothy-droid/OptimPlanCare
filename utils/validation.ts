@@ -27,44 +27,54 @@ export const checkConstraints = (
         const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         const dayOfWeek = getDayOfWeek(d); 
         const weekNum = getWeekNumber(d);
-        const isEven = weekNum % 2 === 0;
+        const isOdd = weekNum % 2 !== 0;
 
-        // IA LOGIC: Fetch dynamically configured targets
-        const targets = getEffectiveTargets(dayOfWeek, serviceConfig);
+        // IA LOGIC: Fetch dynamically configured targets (includes parity logic)
+        const targets = getEffectiveTargets(d, serviceConfig);
 
         // Specific Maternité Parity Logic for CPF (Rule 5)
-        // Only if not explicitly defined in daily targets table
+        // Alert specifically if targets aren't met on key days
         if (isMaternityMode) {
-            if (dayOfWeek === 3 && !serviceConfig?.shiftTargets?.[dayOfWeek]?.['CPF M']) { // Mercredi
-                const countCPFM = employees.filter(e => e.shifts[dateStr] === 'CPF M').length;
-                const target = isEven ? 1 : 2;
-                if (countCPFM < target) {
-                    list.push({ 
-                        employeeId: 'ALL', 
-                        date: dateStr, 
-                        type: 'PARITY_MISMATCH', 
-                        message: `Besoin de ${target} poste(s) "CPF Matin" ce Mercredi (Semaine ${isEven ? 'Paire' : 'Impair'})`, 
-                        severity: 'error' 
-                    });
+            // Mercredi (3) et Vendredi (5)
+            if (dayOfWeek === 3 || dayOfWeek === 5) {
+                const required = isOdd ? 2 : 1;
+                const weekLabel = isOdd ? 'Impaire' : 'Paire';
+                const dayLabel = dayOfWeek === 3 ? 'Mercredi' : 'Vendredi';
+
+                // Check CPF Matin
+                if (!serviceConfig?.shiftTargets?.[dayOfWeek]?.['CPF M']) {
+                    const countM = employees.filter(e => e.shifts[dateStr] === 'CPF M').length;
+                    if (countM < required) {
+                        list.push({ 
+                            employeeId: 'ALL', 
+                            date: dateStr, 
+                            type: 'PARITY_MISMATCH', 
+                            message: `Besoin de ${required} poste(s) "CPF Matin" ce ${dayLabel} (Semaine ${weekLabel})`, 
+                            severity: 'error' 
+                        });
+                    }
                 }
-            }
-            if (dayOfWeek === 5 && !serviceConfig?.shiftTargets?.[dayOfWeek]?.['CPF M']) { // Vendredi
-                const countCPFM = employees.filter(e => e.shifts[dateStr] === 'CPF M').length;
-                const target = isEven ? 2 : 1;
-                if (countCPFM < target) {
-                    list.push({ 
-                        employeeId: 'ALL', 
-                        date: dateStr, 
-                        type: 'PARITY_MISMATCH', 
-                        message: `Besoin de ${target} poste(s) "CPF Matin" ce Vendredi (Semaine ${isEven ? 'Paire' : 'Impair'})`, 
-                        severity: 'error' 
-                    });
+                // Check CPF Coupure
+                if (!serviceConfig?.shiftTargets?.[dayOfWeek]?.['CPF C']) {
+                    const countC = employees.filter(e => e.shifts[dateStr] === 'CPF C').length;
+                    if (countC < required) {
+                        list.push({ 
+                            employeeId: 'ALL', 
+                            date: dateStr, 
+                            type: 'PARITY_MISMATCH', 
+                            message: `Besoin de ${required} poste(s) "CPF Coupure" ce ${dayLabel} (Semaine ${weekLabel})`, 
+                            severity: 'error' 
+                        });
+                    }
                 }
             }
         }
 
         // Validate all configured targets for the service
         Object.entries(targets).forEach(([code, target]) => {
+            // Skip redundant alerts for CPF if already handled by parity logic above
+            if (isMaternityMode && (code === 'CPF M' || code === 'CPF C') && (dayOfWeek === 3 || dayOfWeek === 5)) return;
+
             const count = employees.filter(e => e.shifts[dateStr] === code).length;
             if (count < (target as number)) {
                 list.push({ 

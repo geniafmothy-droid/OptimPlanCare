@@ -141,15 +141,15 @@ export const ConstraintChecker: React.FC<ConstraintCheckerProps> = ({ employees,
                           </p>
                           <div className="space-y-2">
                               <div className="flex items-center gap-3 p-2 bg-indigo-50 dark:bg-indigo-900/20 rounded border border-indigo-100 dark:border-indigo-900/50">
-                                  <div className="w-24 text-xs font-bold text-indigo-700 dark:text-indigo-400">Semaine Paire</div>
+                                  <div className="w-24 text-xs font-bold text-indigo-700 dark:text-indigo-400">Semaine Impaire</div>
                                   <div className="flex-1 text-xs dark:text-slate-300">
-                                      <span className="font-bold">Mer :</span> 1x CPF M, 1x CPF C | <span className="font-bold">Ven :</span> 2x CPF M, 2x CPF C
+                                      <span className="font-bold">Mer & Ven :</span> 2x CPF M, 2x CPF C
                                   </div>
                               </div>
                               <div className="flex items-center gap-3 p-2 bg-purple-50 dark:bg-purple-900/20 rounded border border-purple-100 dark:border-purple-900/50">
-                                  <div className="w-24 text-xs font-bold text-purple-700 dark:text-purple-400">Semaine Impaire</div>
+                                  <div className="w-24 text-xs font-bold text-purple-700 dark:text-purple-400">Semaine Paire</div>
                                   <div className="flex-1 text-xs dark:text-slate-300">
-                                      <span className="font-bold">Mer :</span> 2x CPF M, 2x CPF C | <span className="font-bold">Ven :</span> 1x CPF M, 1x CPF C
+                                      <span className="font-bold">Mer & Ven :</span> 1x CPF M, 1x CPF C
                                   </div>
                               </div>
                           </div>

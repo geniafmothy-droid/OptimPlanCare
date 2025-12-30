@@ -11,7 +11,7 @@ const getDayOfWeek = (d: Date) => d.getDay(); // 0 Sun, 1 Mon...
 /**
  * Get ISO Week Number
  */
-const getWeekNumber = (d: Date): number => {
+export const getWeekNumber = (d: Date): number => {
     const date = new Date(d.getTime());
     date.setHours(0, 0, 0, 0);
     date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
@@ -49,12 +49,16 @@ const getConsecutiveDaysCount = (emp: Employee, currentDate: Date, tempShifts: R
 };
 
 /**
- * Calcule les effectifs cibles réels en fusionnant les paramètres par défaut 
- * et les objectifs journaliers spécifiques du service.
+ * Calcule les effectifs cibles réels en fusionnant les paramètres par défaut,
+ * les objectifs journaliers spécifiques et les règles métier (ex: Parité Maternité).
  */
-export const getEffectiveTargets = (dayOfWeek: number, config?: ServiceConfig): Record<string, number> => {
+export const getEffectiveTargets = (date: Date, config?: ServiceConfig): Record<string, number> => {
     const targets: Record<string, number> = {};
     if (!config) return targets;
+
+    const dayOfWeek = date.getDay();
+    const weekNum = getWeekNumber(date);
+    const isOddWeek = weekNum % 2 !== 0;
 
     // 1. Initialisation avec les effectifs minimums par défaut des compétences actives
     if (config.skillRequirements) {
@@ -63,7 +67,19 @@ export const getEffectiveTargets = (dayOfWeek: number, config?: ServiceConfig): 
         });
     }
 
-    // 2. Surcharge avec les "Objectifs Journaliers Spécifiques" (Tableau de saisie manuelle)
+    // 2. Logique spécifique Maternité (Parité CPF)
+    // S'applique si on est en mode Maternité et qu'aucune surcharge manuelle n'existe pour ces postes
+    if (config.fteConstraintMode === 'MATERNITY_STANDARD') {
+        // Mercredi (3) et Vendredi (5)
+        if (dayOfWeek === 3 || dayOfWeek === 5) {
+            const parityTarget = isOddWeek ? 2 : 1;
+            // On ne surcharge que si l'utilisateur n'a pas mis d'objectif spécifique dans le tableau
+            if (!config.shiftTargets?.[dayOfWeek]?.['CPF M']) targets['CPF M'] = parityTarget;
+            if (!config.shiftTargets?.[dayOfWeek]?.['CPF C']) targets['CPF C'] = parityTarget;
+        }
+    }
+
+    // 3. Surcharge finale avec les "Objectifs Journaliers Spécifiques" (Tableau de saisie manuelle)
     if (config.shiftTargets?.[dayOfWeek]) {
         const daily = config.shiftTargets[dayOfWeek];
         Object.entries(daily).forEach(([code, val]) => {
@@ -137,28 +153,15 @@ export const generateMonthlySchedule = async (
       const dateStr = toLocalISOString(currentDate);
       const dayOfWeek = getDayOfWeek(currentDate);
       const prevDateStr = toLocalISOString(new Date(new Date(currentDate).setDate(currentDate.getDate() - 1)));
-      const weekNum = getWeekNumber(currentDate);
-      const isEvenWeek = weekNum % 2 === 0;
 
       if (dayOfWeek === 0 && (!serviceConfig?.openDays || !serviceConfig.openDays.includes(0))) continue; 
 
-      // IA LOGIC: Prioritize custom targets from Settings over hardcoded fallbacks
-      let targets = getEffectiveTargets(dayOfWeek, serviceConfig);
+      // IA LOGIC: Determine effective targets using the centralized helper
+      let targets = getEffectiveTargets(currentDate, serviceConfig);
       
-      // Fallback logic if no config exists or targets are empty
+      // Fallback logic if no config exists or targets are empty (Legacy support)
       if (Object.keys(targets).length === 0) {
           targets = isMaternityMode ? { 'IT': 3, 'S': 1 } : { ...DIALYSIS_TARGETS[dayOfWeek] };
-      }
-
-      // Parity rules for Maternité CPF logic (Only if not already overridden by specific shiftTargets)
-      if (isMaternityMode && (!serviceConfig?.shiftTargets?.[dayOfWeek]?.['CPF M'] && !serviceConfig?.shiftTargets?.[dayOfWeek]?.['CPF C'])) {
-          if (dayOfWeek === 3) { // Wednesday
-              targets['CPF M'] = isEvenWeek ? 1 : 2;
-              targets['CPF C'] = isEvenWeek ? 1 : 2;
-          } else if (dayOfWeek === 5) { // Friday
-              targets['CPF M'] = isEvenWeek ? 2 : 1;
-              targets['CPF C'] = isEvenWeek ? 2 : 1;
-          }
       }
 
       // Sort priority: Critical shifts first (Night S, then specific codes, then generic IT)

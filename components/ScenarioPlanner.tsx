@@ -84,7 +84,9 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
             if (!openDays.includes(dayOfWeek)) continue;
 
             // IA LOGIC: Determine effective targets from dynamic configuration (Objectifs Journaliers Spécifiques)
-            const dayTargets = getEffectiveTargets(dayOfWeek, service?.config);
+            // Fix: Argument of type 'number' is not assignable to parameter of type 'Date'.
+            // Passing 'd' (Date object) instead of 'dayOfWeek' (number).
+            const dayTargets = getEffectiveTargets(d, service?.config);
 
             // Fill gaps based on targets
             for (const [code, target] of Object.entries(dayTargets)) {

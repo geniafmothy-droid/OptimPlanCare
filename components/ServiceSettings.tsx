@@ -190,6 +190,18 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
         setConfig({ ...config, shiftTargets: { ...currentTargets, [dayIndex]: newDayTargets } });
     };
 
+    const calculateDuration = (start?: string, end?: string) => {
+        if (!start || !end) return 0;
+        const [h1, m1] = start.split(':').map(Number);
+        const [h2, m2] = end.split(':').map(Number);
+        if (isNaN(h1) || isNaN(m1) || isNaN(h2) || isNaN(m2)) return 0;
+        const totalMin1 = h1 * 60 + m1;
+        const totalMin2 = h2 * 60 + m2;
+        let diff = totalMin2 - totalMin1;
+        if (diff < 0) diff += 24 * 60; // Gère les postes à cheval sur minuit
+        return Math.round((diff / 60) * 100) / 100;
+    };
+
     // --- MEMBER MANAGEMENT ---
     const isActiveAssignment = (assignment: ServiceAssignment) => {
         const today = new Date().toISOString().split('T')[0];
@@ -240,7 +252,6 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
     const selectedService = services.find(s => s.id === selectedServiceId);
     
     // Filtered Skills Logic
-    /* Added useMemo to React import on line 1 to fix the 'Cannot find name useMemo' error on line 243. */
     const filteredAvailableSkills = useMemo(() => {
         return availableSkills.filter(s => {
             const isSelected = config.requiredSkills?.includes(s.code);
@@ -324,7 +335,6 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                         <div className="flex justify-between items-center mb-4">
                                             <h4 className="font-bold text-slate-800 flex items-center gap-2 text-purple-700"><CheckCircle2 className="w-5 h-5" /> Compétences & Amplitude</h4>
                                             
-                                            {/* FILTRE ACTIF / INACTIF */}
                                             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 shadow-inner">
                                                 <button 
                                                     onClick={() => setSkillFilterType('all')}
@@ -357,12 +367,14 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                                         <th className="p-3 w-32">Effectif Min (Défaut)</th>
                                                         <th className="p-3 w-32">Début</th>
                                                         <th className="p-3 w-32">Fin</th>
+                                                        <th className="p-3 w-24">Durée (h)</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-100">
                                                     {filteredAvailableSkills.map(s => { 
                                                         const isSelected = config.requiredSkills?.includes(s.code); 
-                                                        const req = config.skillRequirements?.find((r: SkillRequirement) => r.skillCode === s.code); 
+                                                        const req = config.skillRequirements?.find((r: SkillRequirement) => r.skillCode === s.code);
+                                                        const duration = isSelected ? calculateDuration(req?.startTime, req?.endTime) : 0;
                                                         return (
                                                             <tr key={s.id} className={isSelected ? 'bg-purple-50/30' : ''}>
                                                                 <td className="p-3 text-center">
@@ -379,12 +391,15 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                                                                 <td className="p-3">
                                                                     <input type="time" disabled={!isSelected} value={req?.endTime || '00:00'} onChange={(e) => updateSkillReq(s.code, 'endTime', e.target.value)} className="w-full p-1.5 border rounded text-xs disabled:bg-slate-50" />
                                                                 </td>
+                                                                <td className={`p-3 text-right font-bold ${isSelected ? 'text-blue-600' : 'text-slate-300'}`}>
+                                                                    {duration}h
+                                                                </td>
                                                             </tr>
                                                         ); 
                                                     })}
                                                     {filteredAvailableSkills.length === 0 && (
                                                         <tr>
-                                                            <td colSpan={6} className="p-8 text-center text-slate-400 italic bg-slate-50/50">
+                                                            <td colSpan={7} className="p-8 text-center text-slate-400 italic bg-slate-50/50">
                                                                 Aucune compétence ne correspond au filtre sélectionné.
                                                             </td>
                                                         </tr>
