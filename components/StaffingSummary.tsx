@@ -1,5 +1,6 @@
+
 import React, { useMemo, useState } from 'react';
-import { Employee, ShiftCode } from '../types';
+import { Employee, ShiftCode, ShiftDefinition } from '../types';
 import { SHIFT_TYPES } from '../constants';
 import { ChevronDown, ChevronUp, Users, Briefcase, UserX, X, Coffee, CheckCircle2, AlertCircle } from 'lucide-react';
 import { getHolidayName } from '../utils/holidays';
@@ -8,11 +9,14 @@ interface StaffingSummaryProps {
   employees: Employee[];
   startDate: Date;
   days: number;
+  shiftDefinitions?: Record<string, ShiftDefinition>;
 }
 
-export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, startDate, days }) => {
+export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, startDate, days, shiftDefinitions }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [selectedDateDetail, setSelectedDateDetail] = useState<{ dateStr: string, dateObj: Date } | null>(null);
+
+  const defs = useMemo(() => shiftDefinitions || SHIFT_TYPES, [shiftDefinitions]);
 
   // Generate dates headers
   const dates = useMemo(() => {
@@ -66,7 +70,7 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
 
       employees.forEach(emp => {
           const code = emp.shifts[selectedDateDetail.dateStr];
-          const def = code ? (SHIFT_TYPES[code] || SHIFT_TYPES['OFF']) : SHIFT_TYPES['OFF'];
+          const def = code ? (defs[code] || defs['OFF']) : defs['OFF'];
 
           if (code && def?.isWork) {
               present.push({ emp, code });
@@ -85,7 +89,7 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
       rest.sort((a,b) => a.emp.name.localeCompare(b.emp.name));
 
       return { present, absent, rest };
-  }, [selectedDateDetail, employees]);
+  }, [selectedDateDetail, employees, defs]);
 
   const renderTable = (title: string, icon: React.ReactNode, codes: ShiftCode[], isWorkTable: boolean) => (
     <div className="mb-6 last:mb-0">
@@ -117,7 +121,7 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
                 </thead>
                 <tbody>
                     {codes.map(code => {
-                        const def = SHIFT_TYPES[code];
+                        const def = defs[code];
                         if (!def) return null; 
                         return (
                             <tr key={code} className="hover:bg-slate-50">
@@ -160,7 +164,7 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
                             const total = employees.reduce((acc, emp) => {
                                 const c = emp.shifts[d.dateStr];
                                 if (!c || c === 'OFF') return acc;
-                                const isWorkShift = SHIFT_TYPES[c]?.isWork;
+                                const isWorkShift = defs[c]?.isWork;
                                 if (isWorkTable && isWorkShift) return acc + 1;
                                 if (!isWorkTable && !isWorkShift) return acc + 1;
                                 return acc;
@@ -232,7 +236,7 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
                                 <div className="overflow-y-auto flex-1 p-2 space-y-1">
                                     {detailLists.present.length === 0 ? <div className="text-slate-400 text-sm p-4 text-center italic">Personne ce jour.</div> : 
                                     detailLists.present.map((item, i) => {
-                                        const def = SHIFT_TYPES[item.code] || SHIFT_TYPES['OFF'];
+                                        const def = defs[item.code] || defs['OFF'];
                                         return (
                                             <div key={i} className="flex justify-between items-center p-2 hover:bg-slate-50 rounded border border-transparent hover:border-slate-100">
                                                 <span className="font-medium text-slate-700 text-sm truncate max-w-[140px]">{item.emp.name}</span>
@@ -254,7 +258,7 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
                                 <div className="overflow-y-auto flex-1 p-2 space-y-1">
                                     {detailLists.absent.length === 0 ? <div className="text-slate-400 text-sm p-4 text-center italic">Aucune absence.</div> :
                                     detailLists.absent.map((item, i) => {
-                                        const def = SHIFT_TYPES[item.code] || SHIFT_TYPES['OFF'];
+                                        const def = defs[item.code] || defs['OFF'];
                                         return (
                                             <div key={i} className="flex justify-between items-center p-2 hover:bg-slate-50 rounded border border-transparent hover:border-slate-100">
                                                 <span className="font-medium text-slate-700 text-sm truncate max-w-[140px]">{item.emp.name}</span>

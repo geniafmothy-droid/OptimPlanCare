@@ -1,15 +1,16 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Employee, ShiftCode, UserRole } from '../types';
+import { Employee, ShiftCode, UserRole, ShiftDefinition } from '../types';
 import { SHIFT_TYPES, SHIFT_HOURS } from '../constants';
 import { Calendar, Clock, User, ArrowRight, Calculator, CalendarClock, ChevronLeft, ChevronRight, Briefcase, Tag } from 'lucide-react';
 
 interface CycleViewerProps {
     employees: Employee[];
     currentUser?: { role: UserRole, employeeId?: string };
+    shiftDefinitions?: Record<string, ShiftDefinition>;
 }
 
-export const CycleViewer: React.FC<CycleViewerProps> = ({ employees, currentUser }) => {
+export const CycleViewer: React.FC<CycleViewerProps> = ({ employees, currentUser, shiftDefinitions }) => {
     // Determine access level
     const isManager = ['ADMIN', 'DIRECTOR', 'CADRE', 'CADRE_SUP', 'MANAGER'].includes(currentUser?.role || '');
     
@@ -21,6 +22,8 @@ export const CycleViewer: React.FC<CycleViewerProps> = ({ employees, currentUser
     const [selectedEmpId, setSelectedEmpId] = useState<string>(initialId);
     const [cycleStartDate, setCycleStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
     const [cycleWeeks, setCycleWeeks] = useState<number>(4); // Default 4 weeks cycle
+
+    const defs = useMemo(() => shiftDefinitions || SHIFT_TYPES, [shiftDefinitions]);
 
     // Enforce self-view for non-managers if employees list updates
     useEffect(() => {
@@ -57,7 +60,7 @@ export const CycleViewer: React.FC<CycleViewerProps> = ({ employees, currentUser
                 
                 const dateStr = current.toISOString().split('T')[0];
                 const shiftCode = selectedEmp.shifts[dateStr] || 'OFF';
-                const shiftDef = SHIFT_TYPES[shiftCode];
+                const shiftDef = defs[shiftCode];
                 
                 const hours = SHIFT_HOURS[shiftCode] || 0;
                 
@@ -91,7 +94,7 @@ export const CycleViewer: React.FC<CycleViewerProps> = ({ employees, currentUser
             startDateLabel: adjustedStart.toLocaleDateString('fr-FR'),
             endDateLabel: new Date(adjustedStart.setDate(adjustedStart.getDate() + (cycleWeeks * 7) - 1)).toLocaleDateString('fr-FR')
         };
-    }, [selectedEmp, cycleStartDate, cycleWeeks]);
+    }, [selectedEmp, cycleStartDate, cycleWeeks, defs]);
 
     const handlePrevCycle = () => {
         const d = new Date(cycleStartDate);
@@ -219,7 +222,7 @@ export const CycleViewer: React.FC<CycleViewerProps> = ({ employees, currentUser
                         <div className="p-3 bg-white rounded-full shadow-sm text-blue-600"><Calculator className="w-6 h-6" /></div>
                         <div>
                             <div className="text-xs text-blue-600 font-bold uppercase">Moyenne Hebdo</div>
-                            <div className="text-2xl font-bold text-blue-900">{cycleData.averageHours.toFixed(1)}h</div>
+                            <div className="text-2xl font-bold text-indigo-900">{cycleData.averageHours.toFixed(1)}h</div>
                             <div className="text-xs text-blue-400">Cible: {selectedEmp.fte * 35}h</div>
                         </div>
                     </div>
@@ -227,14 +230,14 @@ export const CycleViewer: React.FC<CycleViewerProps> = ({ employees, currentUser
                         <div className="p-3 bg-white rounded-full shadow-sm text-emerald-600"><Calendar className="w-6 h-6" /></div>
                         <div>
                             <div className="text-xs text-emerald-600 font-bold uppercase">Jours Travaillés</div>
-                            <div className="text-2xl font-bold text-emerald-900">{cycleData.totalDaysWorked}</div>
+                            <div className="text-2xl font-bold text-indigo-900">{cycleData.totalDaysWorked}</div>
                         </div>
                     </div>
                     <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl flex items-center gap-4">
                         <div className="p-3 bg-white rounded-full shadow-sm text-orange-600"><CalendarClock className="w-6 h-6" /></div>
                         <div>
                             <div className="text-xs text-orange-600 font-bold uppercase">Week-ends / Fériés</div>
-                            <div className="text-2xl font-bold text-orange-900">{cycleData.weekendCount}</div>
+                            <div className="text-2xl font-bold text-indigo-900">{cycleData.weekendCount}</div>
                             <div className="text-xs text-orange-400">Jours (Sam/Dim)</div>
                         </div>
                     </div>

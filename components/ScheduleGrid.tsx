@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { Employee, ShiftCode, ViewMode, ConstraintViolation, WorkPreference } from '../types';
+import { Employee, ShiftCode, ViewMode, ConstraintViolation, WorkPreference, ShiftDefinition } from '../types';
 import { SHIFT_TYPES } from '../constants';
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getHolidayName } from '../utils/holidays';
@@ -15,6 +15,7 @@ interface ScheduleGridProps {
   highlightNight?: boolean;
   highlightedViolations?: ConstraintViolation[];
   preferences?: WorkPreference[];
+  shiftDefinitions?: Record<string, ShiftDefinition>;
 }
 
 export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ 
@@ -26,10 +27,14 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
   onRangeSelect,
   highlightNight = false,
   highlightedViolations = [],
-  preferences = []
+  preferences = [],
+  shiftDefinitions
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   
+  // Use provided definitions or fallback to constants
+  const defs = useMemo(() => shiftDefinitions || SHIFT_TYPES, [shiftDefinitions]);
+
   const [isDragging, setIsDragging] = useState(false);
   const [selectionStart, setSelectionStart] = useState<{empId: string, dateStr: string, dateObj: Date, initialCode?: ShiftCode} | null>(null);
   const [selectionCurrent, setSelectionCurrent] = useState<{empId: string, dateStr: string, dateObj: Date} | null>(null);
@@ -157,11 +162,11 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
               <tbody>
                  {employees.map(emp => {
                     const shiftCode = emp.shifts[currentDateStr];
-                    const shiftDef = shiftCode ? SHIFT_TYPES[shiftCode] : null;
+                    const shiftDef = shiftCode ? defs[shiftCode] : null;
                     const isWorking = shiftDef?.isWork && shiftDef?.startHour !== undefined && shiftDef?.endHour !== undefined;
                     return (
                        <tr key={emp.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                          <td className="sticky left-0 z-10 bg-white dark:bg-slate-800 border-b border-r border-slate-200 dark:border-slate-700 p-2 cursor-pointer border-l-4" style={{ borderLeftColor: shiftDef?.isWork ? undefined : 'transparent' }} onClick={() => onCellClick(emp.id, currentDateStr)}>
+                          <td className="sticky left-0 z-10 bg-white dark:bg-slate-800 border-b border-r border-slate-200 dark:border-slate-700 p-2 cursor-pointer border-l-4" style={{ borderLeftColor: (shiftDef?.isWork && shiftDef?.color) ? undefined : 'transparent' }} onClick={() => onCellClick(emp.id, currentDateStr)}>
                              <div className="font-medium text-sm text-slate-900 dark:text-slate-100">{emp.name}</div>
                           </td>
                           {hours.map(h => {
@@ -236,7 +241,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                 </td>
                 {dates.map((d) => {
                   const shiftCode = emp.shifts[d.str] || 'OFF';
-                  const shiftDef = SHIFT_TYPES[shiftCode] || SHIFT_TYPES['OFF'];
+                  const shiftDef = defs[shiftCode] || defs['OFF'];
                   const selected = isCellSelected(emp.id, d.obj);
                   const isHighlighted = isViolation(emp.id, d.str);
                   const pref = getCellPreference(emp.id, d.str, d.dayIndex);
