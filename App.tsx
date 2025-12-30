@@ -669,7 +669,7 @@ function App() {
            {activeTab === 'team' && (<TeamManager employees={employees} allSkills={skillsList} currentUser={currentUser} onReload={loadData} services={servicesList} assignments={assignmentsList} />)}
            {activeTab === 'leaves' && <LeaveManager employees={employees} filteredEmployees={filteredEmployees} onReload={loadData} currentUser={currentUser} activeServiceId={activeServiceId} assignmentsList={assignmentsList} serviceConfig={activeService?.config} />}
            {activeTab === 'surveys' && <SurveyResults />}
-           {activeTab === 'settings' && (<div className="p-6 max-w-6xl mx-auto space-y-8 w-full overflow-y-auto"><h2 className="text-2xl font-bold text-slate-800 dark:text-white">Paramètres Généraux</h2><div className="flex flex-col gap-6"><RuleSettings /><ServiceSettings service={activeService} onReload={loadData} currentUser={currentUser} /><ShiftCodeSettings /><SkillsSettings skills={skillsList} onReload={loadData} /><RoleSettings /></div></div>)}
+           {activeTab === 'settings' && (<div className="p-6 max-w-6xl mx-auto space-y-8 w-full overflow-y-auto"><h2 className="text-2xl font-bold text-slate-800 dark:text-white">Paramètres Généraux</h2><div className="flex flex-col gap-6"><RuleSettings /><ServiceSettings service={activeService} onReload={loadData} currentUser={currentUser} /><ShiftCodeSettings /><SkillsSettings skills={skillsList} onReload={loadData} services={servicesList} /><RoleSettings /></div></div>)}
         </main>
       </div>
 

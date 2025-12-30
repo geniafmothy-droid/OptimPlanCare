@@ -27,6 +27,7 @@ export interface Skill {
   defaultBreak?: number;
   color?: string; // New: Background color class
   textColor?: string; // New: Text color class
+  serviceId?: string; // Ajouté: Lien vers un service
 }
 
 export interface SkillRequirement {

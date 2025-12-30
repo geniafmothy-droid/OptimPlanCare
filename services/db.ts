@@ -144,30 +144,33 @@ export const fetchSkills = async (): Promise<Skill[]> => {
         defaultDuration: s.default_duration, 
         defaultBreak: s.default_break,
         color: s.color,
-        textColor: s.text_color
+        textColor: s.text_color,
+        serviceId: s.service_id
     })) || [];
 };
 
-export const createSkill = async (code: string, label: string, defaultDuration?: number, defaultBreak?: number, color?: string, textColor?: string) => {
+export const createSkill = async (code: string, label: string, defaultDuration?: number, defaultBreak?: number, color?: string, textColor?: string, serviceId?: string) => {
     const { error } = await supabase.from('skills').insert([{ 
         code, 
         label, 
         default_duration: defaultDuration, 
         default_break: defaultBreak,
         color,
-        text_color: textColor
+        text_color: textColor,
+        service_id: serviceId || null
     }]);
     if (error) throw new Error(error.message);
 };
 
-export const updateSkill = async (id: string, code: string, label: string, defaultDuration?: number, defaultBreak?: number, color?: string, textColor?: string) => {
+export const updateSkill = async (id: string, code: string, label: string, defaultDuration?: number, defaultBreak?: number, color?: string, textColor?: string, serviceId?: string) => {
     const { error } = await supabase.from('skills').update({ 
         code, 
         label, 
         default_duration: defaultDuration, 
         default_break: defaultBreak,
         color,
-        text_color: textColor
+        text_color: textColor,
+        service_id: serviceId || null
     }).eq('id', id);
     if (error) throw new Error(error.message);
 };

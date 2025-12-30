@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { Skill } from '../types';
-import { Plus, Trash2, Tag, Save, Loader2, CheckCircle2, AlertCircle, Clock, ChevronDown, ChevronUp, Pencil, X, Palette, Edit2 } from 'lucide-react';
+import { Skill, Service } from '../types';
+import { Plus, Trash2, Tag, Save, Loader2, CheckCircle2, AlertCircle, Clock, ChevronDown, ChevronUp, Pencil, X, Palette, Edit2, Store } from 'lucide-react';
 import * as db from '../services/db';
 
 const PRESET_BG_COLORS = [
@@ -29,9 +29,10 @@ const PRESET_TEXT_COLORS = [
 interface SkillsSettingsProps {
     skills: Skill[];
     onReload: () => void;
+    services: Service[];
 }
 
-export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload }) => {
+export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload, services }) => {
     const [isExpanded, setIsExpanded] = useState(true);
     
     // Add State
@@ -41,6 +42,7 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
     const [newBreak, setNewBreak] = useState<string>('0.5');
     const [newColor, setNewColor] = useState('bg-blue-100');
     const [newTextColor, setNewTextColor] = useState('text-blue-900');
+    const [newServiceId, setNewServiceId] = useState('');
     
     // Edit State
     const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
@@ -50,6 +52,7 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
     const [editBreak, setEditBreak] = useState('');
     const [editColor, setEditColor] = useState('bg-blue-100');
     const [editTextColor, setEditTextColor] = useState('text-blue-900');
+    const [editServiceId, setEditServiceId] = useState('');
 
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -72,10 +75,12 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                 parseFloat(newDuration), 
                 parseFloat(newBreak),
                 newColor,
-                newTextColor
+                newTextColor,
+                newServiceId || undefined
             );
             setNewCode('');
             setNewLabel('');
+            setNewServiceId('');
             setSuccessMsg("Compétence ajoutée.");
             onReload();
         } catch (err: any) {
@@ -94,6 +99,7 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
         setEditBreak(skill.defaultBreak?.toString() || '0.5');
         setEditColor(skill.color || 'bg-blue-100');
         setEditTextColor(skill.textColor || 'text-blue-900');
+        setEditServiceId(skill.serviceId || '');
     };
 
     const handleUpdate = async () => {
@@ -107,7 +113,8 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                 parseFloat(editDuration),
                 parseFloat(editBreak),
                 editColor,
-                editTextColor
+                editTextColor,
+                editServiceId || undefined
             );
             setEditingSkill(null);
             setSuccessMsg("Compétence mise à jour.");
@@ -147,9 +154,18 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                 <div className="p-6 bg-slate-50">
                     <h4 className="font-semibold text-slate-800 mb-4 flex items-center gap-2"><Plus className="w-4 h-4" /> Ajouter</h4>
                     <form onSubmit={handleAdd} className="space-y-4">
-                        <div>
-                            <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Code</label>
-                            <input type="text" value={newCode} onChange={(e) => setNewCode(e.target.value)} className="w-full p-2 border rounded" placeholder="ex: T5" maxLength={10} required />
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Code</label>
+                                <input type="text" value={newCode} onChange={(e) => setNewCode(e.target.value)} className="w-full p-2 border rounded" placeholder="ex: T5" maxLength={10} required />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-slate-500 uppercase mb-1 flex items-center gap-1"><Store className="w-3 h-3"/> Service</label>
+                                <select value={newServiceId} onChange={e => setNewServiceId(e.target.value)} className="w-full p-2 border rounded text-xs bg-white">
+                                    <option value="">Tous</option>
+                                    {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                            </div>
                         </div>
                         <div>
                             <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Libellé</label>
@@ -173,14 +189,14 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                                 <div className={`w-12 h-10 rounded shadow-sm flex items-center justify-center font-bold text-xs ${newColor} ${newTextColor}`}>
                                     {newCode || 'ABC'}
                                 </div>
-                                <div className="text-[10px] text-slate-400">Cliquez pour modifier l'aspect dans la modale d'édition.</div>
+                                <div className="text-[10px] text-slate-400">Utilisez la modale d'édition pour modifier les couleurs.</div>
                             </div>
                         </div>
 
                         {error && <div className="text-red-600 text-xs">{error}</div>}
                         {successMsg && <div className="text-green-600 text-xs">{successMsg}</div>}
 
-                        <button type="submit" disabled={isLoading} className="w-full bg-blue-600 text-white py-2 rounded">Enregistrer</button>
+                        <button type="submit" disabled={isLoading} className="w-full bg-blue-600 text-white py-2 rounded font-bold shadow-sm hover:bg-blue-700 transition-colors">Ajouter</button>
                     </form>
                 </div>
 
@@ -189,9 +205,9 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                     <table className="w-full text-sm text-left">
                         <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
                             <tr>
-                                <th className="px-6 py-3">Code / Aspect</th>
+                                <th className="px-6 py-3">Code / Service</th>
                                 <th className="px-6 py-3">Libellé</th>
-                                <th className="px-6 py-3">Temps (Présence / Pause)</th>
+                                <th className="px-6 py-3">Temps (h)</th>
                                 <th className="px-6 py-3 text-right">Action</th>
                             </tr>
                         </thead>
@@ -199,8 +215,16 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                             {skills.map((skill) => (
                                 <tr key={skill.id} className="hover:bg-slate-50 transition-colors group">
                                     <td className="px-6 py-3">
-                                        <div className={`inline-flex items-center justify-center px-3 py-1.5 rounded font-bold text-xs shadow-sm ${skill.color || 'bg-blue-50'} ${skill.textColor || 'text-blue-700'}`}>
-                                            {skill.code}
+                                        <div className="flex flex-col gap-1">
+                                            <div className={`inline-flex items-center justify-center px-3 py-1.5 rounded font-bold text-xs shadow-sm w-max ${skill.color || 'bg-blue-50'} ${skill.textColor || 'text-blue-700'}`}>
+                                                {skill.code}
+                                            </div>
+                                            {skill.serviceId && (
+                                                <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                                                    <Store className="w-2.5 h-2.5" />
+                                                    {services.find(s => s.id === skill.serviceId)?.name || 'Service lié'}
+                                                </div>
+                                            )}
                                         </div>
                                     </td>
                                     <td className="px-6 py-3 font-medium text-slate-700">{skill.label}</td>
@@ -223,12 +247,11 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                 </div>
             </div>
 
-            {/* EDIT MODAL WITH COLOR PICKER */}
+            {/* EDIT MODAL WITH COLOR PICKER AND SERVICE */}
             {editingSkill && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl p-6 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center mb-4 border-b pb-3">
-                            {/* Fixed: Added missing Edit2 icon from lucide-react */}
                             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Edit2 className="w-5 h-5 text-blue-600"/> Modifier Compétence</h3>
                             <button onClick={() => setEditingSkill(null)}><X className="w-5 h-5 text-slate-400 hover:text-slate-600"/></button>
                         </div>
@@ -240,9 +263,17 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                                     <input type="text" value={editCode} onChange={(e) => setEditCode(e.target.value.toUpperCase())} className="w-full p-2 border rounded font-bold bg-slate-50" />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Libellé</label>
-                                    <input type="text" value={editLabel} onChange={(e) => setEditLabel(e.target.value)} className="w-full p-2 border rounded" />
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1.5"><Store className="w-3 h-3 text-blue-500"/> Service Assigné</label>
+                                    <select value={editServiceId} onChange={e => setEditServiceId(e.target.value)} className="w-full p-2 border rounded bg-white text-sm">
+                                        <option value="">Tous les services</option>
+                                        {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                    </select>
                                 </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Libellé</label>
+                                <input type="text" value={editLabel} onChange={(e) => setEditLabel(e.target.value)} className="w-full p-2 border rounded" />
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
