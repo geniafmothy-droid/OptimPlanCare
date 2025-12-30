@@ -327,6 +327,8 @@ export const ScenarioPlanner: React.FC<ScenarioPlannerProps> = ({ employees, cur
                                             employees={draftScenario.employeesSnapshot} 
                                             startDate={new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)} 
                                             days={new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate()}
+                                            activeServiceId={service?.id}
+                                            serviceConfig={service?.config}
                                         />
                                     </div>
                                 </div>

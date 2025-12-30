@@ -1,5 +1,6 @@
+
 import React, { useMemo, useState } from 'react';
-import { Employee, ShiftCode, ShiftDefinition } from '../types';
+import { Employee, ShiftCode, ShiftDefinition, ServiceConfig } from '../types';
 import { SHIFT_TYPES } from '../constants';
 import { ChevronDown, ChevronUp, Users, Briefcase, UserX, X, Coffee, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
 import { getHolidayName } from '../utils/holidays';
@@ -10,9 +11,10 @@ interface StaffingSummaryProps {
   days: number;
   shiftDefinitions?: Record<string, ShiftDefinition>;
   activeServiceId?: string;
+  serviceConfig?: ServiceConfig;
 }
 
-export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, startDate, days, shiftDefinitions, activeServiceId }) => {
+export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, startDate, days, shiftDefinitions, activeServiceId, serviceConfig }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [selectedDateDetail, setSelectedDateDetail] = useState<{ dateStr: string, dateObj: Date } | null>(null);
 
@@ -44,7 +46,6 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
     }
 
     // 2. Logique pour les absences : Toujours afficher les codes globaux (sans serviceId)
-    // car ils sont communs à tous les services selon la demande.
     const globalAbsences = allDefsArray.filter(d => !d.isWork && d.code !== 'OFF' && !d.serviceId);
 
     const w = workRelevantDefs.map(d => d.code);
@@ -79,15 +80,37 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
   }, [startDate, days]);
 
   const getTargetClass = (code: ShiftCode, count: number, isWeekend: boolean, dayIndex: number, isHoliday: boolean) => {
-      if (isWeekend || isHoliday) return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
+      const ALERT_CLASS = 'bg-red-100 text-red-700 font-bold border border-red-300 ring-1 ring-inset ring-red-200';
       
-      // Default alerts for dialysis if specific targets aren't configured in service config
-      const ALERT_CLASS = 'bg-red-100 text-red-700 font-bold border border-red-300';
-      if (!activeServiceId) {
+      if (isHoliday) return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
+
+      // 1. Check Service-specific targets
+      if (serviceConfig) {
+          // Priority 1: Specific day target for this code
+          const daySpecificTarget = serviceConfig.shiftTargets?.[dayIndex]?.[code];
+          if (daySpecificTarget !== undefined) {
+              if (count < daySpecificTarget) return ALERT_CLASS;
+              return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
+          }
+          
+          // Priority 2: Generic skill requirement minStaff
+          const skillReq = serviceConfig.skillRequirements?.find(r => r.skillCode === code);
+          if (skillReq) {
+              if (count < skillReq.minStaff) return ALERT_CLASS;
+              return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
+          }
+      }
+      
+      // 2. Default alerts for dialysis if specific targets aren't configured or if Global View
+      if (!activeServiceId || (serviceConfig && serviceConfig.fteConstraintMode === 'DIALYSIS_STANDARD')) {
+          if (isWeekend) return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
           if (code === 'IT' && count < 4) return ALERT_CLASS;
           if (code === 'T5' && count < 1) return ALERT_CLASS;
           if (code === 'T6' && count < 1) return ALERT_CLASS;
-          if (code === 'S' && [1, 3, 5].includes(dayIndex) && count < 2) return ALERT_CLASS;
+          if (code === 'S') {
+              const target = [1, 3, 5].includes(dayIndex) ? 2 : 1;
+              if (count < target) return ALERT_CLASS;
+          }
       }
 
       return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
