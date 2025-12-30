@@ -106,6 +106,18 @@ export default function App() {
       return ['ADMIN', 'DIRECTOR', 'CADRE_SUP'].includes(currentUser.role);
   }, [currentUser]);
 
+  // --- Dynamic Year Selection ---
+  const availableYears = useMemo(() => {
+    const current = new Date().getFullYear();
+    const years = [];
+    const startYear = 2024;
+    const endYear = current + 5; 
+    for (let y = startYear; y <= endYear; y++) {
+      years.push(y);
+    }
+    return years;
+  }, []);
+
   // --- Dynamic Shift Definitions ---
   const allBaseShifts = useMemo(() => {
     const definitions: Map<string, ShiftDefinition> = new Map();
@@ -216,7 +228,7 @@ export default function App() {
       const myTeamNames = new Set<string>();
       if (!isGlobalViewer && ['CADRE', 'MANAGER'].includes(currentUser.role)) {
           const relevantAssignments = assignmentsList.filter(a => myServiceIds.includes(a.serviceId));
-          const relevantEmpIds = relevantAssignments.map(a => a.employeeId);
+          const relevantEmpIds = relevantAssignments.map(a => a.employee_id);
           employees.filter(e => relevantEmpIds.includes(e.id)).forEach(e => myTeamNames.add(e.name));
       }
       const filtered = allNotifs.filter(n => {
@@ -727,8 +739,7 @@ export default function App() {
                                   {Array.from({length: 12}, (_, i) => (<option key={i} value={i}>{new Date(2000, i).toLocaleDateString('fr-FR', {month: 'long'})}</option>))}
                               </select>
                               <select value={actionYear} onChange={e => setActionYear(parseInt(e.target.value))} className="p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white">
-                                  <option value={2024}>2024</option>
-                                  <option value={2025}>2025</option>
+                                  {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                               </select>
                           </div>
                       </div>
