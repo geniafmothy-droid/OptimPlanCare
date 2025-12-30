@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { ShiftDefinition, Service } from '../types';
 import { SHIFT_TYPES } from '../constants';
@@ -409,19 +408,19 @@ export const ShiftCodeSettings: React.FC = () => {
                                     <div className="col-span-2 text-[10px] font-bold text-blue-600 mb-1 border-b border-blue-200 pb-1 uppercase tracking-wider">Paramètres Horaires (Calcul Heures)</div>
                                     <div>
                                         <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Durée Présence (h)</label>
-                                        <input type="number" step="0.5" value={formDuration} onChange={e => setFormDuration(parseFloat(e.target.value))} className="w-full p-1.5 border rounded text-sm"/>
+                                        <input type="number" step="any" value={formDuration} onChange={e => setFormDuration(parseFloat(e.target.value) || 0)} className="w-full p-1.5 border rounded text-sm"/>
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Temps de Pause (h)</label>
-                                        <input type="number" step="0.5" value={formBreak} onChange={e => setFormBreak(parseFloat(e.target.value))} className="w-full p-1.5 border rounded text-sm"/>
+                                        <input type="number" step="any" value={formBreak} onChange={e => setFormBreak(parseFloat(e.target.value) || 0)} className="w-full p-1.5 border rounded text-sm"/>
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Heure de Début</label>
-                                        <input type="number" step="0.5" value={formStart} onChange={e => setFormStart(parseFloat(e.target.value))} className="w-full p-1.5 border rounded text-sm" placeholder="ex: 7.5 pour 07:30"/>
+                                        <input type="number" step="any" value={formStart} onChange={e => setFormStart(parseFloat(e.target.value) || 0)} className="w-full p-1.5 border rounded text-sm" placeholder="ex: 7.5 pour 07:30"/>
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Heure de Fin</label>
-                                        <input type="number" step="0.5" value={formEnd} onChange={e => setFormEnd(parseFloat(e.target.value))} className="w-full p-1.5 border rounded text-sm" placeholder="ex: 15 pour 15:00"/>
+                                        <input type="number" step="any" value={formEnd} onChange={e => setFormEnd(parseFloat(e.target.value) || 0)} className="w-full p-1.5 border rounded text-sm" placeholder="ex: 15 pour 15:00"/>
                                     </div>
                                 </div>
                             )}

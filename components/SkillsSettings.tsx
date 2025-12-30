@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Skill, Service } from '../types';
 import { Plus, Trash2, Tag, Save, Loader2, CheckCircle2, AlertCircle, Clock, ChevronDown, ChevronUp, Pencil, X, Palette, Edit2, Store } from 'lucide-react';
@@ -72,8 +71,8 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
             await db.createSkill(
                 newCode.trim(), 
                 newLabel.trim(), 
-                parseFloat(newDuration), 
-                parseFloat(newBreak),
+                parseFloat(newDuration) || 0, 
+                parseFloat(newBreak) || 0,
                 newColor,
                 newTextColor,
                 newServiceId || undefined
@@ -110,8 +109,8 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                 editingSkill.id,
                 editCode.trim(),
                 editLabel.trim(),
-                parseFloat(editDuration),
-                parseFloat(editBreak),
+                parseFloat(editDuration) || 0,
+                parseFloat(editBreak) || 0,
                 editColor,
                 editTextColor,
                 editServiceId || undefined
@@ -174,11 +173,11 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                         <div className="grid grid-cols-2 gap-2">
                             <div>
                                 <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Durée (h)</label>
-                                <input type="number" step="0.5" value={newDuration} onChange={(e) => setNewDuration(e.target.value)} className="w-full p-2 border rounded" />
+                                <input type="number" step="any" value={newDuration} onChange={(e) => setNewDuration(e.target.value)} className="w-full p-2 border rounded" />
                             </div>
                             <div>
                                 <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Pause (h)</label>
-                                <input type="number" step="0.25" value={newBreak} onChange={(e) => setNewBreak(e.target.value)} className="w-full p-2 border rounded" />
+                                <input type="number" step="any" value={newBreak} onChange={(e) => setNewBreak(e.target.value)} className="w-full p-2 border rounded" />
                             </div>
                         </div>
 
@@ -279,11 +278,11 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Durée (h)</label>
-                                    <input type="number" step="0.5" value={editDuration} onChange={(e) => setEditDuration(e.target.value)} className="w-full p-2 border rounded" />
+                                    <input type="number" step="any" value={editDuration} onChange={(e) => setEditDuration(e.target.value)} className="w-full p-2 border rounded" />
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Pause (h)</label>
-                                    <input type="number" step="0.25" value={editBreak} onChange={(e) => setEditBreak(e.target.value)} className="w-full p-2 border rounded" />
+                                    <input type="number" step="any" value={editBreak} onChange={(e) => setEditBreak(e.target.value)} className="w-full p-2 border rounded" />
                                 </div>
                             </div>
 
@@ -304,7 +303,7 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                                                 key={c} 
                                                 type="button"
                                                 onClick={() => setEditColor(c)}
-                                                className={`w-7 h-7 rounded border-2 transition-all ${c} ${editColor === c ? 'border-blue-600 scale-110 shadow-md z-10' : 'border-transparent hover:scale-110'}`}
+                                                className={`w-7 h-7 rounded border-2 transition-all ${c} ${editColor === c ? 'border-blue-600 scale-110 shadow-md' : 'border-transparent hover:scale-110'}`}
                                                 title={c}
                                             />
                                         ))}
@@ -319,7 +318,7 @@ export const SkillsSettings: React.FC<SkillsSettingsProps> = ({ skills, onReload
                                                 key={c} 
                                                 type="button"
                                                 onClick={() => setEditTextColor(c)}
-                                                className={`w-7 h-7 rounded border-2 flex items-center justify-center transition-all bg-white text-[10px] font-bold ${c} ${editTextColor === c ? 'border-blue-600 scale-110 shadow-md z-10' : 'border-slate-200 hover:scale-110'}`}
+                                                className={`w-7 h-7 rounded border-2 flex items-center justify-center transition-all bg-white text-[10px] font-bold ${c} ${editTextColor === c ? 'border-blue-600 scale-110 shadow-md' : 'border-slate-200 hover:scale-110'}`}
                                                 title={c}
                                             >
                                                 Ab
