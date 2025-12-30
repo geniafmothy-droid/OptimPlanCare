@@ -36,6 +36,7 @@ export const ShiftCodeSettings: React.FC = () => {
     
     // Filters
     const [filterType, setFilterType] = useState<'ALL' | 'WORK' | 'ABSENCE'>('ALL');
+    const [serviceFilter, setServiceFilter] = useState<string>('');
 
     const [editingCode, setEditingCode] = useState<ShiftDefinition | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -170,12 +171,11 @@ export const ShiftCodeSettings: React.FC = () => {
 
     const filteredCodes = useMemo(() => {
         return codes.filter(c => {
-            if (filterType === 'ALL') return true;
-            if (filterType === 'WORK') return c.isWork;
-            if (filterType === 'ABSENCE') return !c.isWork;
-            return true;
+            const matchesType = filterType === 'ALL' || (filterType === 'WORK' ? c.isWork : !c.isWork);
+            const matchesService = !serviceFilter || c.serviceId === serviceFilter;
+            return matchesType && matchesService;
         });
-    }, [codes, filterType]);
+    }, [codes, filterType, serviceFilter]);
 
     return (
         <div className={`bg-white rounded-xl shadow border border-slate-200 overflow-hidden flex flex-col transition-all ${isExpanded ? 'max-h-[1000px]' : 'h-16'}`}>
@@ -199,27 +199,45 @@ export const ShiftCodeSettings: React.FC = () => {
 
             <div className={`flex-1 overflow-y-auto p-0 ${!isExpanded && 'hidden'}`}>
                 {/* FILTRES BAR */}
-                <div className="p-4 bg-slate-50 border-b flex flex-wrap items-center gap-4 justify-between">
-                    <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200">
-                        <button 
-                            onClick={() => setFilterType('ALL')}
-                            className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all ${filterType === 'ALL' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-                        >
-                            Tout
-                        </button>
-                        <button 
-                            onClick={() => setFilterType('WORK')}
-                            className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all ${filterType === 'WORK' ? 'bg-green-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-                        >
-                            <Briefcase className="w-3.5 h-3.5" /> Travail / Poste
-                        </button>
-                        <button 
-                            onClick={() => setFilterType('ABSENCE')}
-                            className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all ${filterType === 'ABSENCE' ? 'bg-orange-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-                        >
-                            <Umbrella className="w-3.5 h-3.5" /> Absence / Repos
-                        </button>
+                <div className="p-4 bg-slate-50 border-b flex flex-wrap items-center gap-6 justify-between">
+                    <div className="flex flex-wrap items-center gap-4">
+                        <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200">
+                            <button 
+                                onClick={() => setFilterType('ALL')}
+                                className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all ${filterType === 'ALL' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                            >
+                                Tout
+                            </button>
+                            <button 
+                                onClick={() => setFilterType('WORK')}
+                                className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all ${filterType === 'WORK' ? 'bg-green-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                            >
+                                <Briefcase className="w-3.5 h-3.5" /> Travail / Poste
+                            </button>
+                            <button 
+                                onClick={() => setFilterType('ABSENCE')}
+                                className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all ${filterType === 'ABSENCE' ? 'bg-orange-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                            >
+                                <Umbrella className="w-3.5 h-3.5" /> Absence / Repos
+                            </button>
+                        </div>
+
+                        {/* FILTRE SERVICE */}
+                        <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-200">
+                            <Store className="w-4 h-4 text-slate-400" />
+                            <select 
+                                value={serviceFilter} 
+                                onChange={(e) => setServiceFilter(e.target.value)}
+                                className="text-xs font-bold text-slate-600 bg-transparent outline-none cursor-pointer focus:ring-0"
+                            >
+                                <option value="">Tous les services</option>
+                                {services.map(s => (
+                                    <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
+
                     <div className="text-xs text-slate-400 italic">
                         {isLoading ? 'Chargement...' : `${filteredCodes.length} codes affichés`}
                     </div>
