@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Heart, AlertTriangle, Moon, Sun, Flag, CalendarClock, Layers, MessageSquare, Eraser, BriefcaseIcon, Umbrella, Undo2 } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
@@ -88,6 +89,7 @@ export default function App() {
   const [actionModal, setActionModal] = useState<{ type: 'GENERATE' | 'RESET' | 'RESET_LEAVES', isOpen: boolean } | null>(null);
   const [actionMonth, setActionMonth] = useState<number>(new Date().getMonth());
   const [actionYear, setActionYear] = useState<number>(new Date().getFullYear());
+  const [actionServiceId, setActionServiceId] = useState<string>('');
   
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -121,17 +123,12 @@ export default function App() {
   // --- Dynamic Shift Definitions ---
   const allBaseShifts = useMemo(() => {
     const definitions: Map<string, ShiftDefinition> = new Map();
-    
-    // 1. Base default shifts from constants
     Object.values(SHIFT_TYPES).forEach(s => {
         if (s.code !== 'OFF') definitions.set(s.code, s);
     });
-
-    // 2. Add DB defined shifts (overrides defaults or adds new ones)
     dbShiftCodes.forEach(dc => {
         definitions.set(dc.code, dc);
     });
-
     return Array.from(definitions.values());
   }, [dbShiftCodes]);
 
@@ -145,10 +142,7 @@ export default function App() {
 
   const filteredShifts = useMemo(() => {
     return allBaseShifts.filter(shift => {
-      // 1. Filter by Service
       if (editorServiceId && shift.serviceId && shift.serviceId !== editorServiceId) return false;
-
-      // 2. Filter by Type
       if (shiftEditorFilter === 'all') return true;
       if (shiftEditorFilter === 'work') return shift.isWork;
       if (shiftEditorFilter === 'absence') return !shift.isWork && shift.code !== 'OFF';
@@ -311,6 +305,7 @@ export default function App() {
   const openActionModal = (type: 'GENERATE' | 'RESET' | 'RESET_LEAVES') => {
       setActionMonth(currentDate.getMonth());
       setActionYear(currentDate.getFullYear());
+      setActionServiceId(activeServiceId);
       setActionModal({ type, isOpen: true });
   };
 
@@ -318,21 +313,26 @@ export default function App() {
       if (!actionModal) return;
       const targetDate = new Date(actionYear, actionMonth, 1);
       const monthName = targetDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+      const targetService = servicesList.find(s => s.id === actionServiceId);
+      const serviceLabel = targetService ? targetService.name : 'Tous les services';
+      
       setActionModal(null); 
       setIsLoading(true);
       try {
           if (actionModal.type === 'GENERATE') {
                pushToUndoStack();
-               const scopeEmployees = activeServiceId ? filteredEmployees : employees;
-               const newEmps = await generateMonthlySchedule(scopeEmployees, actionYear, actionMonth, activeService?.config);
+               const scopeEmployees = actionServiceId 
+                ? employees.filter(e => assignmentsList.some(a => a.employeeId === e.id && a.serviceId === actionServiceId))
+                : employees;
+               const newEmps = await generateMonthlySchedule(scopeEmployees, actionYear, actionMonth, targetService?.config);
                await db.bulkSaveSchedule(newEmps);
                await loadData();
-               setToast({ message: `Planning de ${monthName} généré avec succès pour ${scopeEmployees.length} employés.`, type: "success" });
+               setToast({ message: `Planning de ${monthName} généré pour ${serviceLabel}.`, type: "success" });
           } else if (actionModal.type === 'RESET') {
                pushToUndoStack();
-               await db.clearShiftsInRange(actionYear, actionMonth, activeServiceId || undefined);
+               await db.clearShiftsInRange(actionYear, actionMonth, actionServiceId || undefined);
                await loadData();
-               setToast({ message: `Planning de ${monthName} réinitialisé ${activeServiceId ? 'pour le service' : 'globalement'}.`, type: "success" });
+               setToast({ message: `Planning de ${monthName} réinitialisé pour ${serviceLabel}.`, type: "success" });
           } else if (actionModal.type === 'RESET_LEAVES') {
                await db.clearLeavesAndNotificationsInRange(actionYear, actionMonth);
                await loadData();
@@ -458,7 +458,7 @@ export default function App() {
     if (currentUser?.role !== 'ADMIN' && currentUser?.role !== 'CADRE' && currentUser?.role !== 'CADRE_SUP' && currentUser?.role !== 'DIRECTOR') {
         setToast({ message: "Modification directe non autorisée.", type: "warning" });
         return;
-    }
+  }
     setShiftEditorFilter('all');
     setEditorServiceId(activeServiceId);
     setSelectedCell({ empId, date });
@@ -510,7 +510,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-100 dark:bg-slate-900 font-sans transition-colors duration-300">
-      <style>{`@media print { @page { size: landscape; margin: 5mm; } body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; } aside, header, .no-print { display: none !important; } .print-container { overflow: visible !important; height: auto !important; } table { width: 100% !important; } }`}</style>
+      <style>{`@media print { @page { size: landscape; margin: 5mm; } body { background: white; -webkit-print-color-adjust: exact; print-adjust: exact; } aside, header, .no-print { display: none !important; } .print-container { overflow: visible !important; height: auto !important; } table { width: 100% !important; } }`}</style>
       {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsSidebarOpen(false)} />}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       <SatisfactionSurveyModal isOpen={isSurveyOpen} onClose={() => setIsSurveyOpen(false)} employeeId={currentUser.employeeId || ''} />
@@ -642,11 +642,11 @@ export default function App() {
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                       <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700 p-1 rounded-lg">
-                          <button onClick={() => setViewMode('month')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'month' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Mois</button>
-                          <button onClick={() => setViewMode('week')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'week' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Semaine</button>
-                          <button onClick={() => setViewMode('workweek')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'workweek' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Ouvré</button>
-                          <button onClick={() => setViewMode('day')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'day' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Journée</button>
-                          <button onClick={() => setViewMode('hourly')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'hourly' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Horaires</button>
+                          <button onClick={() => setViewMode('month')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'month' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Mois</button>
+                          <button onClick={() => setViewMode('week')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'week' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Semaine</button>
+                          <button onClick={() => setViewMode('workweek')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'workweek' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Ouvré</button>
+                          <button onClick={() => setViewMode('day')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'day' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Journée</button>
+                          <button onClick={() => setViewMode('hourly')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'hourly' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Horaires</button>
                       </div>
                   </div>
                </div>
@@ -727,32 +727,56 @@ export default function App() {
       {actionModal?.isOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
               <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md p-6">
-                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2 dark:text-white">
+                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2 dark:text-white text-slate-800">
                       {actionModal.type === 'GENERATE' ? <Wand2 className="w-5 h-5 text-blue-600"/> : <Trash2 className="w-5 h-5 text-red-600"/>}
                       {actionModal.type === 'GENERATE' ? 'Génération Automatique' : 'Réinitialisation'}
                   </h3>
                   <div className="space-y-4">
+                      {/* SÉLECTEUR DE SERVICE DANS LA MODALE */}
                       <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mois cible</label>
-                          <div className="grid grid-cols-2 gap-2">
-                              <select value={actionMonth} onChange={e => setActionMonth(parseInt(e.target.value))} className="p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white">
-                                  {Array.from({length: 12}, (_, i) => (<option key={i} value={i}>{new Date(2000, i).toLocaleDateString('fr-FR', {month: 'long'})}</option>))}
-                              </select>
-                              <select value={actionYear} onChange={e => setActionYear(parseInt(e.target.value))} className="p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white">
-                                  {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
-                              </select>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Service concerné</label>
+                          <select 
+                            value={actionServiceId} 
+                            onChange={e => setActionServiceId(e.target.value)}
+                            className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-slate-50 font-medium"
+                          >
+                              {isGlobalViewer && <option value="">Tous les services</option>}
+                              {servicesList.map(s => {
+                                  if (!isGlobalViewer && !myServiceIds.includes(s.id)) return null;
+                                  return <option key={s.id} value={s.id}>{s.name}</option>;
+                              })}
+                          </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mois</label>
+                            <select value={actionMonth} onChange={e => setActionMonth(parseInt(e.target.value))} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white">
+                                {Array.from({length: 12}, (_, i) => (<option key={i} value={i}>{new Date(2000, i).toLocaleDateString('fr-FR', {month: 'long'})}</option>))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Année</label>
+                            <select value={actionYear} onChange={e => setActionYear(parseInt(e.target.value))} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white">
+                                {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                            </select>
                           </div>
                       </div>
-                      <p className="text-sm text-slate-600 dark:text-slate-400">
+
+                      <div className={`p-3 rounded-lg border text-sm ${actionModal.type === 'RESET' ? 'bg-red-50 border-red-100 text-red-700' : 'bg-blue-50 border-blue-100 text-blue-700'}`}>
+                          <div className="flex gap-2 font-bold mb-1">
+                              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                              <span>Important</span>
+                          </div>
                           {actionModal.type === 'GENERATE' 
-                            ? "Le système va générer un planning optimisé pour le service sélectionné en respectant les quotités et contraintes légale." 
-                            : "Attention, cette action va supprimer tous les postes planifiés sur cette période (hors congés validés)."}
-                      </p>
+                            ? "Le système va écraser les postes actuels (hors absences validées) pour générer un planning optimisé." 
+                            : "Cette action supprimera définitivement tous les postes planifiés pour le service et la période choisis."}
+                      </div>
                   </div>
                   <div className="mt-6 flex justify-end gap-3">
-                      <button onClick={() => setActionModal(null)} className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-sm">Annuler</button>
-                      <button onClick={confirmAction} disabled={isLoading} className={`px-6 py-2 rounded text-white text-sm font-bold shadow-sm ${actionModal.type === 'GENERATE' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'}`}>
-                          {isLoading ? 'Action en cours...' : 'Confirmer'}
+                      <button onClick={() => setActionModal(null)} className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-sm font-medium">Annuler</button>
+                      <button onClick={confirmAction} disabled={isLoading} className={`px-6 py-2 rounded text-white text-sm font-bold shadow-md transition-transform active:scale-95 ${actionModal.type === 'GENERATE' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'}`}>
+                          {isLoading ? 'Action en cours...' : (actionModal.type === 'GENERATE' ? 'Générer' : 'Réinitialiser')}
                       </button>
                   </div>
               </div>

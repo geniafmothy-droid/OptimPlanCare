@@ -18,7 +18,8 @@ export const fetchShiftDefinitions = async (): Promise<ShiftDefinition[]> => {
         textColor: d.text_color,
         isWork: d.is_work,
         duration: d.duration,
-        break_duration: d.break_duration,
+        // Fix: Use correct camelCase property name for ShiftDefinition
+        breakDuration: d.break_duration,
         startHour: d.start_hour,
         endHour: d.end_hour,
         serviceId: d.service_id
@@ -36,6 +37,7 @@ export const upsertShiftDefinition = async (def: ShiftDefinition) => {
         duration: def.duration,
         break_duration: def.breakDuration,
         start_hour: def.startHour,
+        // Fix: Access correct property name 'endHour' from ShiftDefinition instance
         end_hour: def.endHour,
         service_id: def.serviceId || null
     }, { onConflict: 'code' });
@@ -269,10 +271,7 @@ export const upsertEmployee = async (employee: Employee) => {
       skills: employee.skills || []
   };
 
-  // If we have a permanent ID, use it to ensure we update the right row.
-  // If it's a temp ID, we match on matricule to prevent duplication.
   const temp = isTempId(employee.id);
-  
   if (!temp) {
       payload.id = employee.id;
   }
@@ -283,9 +282,6 @@ export const upsertEmployee = async (employee: Employee) => {
     .select();
 
   if (error) {
-      // If we tried to update by ID but the matricule belongs to someone else, 
-      // or if upsert by ID is failing due to some unique constraint, 
-      // providing a better error message.
       if (error.code === '23505') {
           throw new Error(`Le matricule "${employee.matricule}" est déjà utilisé par un autre collaborateur.`);
       }
@@ -327,28 +323,40 @@ export const bulkSaveSchedule = async (employees: Employee[]) => {
     }
 };
 
+/**
+ * Supprime les postes planifiés sur une plage donnée.
+ * Si serviceId est fourni, ne supprime que les postes des employés affectés à ce service.
+ */
 export const clearShiftsInRange = async (year: number, month: number, serviceId?: string) => {
-    const startDate = new Date(year, month, 1);
-    const endDate = new Date(year, month + 1, 0);
-    const startStr = startDate.toISOString().split('T')[0];
-    const endStr = endDate.toISOString().split('T')[0];
+    const startStr = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const endStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     
     let query = supabase.from('shifts').delete().gte('date', startStr).lte('date', endStr);
     
     if (serviceId) {
-        const { data: assignments } = await supabase.from('service_assignments').select('employee_id').eq('service_id', serviceId);
+        const { data: assignments, error: assignError } = await supabase.from('service_assignments').select('employee_id').eq('service_id', serviceId);
+        if (assignError) throw new Error("Erreur lors de la récupération des membres du service : " + assignError.message);
+        
         const empIds = (assignments || []).map((a:any) => a.employee_id);
-        if (empIds.length > 0) query = query.in('employee_id', empIds);
-        else return; 
+        
+        if (empIds.length > 0) {
+            query = query.in('employee_id', empIds);
+        } else {
+            // Aucun employé affecté à ce service, rien à supprimer pour ce périmètre
+            return;
+        }
     }
 
-    const { error } = query as any;
-    if (error) throw new Error(error.message);
+    const { error } = await query;
+    if (error) throw new Error("Erreur lors de la réinitialisation : " + error.message);
 };
 
 export const clearLeavesAndNotificationsInRange = async (year: number, month: number) => {
-    const startStr = new Date(year, month, 1).toISOString().split('T')[0];
-    const endStr = new Date(year, month + 1, 0).toISOString().split('T')[0];
+    const startStr = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const endStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    
     await supabase.from('leave_requests').delete().gte('start_date', startStr).lte('start_date', endStr);
     await supabase.from('notifications').delete().gte('date', startStr).lte('date', endStr);
 };
@@ -436,7 +444,6 @@ export const fetchNotifications = async (): Promise<AppNotification[]> => {
     }));
 };
 
-// Fix for property name errors in createNotification insert call
 export const createNotification = async (notif: Omit<AppNotification, 'id' | 'date' | 'isRead'>) => {
     const { error } = await supabase.from('notifications').insert([{
             recipient_role: notif.recipientRole, recipient_id: notif.recipientId, title: notif.title,
