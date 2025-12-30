@@ -1,7 +1,6 @@
 
 import { ShiftDefinition, Employee, ShiftCode, ValidationRule } from './types';
 
-// Updated with Duration and Break
 export const SHIFT_TYPES: Record<ShiftCode, ShiftDefinition> = {
   'IT': { 
     code: 'IT', 
@@ -51,6 +50,30 @@ export const SHIFT_TYPES: Record<ShiftCode, ShiftDefinition> = {
     duration: 6.5,
     breakDuration: 0.5 
   },
+  'CPF M': {
+    code: 'CPF M',
+    label: 'CPF Matin',
+    color: 'bg-indigo-200',
+    textColor: 'text-indigo-900',
+    description: 'CPF Matin (Maternité)',
+    isWork: true,
+    startHour: 7.0,
+    endHour: 15.0,
+    duration: 8.0,
+    breakDuration: 0.5
+  },
+  'CPF C': {
+    code: 'CPF C',
+    label: 'CPF Coupure',
+    color: 'bg-purple-200',
+    textColor: 'text-purple-900',
+    description: 'CPF Coupure (Maternité)',
+    isWork: true,
+    startHour: 8.0,
+    endHour: 18.0,
+    duration: 10.0,
+    breakDuration: 1.0
+  },
   'NT': { code: 'NT', label: 'NT', color: 'bg-slate-200', textColor: 'text-slate-600', description: 'Non Travaillé (Cycle)', isWork: false, duration: 0 },
   'MAL': { code: 'MAL', label: 'MAL', color: 'bg-red-200', textColor: 'text-red-900', description: 'Arrêt Maladie', isWork: false, duration: 0 },
   'AT': { code: 'AT', label: 'AT', color: 'bg-red-300', textColor: 'text-red-900', description: 'Accident de Travail', isWork: false, duration: 0 },
@@ -69,7 +92,6 @@ export const SHIFT_TYPES: Record<ShiftCode, ShiftDefinition> = {
   'OFF': { code: 'OFF', label: '', color: 'bg-white', textColor: 'text-gray-300', description: 'Vide', isWork: false, duration: 0 },
 };
 
-// Effective work hours mapping (Duration - Break)
 export const SHIFT_HOURS: Record<string, number> = {};
 Object.values(SHIFT_TYPES).forEach(s => {
     SHIFT_HOURS[s.code] = Math.max(0, (s.duration || 0) - (s.breakDuration || 0));
@@ -79,13 +101,10 @@ export const DEFAULT_RULES: ValidationRule[] = [
     { id: '1', code: 'MAX_48H', label: 'Max 48h / 7 jours', description: 'Respect légal strict de la durée maximale.', isActive: true, priority: 'HIGH', category: 'LEGAL' },
     { id: '2', code: 'POST_NIGHT_REST', label: 'Repos Post-Nuit', description: 'Pas de travail le lendemain d\'un poste de Nuit (S).', isActive: true, priority: 'HIGH', category: 'LEGAL' },
     { id: '3', code: 'SAT_ROTATION', label: 'Rotation Samedi (1/2)', description: 'Maximum un samedi travaillé sur deux.', isActive: true, priority: 'MEDIUM', category: 'EQUITY' },
-    { id: '4', code: 'FTE_DIALYSE', label: 'Quotité Dialyse', description: 'Respect des jours travaillés selon quotité (80% : 2-3j, 100% : 3-4j).', isActive: true, priority: 'MEDIUM', category: 'SERVICE' },
-    { id: '5', code: 'STAFFING_IT', label: 'Effectif IT (4)', description: 'Minimum 4 IT présents.', isActive: true, priority: 'HIGH', category: 'SERVICE' },
-    { id: '6', code: 'STAFFING_S', label: 'Effectif Soir (2)', description: 'Minimum 2 S les Lun/Mer/Ven.', isActive: true, priority: 'HIGH', category: 'SERVICE' },
+    { id: '4', code: 'FTE_MATERNITY', label: 'Cycle Maternité', description: 'Respect des cycles alternés 80/100% spécifiques Maternité.', isActive: true, priority: 'HIGH', category: 'SERVICE' },
+    { id: '5', code: 'CPF_PARITY', label: 'Parité CPF Semaine', description: 'Effectif CPF ajustable selon parité de la semaine.', isActive: true, priority: 'MEDIUM', category: 'SERVICE' },
 ];
 
-// DIALYSIS TEAM GENERATION
-// 16 IDEs: 7 @ 80%, 9 @ 100%
 const NAMES_100 = [
   'Martin', 'Bernard', 'Thomas', 'Petit', 'Robert', 'Richard', 'Durand', 'Dubois', 'Moreau'
 ];
@@ -97,19 +116,16 @@ const generateDialysisTeam = (): Employee[] => {
     const emps: Employee[] = [];
     let idCounter = 100;
 
-    // Director
     emps.push({
         id: 'dir-001', matricule: 'D001', name: 'Mme La Directrice', role: 'Directeur', fte: 1.0,
         leaveBalance: 0, leaveCounters: { CA:30, RTT:10, HS:0, RC:0 }, skills: ['Management'], shifts: {}
     });
 
-    // Cadre
     emps.push({
         id: 'cad-001', matricule: 'C001', name: 'M. Le Cadre', role: 'Cadre', fte: 1.0,
-        leaveBalance: 0, leaveCounters: { CA:28, RTT:14, HS:0, RC:0 }, skills: ['Management', 'Dialyse'], shifts: {}
+        leaveBalance: 0, leaveCounters: { CA:28, RTT:14, HS:0, RC:0 }, skills: ['Management', 'Dialyse', 'CPF M', 'CPF C'], shifts: {}
     });
 
-    // 100% IDEs
     NAMES_100.forEach((name, i) => {
         emps.push({
             id: `ide-100-${i}`,
@@ -119,12 +135,11 @@ const generateDialysisTeam = (): Employee[] => {
             fte: 1.0,
             leaveBalance: 0,
             leaveCounters: { CA: 25, RTT: 0, HS: 0, RC: 0 },
-            skills: ['Dialyse', 'IT', 'T5', 'T6', 'S'],
+            skills: ['Dialyse', 'IT', 'T5', 'T6', 'S', 'CPF M', 'CPF C'],
             shifts: {}
         });
     });
 
-    // 80% IDEs
     NAMES_80.forEach((name, i) => {
         emps.push({
             id: `ide-80-${i}`,
@@ -133,8 +148,8 @@ const generateDialysisTeam = (): Employee[] => {
             role: 'Infirmier',
             fte: 0.8,
             leaveBalance: 0,
-            leaveCounters: { CA: 20, RTT: 0, HS: 0, RC: 0 }, // Adjusted CA roughly
-            skills: ['Dialyse', 'IT', 'T5', 'T6', 'S'],
+            leaveCounters: { CA: 20, RTT: 0, HS: 0, RC: 0 }, 
+            skills: ['Dialyse', 'IT', 'T5', 'T6', 'S', 'CPF M', 'CPF C'],
             shifts: {}
         });
     });

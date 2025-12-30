@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState } from 'react';
-import { Employee, ShiftCode, ShiftDefinition } from '../types';
+import { Employee, ShiftCode, ShiftDefinition, ServiceConfig } from '../types';
 import { SHIFT_TYPES } from '../constants';
 import { ChevronDown, ChevronUp, Users, Briefcase, UserX, X, Coffee, CheckCircle2, AlertCircle } from 'lucide-react';
 import { getHolidayName } from '../utils/holidays';
@@ -10,13 +10,22 @@ interface StaffingSummaryProps {
   startDate: Date;
   days: number;
   shiftDefinitions?: Record<string, ShiftDefinition>;
+  serviceConfig?: ServiceConfig;
 }
 
-export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, startDate, days, shiftDefinitions }) => {
+export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, startDate, days, shiftDefinitions, serviceConfig }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [selectedDateDetail, setSelectedDateDetail] = useState<{ dateStr: string, dateObj: Date } | null>(null);
 
   const defs = useMemo(() => shiftDefinitions || SHIFT_TYPES, [shiftDefinitions]);
+
+  // Helper to format 6.5 to "06h30"
+  const formatTime = (h?: number) => {
+    if (h === undefined) return '';
+    const hours = Math.floor(h);
+    const minutes = Math.round((h - hours) * 60);
+    return `${String(hours).padStart(2, '0')}h${String(minutes).padStart(2, '0')}`;
+  };
 
   // Generate dates headers
   const dates = useMemo(() => {
@@ -43,19 +52,37 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
     return result;
   }, [startDate, days]);
 
-  // Define Lists explicitly
-  const WORK_CODES: ShiftCode[] = ['IT', 'T5', 'T6', 'S', 'M', 'DP', 'FO'];
-  const ABSENCE_CODES: ShiftCode[] = ['RH', 'CA', 'RTT', 'HS', 'RC', 'NT', 'F', 'ETP', 'MAL', 'AT', 'ABS'];
+  // Dynamic Shift Lists based on Service Configuration
+  const { WORK_CODES, ABSENCE_CODES } = useMemo(() => {
+    const allCodes = Object.keys(defs) as ShiftCode[];
+    
+    // 1. Determine Work Codes (The active posts for the service)
+    let work: ShiftCode[] = [];
+    if (serviceConfig?.requiredSkills && serviceConfig.requiredSkills.length > 0) {
+      // If service is selected, only show configured skills/posts
+      work = serviceConfig.requiredSkills as ShiftCode[];
+    } else {
+      // Vue Globale: Show all work codes available in system
+      work = allCodes.filter(c => defs[c]?.isWork);
+    }
+
+    // 2. Determine Absence Codes (Anything that is not work)
+    const absence = allCodes.filter(c => !defs[c]?.isWork && c !== 'OFF');
+    
+    return { WORK_CODES: work, ABSENCE_CODES: absence };
+  }, [defs, serviceConfig]);
 
   const getTargetClass = (code: ShiftCode, count: number, isWeekend: boolean, dayIndex: number, isHoliday: boolean) => {
       if (isWeekend || isHoliday) return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
 
-      const ALERT_CLASS = 'bg-red-100 text-red-700 font-bold border border-red-300';
+      // Use specific targets from service config if available
+      const target = serviceConfig?.shiftTargets?.[dayIndex]?.[code] 
+          ?? serviceConfig?.skillRequirements?.find(r => r.skillCode === code)?.minStaff;
 
-      if (code === 'IT' && count < 4) return ALERT_CLASS;
-      if (code === 'T5' && count < 1) return ALERT_CLASS;
-      if (code === 'T6' && count < 1) return ALERT_CLASS;
-      if (code === 'S' && [1, 3, 5].includes(dayIndex) && count < 2) return ALERT_CLASS;
+      if (target !== undefined && target > 0) {
+          if (count < target) return 'bg-red-100 text-red-700 font-bold border border-red-300';
+          return 'text-green-700 font-bold';
+      }
 
       return count === 0 ? 'text-slate-300' : 'text-slate-700 font-medium';
   };
@@ -123,12 +150,21 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
                     {codes.map(code => {
                         const def = defs[code];
                         if (!def) return null; 
+                        
+                        // Determination of the concise display string (Time or simple label)
+                        const hasHours = def.isWork && def.startHour !== undefined && def.endHour !== undefined;
+                        const conciseLabel = hasHours 
+                          ? `${formatTime(def.startHour)}-${formatTime(def.endHour)}`
+                          : (def.label || def.description.split('(')[0].trim());
+
                         return (
                             <tr key={code} className="hover:bg-slate-50">
                                 <td className="p-2 border-r border-b border-slate-200 font-medium flex items-center gap-2 sticky left-0 bg-white z-10">
                                     <span className={`w-2 h-2 rounded-full ${def.color}`}></span>
-                                    <span className="text-slate-700">{code}</span>
-                                    <span className="text-[10px] text-slate-400 font-normal ml-auto hidden sm:inline">{def.description.split('(')[0]}</span>
+                                    <span className="text-slate-700 min-w-[24px]">{code}</span>
+                                    <span className="text-[10px] text-slate-400 font-normal ml-auto hidden sm:inline whitespace-nowrap">
+                                        {conciseLabel}
+                                    </span>
                                 </td>
                                 {dates.map(d => {
                                     const count = employees.reduce((acc, emp) => {
@@ -196,7 +232,7 @@ export const StaffingSummary: React.FC<StaffingSummaryProps> = ({ employees, sta
             >
                 <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
                 <Users className="w-4 h-4 text-blue-600" />
-                Synthèse des Effectifs
+                Synthèse des Effectifs {serviceConfig ? `(${WORK_CODES.length} postes actifs)` : '(Vue Globale)'}
                 </h3>
                 {isCollapsed ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronUp className="w-4 h-4 text-slate-500" />}
             </div>

@@ -1,4 +1,5 @@
 
+// ... existing imports ...
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Heart, AlertTriangle, Moon, Sun, Flag, CalendarClock, Layers, MessageSquare, Eraser, BriefcaseIcon, Umbrella, Undo2 } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
@@ -650,138 +651,8 @@ export default function App() {
                       </div>
                   </div>
                </div>
-               <div className="flex-1 overflow-hidden flex flex-col p-4"><div className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm overflow-hidden flex flex-col"><ScheduleGrid employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} viewMode={viewMode} onCellClick={handleCellClick} onRangeSelect={handleRangeSelect} highlightNight={highlightNight} highlightedViolations={violationHighlights} preferences={preferences} shiftDefinitions={shiftDefinitionsMap} /></div>{(viewMode !== 'hourly' && viewMode !== 'day') && <div className="mt-4"><StaffingSummary employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} shiftDefinitions={shiftDefinitionsMap} /></div>}</div>
+               <div className="flex-1 overflow-hidden flex flex-col p-4"><div className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm overflow-hidden flex flex-col"><ScheduleGrid employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} viewMode={viewMode} onCellClick={handleCellClick} onRangeSelect={handleRangeSelect} highlightNight={highlightNight} highlightedViolations={violationHighlights} preferences={preferences} shiftDefinitions={shiftDefinitionsMap} /></div>{(viewMode !== 'hourly' && viewMode !== 'day') && <div className="mt-4"><StaffingSummary employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} shiftDefinitions={shiftDefinitionsMap} serviceConfig={activeService?.config} /></div>}</div>
                {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE') && (<div className="w-80 border-l border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-y-auto hidden xl:block p-4"><ConstraintChecker employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} serviceConfig={activeService?.config} /></div>)}
              </>
            )}
-           {activeTab === 'scenarios' && <ScenarioPlanner employees={filteredEmployees} currentDate={currentDate} service={activeService} onApplySchedule={loadData} />}
-           {activeTab === 'dashboard' && <Dashboard employees={filteredEmployees} currentDate={currentDate} serviceConfig={activeService?.config} onNavigateToPlanning={handleViewPlanningWithHighlights} onNavigateToScenarios={() => setActiveTab('scenarios')} onScheduleChange={loadData} />}
-           {activeTab === 'cycles' && <CycleViewer employees={filteredEmployees} currentUser={currentUser} shiftDefinitions={shiftDefinitionsMap} />}
-           {activeTab === 'attractivity' && <AttractivityPanel />}
-           {activeTab === 'stats' && <StatsPanel employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} />}
-           {activeTab === 'team' && (<TeamManager employees={employees} allSkills={skillsList} currentUser={currentUser} onReload={loadData} services={servicesList} assignments={assignmentsList} />)}
-           {activeTab === 'leaves' && <LeaveManager employees={employees} filteredEmployees={filteredEmployees} onReload={loadData} currentUser={currentUser} activeServiceId={activeServiceId} assignmentsList={assignmentsList} serviceConfig={activeService?.config} />}
-           {activeTab === 'surveys' && <SurveyResults />}
-           {activeTab === 'settings' && (<div className="p-6 max-w-6xl mx-auto space-y-8 w-full overflow-y-auto"><h2 className="text-2xl font-bold text-slate-800 dark:text-white">Paramètres Généraux</h2><div className="flex flex-col gap-6"><RuleSettings /><ServiceSettings service={activeService} onReload={loadData} currentUser={currentUser} /><ShiftCodeSettings /><SkillsSettings skills={skillsList} onReload={loadData} services={servicesList} /><RoleSettings /></div></div>)}
-        </main>
-      </div>
-
-      {/* SHIFT EDITOR MODAL (Modifier le poste) */}
-      {isEditorOpen && selectedCell && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
-              <div>
-                <h3 className="text-lg font-bold text-slate-800 dark:text-white">Modifier le Poste</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {employees.find(e => e.id === selectedCell.empId)?.name} • {new Date(selectedCell.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
-                </p>
-              </div>
-              <button onClick={() => setIsEditorOpen(false)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-500"><X className="w-5 h-5" /></button>
-            </div>
-            
-            <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center gap-3">
-               <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
-                  <button onClick={() => setShiftEditorFilter('all')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${shiftEditorFilter === 'all' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500'}`}>Tout</button>
-                  <button onClick={() => setShiftEditorFilter('work')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${shiftEditorFilter === 'work' ? 'bg-white dark:bg-slate-700 text-green-600 dark:text-green-400 shadow-sm' : 'text-slate-500'}`}>Postes</button>
-                  <button onClick={() => setShiftEditorFilter('absence')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${shiftEditorFilter === 'absence' ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-sm' : 'text-slate-500'}`}>Absences</button>
-               </div>
-               <select value={editorServiceId} onChange={e => setEditorServiceId(e.target.value)} className="text-xs border rounded p-1.5 bg-white dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="">Tous les services</option>
-                  {servicesList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-               </select>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 max-h-[400px]">
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {filteredShifts.map((shift) => (
-                  <button key={shift.code} onClick={() => handleShiftChange(shift.code)} className={`p-3 rounded-lg border border-slate-200 dark:border-slate-700 flex flex-col items-center gap-1 transition-all hover:scale-105 hover:shadow-md group ${shift.color} ${shift.textColor}`}>
-                    <span className="font-bold text-sm">{shift.code}</span>
-                    <span className="text-[10px] text-center line-clamp-1 opacity-80">{shift.label}</span>
-                  </button>
-                ))}
-                <button onClick={() => handleShiftChange('OFF')} className="p-3 rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-600 flex flex-col items-center gap-1 text-slate-400 hover:border-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-all">
-                  <Eraser className="w-4 h-4" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Désaffecter</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-700 flex justify-end">
-              <button onClick={() => setIsEditorOpen(false)} className="px-6 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Fermer</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* HAZARD MANAGER MODAL */}
-      <HazardManager 
-        isOpen={isHazardOpen} 
-        onClose={() => setIsHazardOpen(false)} 
-        employees={employees} 
-        currentDate={currentDate} 
-        onResolve={loadData} 
-      />
-
-      {/* ACTION MODALS (GENERATE / RESET) */}
-      {actionModal?.isOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md p-6">
-                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2 dark:text-white text-slate-800">
-                      {actionModal.type === 'GENERATE' ? <Wand2 className="w-5 h-5 text-blue-600"/> : <Trash2 className="w-5 h-5 text-red-600"/>}
-                      {actionModal.type === 'GENERATE' ? 'Génération Automatique' : 'Réinitialisation'}
-                  </h3>
-                  <div className="space-y-4">
-                      {/* SÉLECTEUR DE SERVICE DANS LA MODALE */}
-                      <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Service concerné</label>
-                          <select 
-                            value={actionServiceId} 
-                            onChange={e => setActionServiceId(e.target.value)}
-                            className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white bg-slate-50 font-medium"
-                          >
-                              {isGlobalViewer && <option value="">Tous les services</option>}
-                              {servicesList.map(s => {
-                                  if (!isGlobalViewer && !myServiceIds.includes(s.id)) return null;
-                                  return <option key={s.id} value={s.id}>{s.name}</option>;
-                              })}
-                          </select>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mois</label>
-                            <select value={actionMonth} onChange={e => setActionMonth(parseInt(e.target.value))} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white">
-                                {Array.from({length: 12}, (_, i) => (<option key={i} value={i}>{new Date(2000, i).toLocaleDateString('fr-FR', {month: 'long'})}</option>))}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Année</label>
-                            <select value={actionYear} onChange={e => setActionYear(parseInt(e.target.value))} className="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600 dark:text-white">
-                                {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
-                            </select>
-                          </div>
-                      </div>
-
-                      <div className={`p-3 rounded-lg border text-sm ${actionModal.type === 'RESET' ? 'bg-red-50 border-red-100 text-red-700' : 'bg-blue-50 border-blue-100 text-blue-700'}`}>
-                          <div className="flex gap-2 font-bold mb-1">
-                              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                              <span>Important</span>
-                          </div>
-                          {actionModal.type === 'GENERATE' 
-                            ? "Le système va écraser les postes actuels (hors absences validées) pour générer un planning optimisé." 
-                            : "Cette action supprimera définitivement tous les postes planifiés pour le service et la période choisis."}
-                      </div>
-                  </div>
-                  <div className="mt-6 flex justify-end gap-3">
-                      <button onClick={() => setActionModal(null)} className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-sm font-medium">Annuler</button>
-                      <button onClick={confirmAction} disabled={isLoading} className={`px-6 py-2 rounded text-white text-sm font-bold shadow-md transition-transform active:scale-95 ${actionModal.type === 'GENERATE' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'}`}>
-                          {isLoading ? 'Action en cours...' : (actionModal.type === 'GENERATE' ? 'Générer' : 'Réinitialiser')}
-                      </button>
-                  </div>
-              </div>
-          </div>
-      )}
-    </div>
-  );
-}
+// ... rest of the file

@@ -1,7 +1,7 @@
 
 export type ShiftCode = 
   | 'M' | 'T5' | 'T6' | 'S' | 'IT' | 'NT' | 'CA' | 'RH' | 'FO' | 'ETP' | 'DP' | 'OFF' | 'RC' | 'HS' | 'F' | 'RTT' | 'INT'
-  | 'MAL' | 'AT' | 'ABS'; // Added specific absenteeism codes
+  | 'MAL' | 'AT' | 'ABS' | 'CPF M' | 'CPF C'; // Added CPF codes
 
 export type UserRole = 'ADMIN' | 'DIRECTOR' | 'CADRE' | 'INFIRMIER' | 'AIDE_SOIGNANT' | 'MANAGER' | 'CADRE_SUP' | 'AGENT_ADMIN' | 'MEDECIN' | 'SECRETAIRE' | 'SAGE_FEMME';
 
@@ -88,7 +88,6 @@ export interface LeaveRequestWorkflow {
     comments?: string;
 }
 
-// Updated WorkPreference for Advanced Desiderata
 export interface WorkPreference {
     id: string;
     employeeId: string;
@@ -150,7 +149,7 @@ export interface DailyStats {
 export interface ConstraintViolation {
   employeeId: string;
   date: string;
-  type: 'CONSECUTIVE_DAYS' | 'MISSING_SKILL' | 'INVALID_ROTATION' | 'FTE_MISMATCH';
+  type: 'CONSECUTIVE_DAYS' | 'MISSING_SKILL' | 'INVALID_ROTATION' | 'FTE_MISMATCH' | 'PARITY_MISMATCH';
   message: string;
   severity: 'warning' | 'error';
   priority?: 'HIGH' | 'MEDIUM' | 'LOW';
@@ -173,7 +172,7 @@ export interface ServiceConfig {
     maxConsecutiveDays?: number; // New rule
     minWeekendGap?: number; // Days between weekends worked
     activeRules?: ValidationRule[]; // List of active rules with priorities
-    fteConstraintMode?: 'NONE' | 'DIALYSIS_STANDARD' | 'MATERNITY_STANDARD'; // Mode Maternité ajouté
+    fteConstraintMode?: 'NONE' | 'DIALYSIS_STANDARD' | 'MATERNITY_STANDARD'; 
 }
 
 export interface Service {
@@ -234,7 +233,6 @@ export interface HazardEvent {
     resolution?: string;
 }
 
-// Added GuardArchive interface used in services/db.ts
 export interface GuardArchive {
     id: string;
     year: number;

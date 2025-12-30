@@ -10,8 +10,28 @@ const toLocalISOString = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() 
 const getDayOfWeek = (d: Date) => d.getDay(); // 0 Sun, 1 Mon...
 
 /**
- * Calculates total hours worked in the sliding window ending at 'dateStr'.
+ * Get ISO Week Number
  */
+const getWeekNumber = (d: Date): number => {
+    const date = new Date(d.getTime());
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
+    const week1 = new Date(date.getFullYear(), 0, 4);
+    return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+};
+
+/**
+ * Get Monthly Legal Hours for Maternity Mode based on FTE
+ * Règle : 100%=161h, 80%=128.8h, 60%=96.6h, 50%=80.5h
+ */
+const getMaternityMonthlyCap = (fte: number): number => {
+    if (fte >= 1.0) return 161;
+    if (fte >= 0.8) return 128.8; // 128h48
+    if (fte >= 0.6) return 96.6;  // 96h36
+    if (fte >= 0.5) return 80.5;  // 80h30
+    return fte * 161; // Fallback linéaire
+};
+
 export const getHoursLast7Days = (emp: Employee, currentDate: Date, tempShifts: Record<string, ShiftCode>): number => {
     let total = 0;
     for (let k = 0; k < 7; k++) {
@@ -24,22 +44,6 @@ export const getHoursLast7Days = (emp: Employee, currentDate: Date, tempShifts: 
         }
     }
     return total;
-};
-
-const getWorkedDaysInCurrentWeek = (emp: Employee, currentDate: Date, tempShifts: Record<string, ShiftCode>): number => {
-    const dayOfWeek = currentDate.getDay(); 
-    const diffToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    const monday = new Date(currentDate);
-    monday.setDate(currentDate.getDate() + diffToMon);
-    let count = 0;
-    const tempDate = new Date(monday);
-    while (tempDate < currentDate) {
-        const dStr = toLocalISOString(tempDate);
-        const code = tempShifts[dStr] || emp.shifts[dStr];
-        if (code && SHIFT_TYPES[code]?.isWork && tempDate.getDay() !== 0) count++;
-        tempDate.setDate(tempDate.getDate() + 1);
-    }
-    return count;
 };
 
 const getConsecutiveDaysCount = (emp: Employee, currentDate: Date, tempShifts: Record<string, ShiftCode>): number => {
@@ -89,10 +93,9 @@ export const generateMonthlySchedule = async (
   const numDays = endDate.getDate();
 
   const LOCKED_CODES = ['CA', 'FO', 'RC', 'HS', 'F', 'RTT', 'CSS', 'PATER', 'MALADIE', 'MAL', 'AT', 'ABS'];
-  const equityStats: Record<string, { Mondays: number, Saturdays: number, Nights: number, TotalHours: number, LastWeekendWorked: number }> = {};
-  employees.forEach(e => { equityStats[e.id] = { Mondays: 0, Saturdays: 0, Nights: 0, TotalHours: 0, LastWeekendWorked: -1 }; });
+  const equityStats: Record<string, { Mondays: number, Saturdays: number, Nights: number, TotalHours: number, LastWeekendWorked: number, LastFridayNight: number }> = {};
+  employees.forEach(e => { equityStats[e.id] = { Mondays: 0, Saturdays: 0, Nights: 0, TotalHours: 0, LastWeekendWorked: -1, LastFridayNight: -1 }; });
 
-  const isDialysisMode = serviceConfig?.fteConstraintMode === 'DIALYSIS_STANDARD';
   const isMaternityMode = serviceConfig?.fteConstraintMode === 'MATERNITY_STANDARD';
 
   // --- PHASE 1: PRE-CLEANING & DESIDERATA ---
@@ -112,6 +115,10 @@ export const generateMonthlySchedule = async (
           }
           if (dayOfWeek === 0 && !emp.shifts[dateStr] && !NON_COUNTING_ROLES.includes(emp.role)) emp.shifts[dateStr] = 'RH';
           if (NON_COUNTING_ROLES.includes(emp.role) && !emp.shifts[dateStr] && dayOfWeek >= 1 && dayOfWeek <= 5) emp.shifts[dateStr] = 'IT';
+          
+          // Calculer les heures déjà verrouillées (congés, etc)
+          const currentCode = emp.shifts[dateStr];
+          if (currentCode) equityStats[emp.id].TotalHours += (SHIFT_HOURS[currentCode] || 0);
       });
   }
 
@@ -121,13 +128,25 @@ export const generateMonthlySchedule = async (
       const dateStr = toLocalISOString(currentDate);
       const dayOfWeek = getDayOfWeek(currentDate);
       const prevDateStr = toLocalISOString(new Date(new Date(currentDate).setDate(currentDate.getDate() - 1)));
+      const nextDateStr = toLocalISOString(new Date(new Date(currentDate).setDate(currentDate.getDate() + 1)));
+      const weekNum = getWeekNumber(currentDate);
+      const isEvenWeek = weekNum % 2 === 0;
 
       if (dayOfWeek === 0) continue; 
 
-      let targets = isMaternityMode ? { 'IT': 3, 'S': 1 } : { ...DIALYSIS_TARGETS[dayOfWeek] }; // Default maternity target
-      if (serviceConfig?.shiftTargets?.[dayOfWeek]) targets = { ...serviceConfig.shiftTargets[dayOfWeek] };
+      // TARGET CALCULATION
+      let targets: Record<string, number> = isMaternityMode ? { 'IT': 3, 'S': 1 } : { ...DIALYSIS_TARGETS[dayOfWeek] };
+      if (serviceConfig?.shiftTargets?.[dayOfWeek]) {
+          targets = { ...serviceConfig.shiftTargets[dayOfWeek] };
+      }
 
-      const priorityOrder: ShiftCode[] = ['S', 'T6', 'T5', 'IT']; 
+      // Parité CPF
+      if (isMaternityMode) {
+          if (dayOfWeek === 3) { targets['CPF M'] = isEvenWeek ? 1 : 2; targets['CPF C'] = isEvenWeek ? 1 : 2; }
+          else if (dayOfWeek === 5) { targets['CPF M'] = isEvenWeek ? 2 : 1; targets['CPF C'] = isEvenWeek ? 2 : 1; }
+      }
+
+      const priorityOrder: ShiftCode[] = ['S', 'CPF C', 'CPF M', 'T6', 'T5', 'IT']; 
 
       for (const shiftType of priorityOrder) {
           const needed = targets[shiftType] || 0;
@@ -138,39 +157,36 @@ export const generateMonthlySchedule = async (
 
           const findCandidates = (strictnessLevel: number) => {
               return employees.filter(emp => {
-                  const r = emp.role.toLowerCase();
-                  if (!['infirmier', 'ide', 'soignant', 'as', 'intérim', 'sage-femme'].some(x => r.includes(x))) return false;
-                  if (NON_COUNTING_ROLES.map(x => x.toLowerCase()).includes(r)) return false; 
                   if (emp.shifts[dateStr]) return false; 
+                  
+                  // RÈGLE POST-NUIT (Stricte)
                   if (emp.shifts[prevDateStr] === 'S') return false;
+                  // Si on assigne S aujourd'hui, on ne peut pas avoir de poste déjà prévu demain
+                  if (shiftType === 'S' && emp.shifts[nextDateStr] && SHIFT_TYPES[emp.shifts[nextDateStr]]?.isWork) return false;
+                  
+                  // Skill check
+                  if (!emp.skills.includes(shiftType as string) && shiftType !== 'IT' && shiftType !== 'S') return false;
 
-                  if (isDialysisMode || isMaternityMode) {
+                  const hoursToAdd = SHIFT_HOURS[shiftType] || 0;
+
+                  // QUOTAS MENSUELS (Maternité)
+                  if (isMaternityMode) {
+                      const monthlyCap = getMaternityMonthlyCap(emp.fte);
+                      if (equityStats[emp.id].TotalHours + hoursToAdd > monthlyCap && strictnessLevel < 3) return false;
+
                       if (strictnessLevel < 3) {
-                          const daysWorkedWeek = getWorkedDaysInCurrentWeek(emp, currentDate, emp.shifts);
-                          if (emp.fte >= 0.8 && emp.fte < 0.9 && daysWorkedWeek >= 3) return false;
-                          else if (emp.fte >= 1.0 && daysWorkedWeek >= 4) return false;
-                      }
-                      if (strictnessLevel < 2 && getConsecutiveDaysCount(emp, currentDate, emp.shifts) >= 2) return false;
-                  }
-
-                  if (isMaternityMode && strictnessLevel < 3) {
-                      // 100% Rule: 1/2 WE
-                      if (emp.fte >= 1.0 && (dayOfWeek === 6 || dayOfWeek === 0)) {
-                          const currentWeek = Math.floor((day - 1) / 7);
-                          if (equityStats[emp.id].LastWeekendWorked === currentWeek - 1) return false;
-                      }
-                      // 80% Rule: If Friday Night assigned, no Weekend
-                      if (emp.fte < 1.0 && (dayOfWeek === 6 || dayOfWeek === 0)) {
-                          const fri = new Date(currentDate); fri.setDate(currentDate.getDate() - (dayOfWeek === 6 ? 1 : 2));
-                          if (emp.shifts[toLocalISOString(fri)] === 'S') return false;
+                          const currentWeekIndex = Math.floor((day - 1) / 7);
+                          if (emp.fte >= 1.0 && (dayOfWeek === 6 || dayOfWeek === 0)) {
+                              if (equityStats[emp.id].LastWeekendWorked === currentWeekIndex - 1) return false;
+                          }
+                          if (emp.fte >= 0.75 && emp.fte < 0.9) {
+                              if (dayOfWeek === 5 && shiftType === 'S' && equityStats[emp.id].LastWeekendWorked === currentWeekIndex) return false;
+                              if (dayOfWeek === 6 && equityStats[emp.id].LastFridayNight === currentWeekIndex) return false;
+                          }
                       }
                   }
 
-                  if (strictnessLevel < 2 && (getHoursLast7Days(emp, currentDate, emp.shifts) + (SHIFT_HOURS[shiftType] || 7.5)) > 48) return false;
-                  if (dayOfWeek === 6 && strictnessLevel === 0 && !isMaternityMode) {
-                      const prevSatStr = toLocalISOString(new Date(new Date(currentDate).setDate(currentDate.getDate() - 7)));
-                      if (SHIFT_TYPES[emp.shifts[prevSatStr]]?.isWork) return false;
-                  }
+                  if (strictnessLevel < 2 && (getHoursLast7Days(emp, currentDate, emp.shifts) + hoursToAdd) > 48) return false;
 
                   return true;
               });
@@ -182,7 +198,10 @@ export const generateMonthlySchedule = async (
                   const workedYesterday = emp.shifts[prevDateStr] && SHIFT_TYPES[emp.shifts[prevDateStr]]?.isWork;
                   if (workedYesterday) score += 2000; else score -= 500;
                   if (getConsecutiveDaysCount(emp, currentDate, emp.shifts) >= 2) score -= 5000;
-                  score -= (equityStats[emp.id].TotalHours * 5);
+                  
+                  const monthlyCap = isMaternityMode ? getMaternityMonthlyCap(emp.fte) : (emp.fte * 160);
+                  const remainingHours = monthlyCap - equityStats[emp.id].TotalHours;
+                  score += (remainingHours * 10);
                   score += (emp.fte * 200);
                   score += Math.random() * 50; 
                   return { emp, score };
@@ -192,10 +211,12 @@ export const generateMonthlySchedule = async (
               for (let i = 0; i < (needed - currentAssigned); i++) {
                   if (candidates[i]) {
                       const winner = candidates[i].emp;
+                      const hours = SHIFT_HOURS[shiftType] || 0;
                       winner.shifts[dateStr] = shiftType;
                       assignedCount++;
-                      equityStats[winner.id].TotalHours += (SHIFT_HOURS[shiftType] || 0);
+                      equityStats[winner.id].TotalHours += hours;
                       if (dayOfWeek === 6 || dayOfWeek === 0) equityStats[winner.id].LastWeekendWorked = Math.floor((day - 1) / 7);
+                      if (dayOfWeek === 5 && shiftType === 'S') equityStats[winner.id].LastFridayNight = Math.floor((day - 1) / 7);
                   }
               }
               currentAssigned += assignedCount;
@@ -204,7 +225,6 @@ export const generateMonthlySchedule = async (
           runPass(0);
           if (currentAssigned < needed) runPass(1);
           if (currentAssigned < needed) runPass(2);
-          if (currentAssigned < needed) runPass(3);
       }
   }
 
