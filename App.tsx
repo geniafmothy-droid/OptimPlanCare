@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Heart, AlertTriangle, Moon, Sun, Flag, CalendarClock, Layers, MessageSquare, Eraser, BriefcaseIcon, Umbrella } from 'lucide-react';
+import { Calendar, BarChart3, Users, Settings, Plus, ChevronLeft, ChevronRight, Download, Filter, Wand2, Trash2, X, RefreshCw, Pencil, Save, Upload, Database, Loader2, FileDown, LayoutGrid, CalendarDays, LayoutList, Clock, Briefcase, BriefcaseBusiness, Printer, Tag, LayoutDashboard, AlertCircle, CheckCircle, CheckCircle2, ShieldCheck, ChevronDown, ChevronUp, Copy, Store, History, UserCheck, UserX, Coffee, Share2, Mail, Bell, FileText, Menu, Search, UserPlus, LogOut, CheckSquare, Heart, AlertTriangle, Moon, Sun, Flag, CalendarClock, Layers, MessageSquare, Eraser, BriefcaseIcon, Umbrella, Undo2 } from 'lucide-react';
 import { ScheduleGrid } from './components/ScheduleGrid';
 import { StaffingSummary } from './components/StaffingSummary';
 import { StatsPanel } from './components/StatsPanel';
@@ -41,6 +41,9 @@ function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [highlightNight, setHighlightNight] = useState(false);
+  
+  // Undo / History State
+  const [undoStack, setUndoStack] = useState<Employee[][]>([]);
   
   // Highlight Violations State
   const [violationHighlights, setViolationHighlights] = useState<ConstraintViolation[]>([]);
@@ -180,6 +183,31 @@ function App() {
     }
   };
 
+  const pushToUndoStack = () => {
+      // Cloner l'état actuel des employés pour l'historique
+      const snapshot = JSON.parse(JSON.stringify(employees));
+      setUndoStack(prev => [snapshot, ...prev].slice(0, 20));
+  };
+
+  const handleUndo = async () => {
+      if (undoStack.length === 0) return;
+      
+      const previousState = undoStack[0];
+      const remainingStack = undoStack.slice(1);
+      
+      setIsSaving(true);
+      try {
+          await db.bulkSaveSchedule(previousState);
+          setEmployees(previousState);
+          setUndoStack(remainingStack);
+          setToast({ message: "Dernière modification annulée", type: "success" });
+      } catch (e: any) {
+          setToast({ message: "Erreur lors de l'annulation : " + e.message, type: "error" });
+      } finally {
+          setIsSaving(false);
+      }
+  };
+
   const loadNotifications = async () => {
       if (!currentUser) return;
       const allNotifs = await db.fetchNotifications();
@@ -258,6 +286,7 @@ function App() {
               if (res.error) {
                   setToast({ message: res.error, type: "error" });
               } else {
+                  pushToUndoStack();
                   await db.bulkImportEmployees(res.employees);
                   await loadData();
                   setToast({ message: `Import réussi : ${res.stats?.updated} mis à jour, ${res.stats?.created} créés`, type: "success" });
@@ -282,12 +311,14 @@ function App() {
       setIsLoading(true);
       try {
           if (actionModal.type === 'GENERATE') {
+               pushToUndoStack();
                const scopeEmployees = activeServiceId ? filteredEmployees : employees;
                const newEmps = await generateMonthlySchedule(scopeEmployees, actionYear, actionMonth, activeService?.config);
                await db.bulkSaveSchedule(newEmps);
                await loadData();
                setToast({ message: `Planning de ${monthName} généré avec succès pour ${scopeEmployees.length} employés.`, type: "success" });
           } else if (actionModal.type === 'RESET') {
+               pushToUndoStack();
                await db.clearShiftsInRange(actionYear, actionMonth, activeServiceId || undefined);
                await loadData();
                setToast({ message: `Planning de ${monthName} réinitialisé ${activeServiceId ? 'pour le service' : 'globalement'}.`, type: "success" });
@@ -305,6 +336,7 @@ function App() {
 
   const handleCopyPlanning = async () => {
       if (!confirm("Copier le planning du mois précédent sur le mois en cours ?")) return;
+      pushToUndoStack();
       setIsLoading(true);
       try {
           setToast({ message: "Fonctionnalité simulée : Planning copié.", type: "success" });
@@ -423,13 +455,17 @@ function App() {
 
   const handleShiftChange = async (code: ShiftCode) => {
     if (!selectedCell) return;
+    setIsSaving(true);
+    pushToUndoStack();
     try {
       await db.upsertShift(selectedCell.empId, selectedCell.date, code);
-      setToast({ message: "Poste mis à jour", type: "success" });
       setIsEditorOpen(false);
-      loadData(); 
+      await loadData(); 
+      setToast({ message: "Brouillon mis à jour", type: "success" });
     } catch (error: any) {
       setToast({ message: `Erreur: ${error.message}`, type: "error" });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -439,13 +475,16 @@ function App() {
         return;
     }
     if (!forcedCode) return;
+    setIsSaving(true);
+    pushToUndoStack();
     try {
         const start = new Date(startDate); const end = new Date(endDate); const dates: string[] = [];
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) { dates.push(d.toISOString().split('T')[0]); }
         await db.bulkUpsertShifts(dates.map(date => ({ employee_id: empId, date, shift_code: forcedCode })));
-        setToast({ message: "Plage mise à jour avec succès", type: "success" });
-        loadData();
+        await loadData();
+        setToast({ message: "Plage sauvegardée dans le brouillon", type: "success" });
     } catch (e: any) { setToast({ message: "Erreur: " + e.message, type: "error" }); }
+    finally { setIsSaving(false); }
   };
 
   const handleNotificationAction = (notif: AppNotification) => {
@@ -538,20 +577,61 @@ function App() {
         <main className="flex-1 overflow-hidden flex flex-col relative bg-slate-50/50 dark:bg-slate-900/50">
            {activeTab === 'planning' && (
              <>
-               <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-2 flex items-center gap-2 justify-between flex-wrap no-print">
-                  <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700 p-1 rounded-lg">
-                      <button onClick={() => setViewMode('month')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'month' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Mois</button>
-                      <button onClick={() => setViewMode('week')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'week' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Semaine</button>
-                      <button onClick={() => setViewMode('workweek')} title="Semaine Ouvrée (5 jours)" className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'workweek' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Ouvré</button>
-                      <button onClick={() => setViewMode('workweek6')} title="Semaine Ouvrable (6 jours)" className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'workweek6' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Ouvrable</button>
-                      <button onClick={() => setViewMode('day')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'day' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Journée</button>
-                      <button onClick={() => setViewMode('hourly')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'hourly' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Horaires</button>
+               <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-3 flex flex-col gap-3 no-print">
+                  {/* LIGNE 1 : FONCTIONNALITÉS DE GESTION */}
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                           <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1.5">
+                               {isSaving ? (
+                                   <div className="flex items-center gap-1.5 text-[10px] text-blue-600 animate-pulse">
+                                       <Database className="w-3 h-3" /> Sauvegarde...
+                                   </div>
+                               ) : (
+                                   <div className="flex items-center gap-1.5 text-[10px] text-green-600">
+                                       <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-ping"></div>
+                                       Brouillon synchronisé
+                                   </div>
+                               )}
+                           </div>
+                           <button onClick={() => setHighlightNight(!highlightNight)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${highlightNight ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600'}`}><Moon className="w-3.5 h-3.5" /> Nuit Active</button>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                           {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP' || currentUser.role === 'DIRECTOR' || currentUser.role === 'MANAGER') && (
+                            <>
+                            <button 
+                                onClick={handleUndo} 
+                                disabled={undoStack.length === 0 || isSaving}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${undoStack.length > 0 ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50' : 'bg-slate-50 dark:bg-slate-800 text-slate-300 border-slate-200 cursor-not-allowed opacity-50'}`}
+                                title="Annuler la dernière modification"
+                            >
+                                <Undo2 className="w-4 h-4" /> Annuler
+                            </button>
+                            <div className="h-6 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div>
+                            <button onClick={handlePrint} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Imprimer"><Printer className="w-4 h-4" /></button>
+                            <button onClick={handleExportCSV} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Export CSV"><Download className="w-4 h-4" /></button>
+                            <button onClick={handleImportClick} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Import CSV"><Upload className="w-4 h-4" /></button>
+                            <button onClick={handleCopyPlanning} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Copier M-1"><Copy className="w-4 h-4" /></button>
+                            <button onClick={() => openActionModal('RESET')} className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-800" title="Réinitialiser Planning"><Trash2 className="w-4 h-4" /></button>
+                            {currentUser.role === 'ADMIN' && (<button onClick={() => openActionModal('RESET_LEAVES')} className="p-2 text-orange-600 hover:bg-orange-50 dark:hover:bg-red-900/30 rounded-lg border border-orange-200 dark:border-orange-800" title="Réinit. Absences"><Eraser className="w-4 h-4" /></button>)}
+                            <div className="h-6 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div>
+                            <button onClick={() => setIsHazardOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-medium hover:bg-amber-600 shadow-sm transition-colors"><AlertTriangle className="w-3.5 h-3.5" /><span className="hidden sm:inline">Gérer Aléa</span></button>
+                            <button onClick={() => openActionModal('GENERATE')} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 shadow-sm transition-colors"><Wand2 className="w-3.5 h-3.5" /><span className="hidden sm:inline">Générer Auto</span></button>
+                            </>
+                           )}
+                      </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                       <button onClick={() => setHighlightNight(!highlightNight)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${highlightNight ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600'}`}><Moon className="w-3.5 h-3.5" /> Nuit Active</button>
-                       {(currentUser.role === 'ADMIN' || currentUser.role === 'CADRE' || currentUser.role === 'CADRE_SUP' || currentUser.role === 'DIRECTOR' || currentUser.role === 'MANAGER') && (
-                        <><div className="h-6 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div><button onClick={handlePrint} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Imprimer"><Printer className="w-4 h-4" /></button><button onClick={handleExportCSV} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Export CSV"><Download className="w-4 h-4" /></button><button onClick={handleImportClick} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Import CSV"><Upload className="w-4 h-4" /></button><button onClick={handleCopyPlanning} className="p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600" title="Copier M-1"><Copy className="w-4 h-4" /></button><button onClick={() => openActionModal('RESET')} className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-800" title="Réinitialiser Planning"><Trash2 className="w-4 h-4" /></button>{currentUser.role === 'ADMIN' && (<button onClick={() => openActionModal('RESET_LEAVES')} className="p-2 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/30 rounded-lg border border-orange-200 dark:border-orange-800" title="Réinit. Absences"><Eraser className="w-4 h-4" /></button>)}<div className="h-6 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div><button onClick={() => setIsHazardOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-medium hover:bg-amber-600 shadow-sm transition-colors"><AlertTriangle className="w-3.5 h-3.5" /><span className="hidden sm:inline">Gérer Aléa</span></button><button onClick={() => openActionModal('GENERATE')} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 shadow-sm transition-colors"><Wand2 className="w-3.5 h-3.5" /><span className="hidden sm:inline">Générer Auto</span></button></>
-                       )}
+
+                  {/* LIGNE 2 : FILTRES DE VUE */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700 p-1 rounded-lg">
+                          <button onClick={() => setViewMode('month')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'month' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Mois</button>
+                          <button onClick={() => setViewMode('week')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'week' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Semaine</button>
+                          <button onClick={() => setViewMode('workweek')} title="Semaine Ouvrée (5 jours)" className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'workweek' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Ouvré</button>
+                          <button onClick={() => setViewMode('workweek6')} title="Semaine Ouvrable (6 jours)" className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'workweek6' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Ouvrable</button>
+                          <button onClick={() => setViewMode('day')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'day' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Journée</button>
+                          <button onClick={() => setViewMode('hourly')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${viewMode === 'hourly' ? 'bg-white dark:bg-slate-600 shadow text-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'}`}>Horaires</button>
+                      </div>
                   </div>
                </div>
                <div className="flex-1 overflow-hidden flex flex-col p-4"><div className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm overflow-hidden flex flex-col"><ScheduleGrid employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} viewMode={viewMode} onCellClick={handleCellClick} onRangeSelect={handleRangeSelect} highlightNight={highlightNight} highlightedViolations={violationHighlights} preferences={preferences} /></div>{(viewMode !== 'hourly' && viewMode !== 'day') && <div className="mt-4"><StaffingSummary employees={filteredEmployees} startDate={gridStartDate} days={gridDuration} /></div>}</div>

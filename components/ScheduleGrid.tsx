@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Employee, ShiftCode, ViewMode, ConstraintViolation, WorkPreference } from '../types';
 import { SHIFT_TYPES } from '../constants';
@@ -13,7 +14,7 @@ interface ScheduleGridProps {
   onRangeSelect?: (employeeId: string, startDate: string, endDate: string, forcedCode?: ShiftCode) => void;
   highlightNight?: boolean;
   highlightedViolations?: ConstraintViolation[];
-  preferences?: WorkPreference[]; // New Prop
+  preferences?: WorkPreference[];
 }
 
 export const ScheduleGrid: React.FC<ScheduleGridProps> = ({ 
@@ -29,25 +30,18 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   
-  // Drag Selection State
   const [isDragging, setIsDragging] = useState(false);
   const [selectionStart, setSelectionStart] = useState<{empId: string, dateStr: string, dateObj: Date, initialCode?: ShiftCode} | null>(null);
   const [selectionCurrent, setSelectionCurrent] = useState<{empId: string, dateStr: string, dateObj: Date} | null>(null);
 
-  // Reset selection on mouse up globally
   useEffect(() => {
     const handleGlobalMouseUp = () => {
         if (isDragging && selectionStart && selectionCurrent && onRangeSelect) {
-            // Use date strings directly to avoid Timezone offsets with ISOString()
             let sStr = selectionStart.dateStr;
             let eStr = selectionCurrent.dateStr;
-            
-            // Lexicographical comparison works for YYYY-MM-DD
             if (sStr > eStr) { [sStr, eStr] = [eStr, sStr]; }
 
             if (sStr !== eStr) {
-                 // Smart Drag: If started on a cell with a code, extend that code
-                 // Otherwise open range modal (undefined code)
                  const codeToExtend = selectionStart.initialCode !== 'OFF' ? selectionStart.initialCode : undefined;
                  onRangeSelect(selectionStart.empId, sStr, eStr, codeToExtend);
             } else {
@@ -63,21 +57,16 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
   }, [isDragging, selectionStart, selectionCurrent, onRangeSelect, onCellClick]);
 
-
-  // Generate date headers
   const dates = useMemo(() => {
     const result = [];
     for (let i = 0; i < days; i++) {
       const d = new Date(startDate);
       d.setDate(d.getDate() + i);
-      
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
       const dateStr = `${year}-${month}-${day}`;
-      
       const holiday = getHolidayName(d);
-
       result.push({
         obj: d,
         str: dateStr,
@@ -86,7 +75,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
         dayNum: d.getDate(),
         month: d.toLocaleDateString('fr-FR', { month: 'short' }),
         holiday,
-        dayIndex: d.getDay() // 0=Sun...
+        dayIndex: d.getDay()
       });
     }
     return result;
@@ -120,38 +109,26 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
   const isCellSelected = (empId: string, dateObj: Date) => {
       if (!isDragging || !selectionStart || !selectionCurrent) return false;
       if (empId !== selectionStart.empId) return false;
-
       let start = selectionStart.dateObj;
       let end = selectionCurrent.dateObj;
       if (start > end) { [start, end] = [end, start]; }
-
       return dateObj >= start && dateObj <= end;
   };
 
   const isViolation = (empId: string, dateStr: string) => {
-      return highlightedViolations.some(v => 
-          (v.employeeId === 'ALL' || v.employeeId === empId) && v.date === dateStr
-      );
+      return highlightedViolations.some(v => (v.employeeId === 'ALL' || v.employeeId === empId) && v.date === dateStr);
   };
 
-  // Helper to find specific constraint for a cell
   const getCellPreference = (empId: string, dateStr: string, dayOfWeek: number) => {
-      return preferences.find(p => 
-          p.employeeId === empId && 
-          dateStr >= p.startDate && 
-          dateStr <= p.endDate &&
-          (!p.recurringDays || p.recurringDays.includes(dayOfWeek))
-      );
+      return preferences.find(p => p.employeeId === empId && dateStr >= p.startDate && dateStr <= p.endDate && (!p.recurringDays || p.recurringDays.includes(dayOfWeek)));
   };
 
-  // --- MODE HORAIRE (HOURLY) ---
   if (viewMode === 'hourly') {
     const year = startDate.getFullYear();
     const month = String(startDate.getMonth() + 1).padStart(2, '0');
     const day = String(startDate.getDate()).padStart(2, '0');
     const currentDateStr = `${year}-${month}-${day}`;
     const holidayName = getHolidayName(startDate);
-
     const startDisplayHour = 5;
     const endDisplayHour = 24;
     const hours = Array.from({ length: endDisplayHour - startDisplayHour }, (_, i) => i + startDisplayHour);
@@ -165,9 +142,9 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
          )}
          <div className="overflow-auto relative h-full" ref={scrollContainerRef}>
             <table className="border-collapse w-max min-w-full">
-              <thead className="sticky top-0 z-20 bg-white dark:bg-slate-800 shadow-sm">
+              <thead className="sticky top-0 z-30 bg-white dark:bg-slate-800 shadow-sm">
                  <tr>
-                    <th className="sticky left-0 z-30 bg-slate-50 dark:bg-slate-900 border-b border-r border-slate-200 dark:border-slate-700 p-2 min-w-[220px] text-left">
+                    <th className="sticky left-0 z-40 bg-slate-50 dark:bg-slate-900 border-b border-r border-slate-200 dark:border-slate-700 p-2 min-w-[220px] text-left">
                        <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Collaborateur</span>
                     </th>
                     {hours.map(h => (
@@ -182,14 +159,9 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                     const shiftCode = emp.shifts[currentDateStr];
                     const shiftDef = shiftCode ? SHIFT_TYPES[shiftCode] : null;
                     const isWorking = shiftDef?.isWork && shiftDef?.startHour !== undefined && shiftDef?.endHour !== undefined;
-
                     return (
                        <tr key={emp.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                          <td 
-                             className="sticky left-0 z-10 bg-white dark:bg-slate-800 border-b border-r border-slate-200 dark:border-slate-700 p-2 cursor-pointer border-l-4"
-                             style={{ borderLeftColor: shiftDef?.isWork ? undefined : 'transparent' }} 
-                             onClick={() => onCellClick(emp.id, currentDateStr)}
-                          >
+                          <td className="sticky left-0 z-10 bg-white dark:bg-slate-800 border-b border-r border-slate-200 dark:border-slate-700 p-2 cursor-pointer border-l-4" style={{ borderLeftColor: shiftDef?.isWork ? undefined : 'transparent' }} onClick={() => onCellClick(emp.id, currentDateStr)}>
                              <div className="font-medium text-sm text-slate-900 dark:text-slate-100">{emp.name}</div>
                           </td>
                           {hours.map(h => {
@@ -198,23 +170,10 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                                 const start = shiftDef.startHour;
                                 const end = shiftDef.endHour;
                                 if (h >= Math.floor(start) && h < end) {
-                                   let leftPct = 0;
-                                   let widthPct = 100;
-                                   if (h === Math.floor(start)) {
-                                       leftPct = (start % 1) * 100;
-                                       widthPct -= leftPct;
-                                   }
-                                   if (h === Math.floor(end)) {
-                                       const endPct = (end % 1) === 0 ? 100 : (end % 1) * 100;
-                                       widthPct = endPct - leftPct;
-                                   }
-                                   content = (
-                                      <div 
-                                        className={`absolute inset-y-1 rounded-sm ${shiftDef.color} opacity-90 shadow-sm`}
-                                        style={{ left: `${leftPct}%`, width: `${widthPct}%`, margin: '0 1px' }}
-                                        title={`${shiftDef.label} (${shiftDef.startHour}h - ${shiftDef.endHour}h)`}
-                                      ></div>
-                                   );
+                                   let leftPct = 0; let widthPct = 100;
+                                   if (h === Math.floor(start)) { leftPct = (start % 1) * 100; widthPct -= leftPct; }
+                                   if (h === Math.floor(end)) { const endPct = (end % 1) === 0 ? 100 : (end % 1) * 100; widthPct = endPct - leftPct; }
+                                   content = ( <div className={`absolute inset-y-1 rounded-sm ${shiftDef.color} opacity-90 shadow-sm`} style={{ left: `${leftPct}%`, width: `${widthPct}%`, margin: '0 1px' }} title={`${shiftDef.label} (${shiftDef.startHour}h - ${shiftDef.endHour}h)`}></div> );
                                 }
                              }
                              return <td key={h} className="border-b border-r border-slate-100 dark:border-slate-700 p-0 relative h-10 min-w-[40px]">{content}</td>;
@@ -229,70 +188,34 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
     );
   }
 
-  // --- MODE DATE STANDARD ---
-
-  const isWeekend = (date: Date) => {
-    const day = date.getDay();
-    return day === 0 || day === 6;
-  };
-
-  const getCellWidthClass = () => {
-      if (days === 1) return "min-w-[150px]";
-      if (days <= 7) return "min-w-[100px]";
-      return "min-w-[40px]";
-  };
+  const isWeekend = (date: Date) => { const day = date.getDay(); return day === 0 || day === 6; };
+  const getCellWidthClass = () => { if (days === 1) return "min-w-[150px]"; if (days <= 7) return "min-w-[100px]"; return "min-w-[40px]"; };
 
   return (
     <div className="flex-1 overflow-hidden flex flex-col h-full relative group select-none bg-white dark:bg-slate-800">
-      {/* Buttons Fixed to Sticky Header Area */}
       {days > 7 && (
           <>
-            <button 
-                onClick={() => handleScroll('left')}
-                className="absolute left-[225px] top-10 z-40 p-1.5 bg-white/90 dark:bg-slate-700/90 hover:bg-white dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded shadow-md opacity-0 group-hover:opacity-100 transition-all no-print"
-            >
-                <ChevronLeft className="w-5 h-5" />
-            </button>
-            <button 
-                onClick={() => handleScroll('right')}
-                className="absolute right-2 top-10 z-40 p-1.5 bg-white/90 dark:bg-slate-700/90 hover:bg-white dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded shadow-md opacity-0 group-hover:opacity-100 transition-all no-print"
-            >
-                <ChevronRight className="w-5 h-5" />
-            </button>
+            <button onClick={() => handleScroll('left')} className="absolute left-[225px] top-10 z-40 p-1.5 bg-white/90 dark:bg-slate-700/90 hover:bg-white dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded shadow-md opacity-0 group-hover:opacity-100 transition-all no-print"><ChevronLeft className="w-5 h-5" /></button>
+            <button onClick={() => handleScroll('right')} className="absolute right-2 top-10 z-40 p-1.5 bg-white/90 dark:bg-slate-700/90 hover:bg-white dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded shadow-md opacity-0 group-hover:opacity-100 transition-all no-print"><ChevronRight className="w-5 h-5" /></button>
           </>
       )}
 
-      <div className="overflow-auto relative flex-1 flex flex-col scroll-smooth" ref={scrollContainerRef}>
-        <table className="border-collapse w-max min-w-full">
-          <thead className="sticky top-0 z-20 bg-white dark:bg-slate-800 shadow-sm">
+      <div className="overflow-auto relative flex-1 scroll-smooth" ref={scrollContainerRef}>
+        <table className="border-separate border-spacing-0 w-max min-w-full">
+          <thead className="sticky top-0 z-30">
             <tr>
-              <th className="sticky left-0 z-30 bg-slate-50 dark:bg-slate-900 border-b border-r border-slate-200 dark:border-slate-700 p-2 min-w-[220px] text-left h-14">
+              <th className="sticky top-0 left-0 z-40 bg-slate-50 dark:bg-slate-900 border-b border-r border-slate-200 dark:border-slate-700 p-2 min-w-[220px] text-left h-14">
                 <div className="flex flex-col">
                   <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Collaborateur</span>
                   <span className="text-[10px] text-slate-400 dark:text-slate-500 font-normal">Matricule / Quotité / Comp.</span>
                 </div>
               </th>
               {dates.map((d) => (
-                <th 
-                  key={d.str} 
-                  title={d.holiday || ''}
-                  className={`${getCellWidthClass()} border-b border-r border-slate-200 dark:border-slate-700 p-1 text-center text-xs h-14 ${
-                    d.holiday 
-                        ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300' 
-                        : isWeekend(d.obj) 
-                            ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-300' 
-                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400'
-                  }`}
-                >
-                  <div className="font-bold flex items-center justify-center gap-1">
-                      {d.dayNum}
-                      {days <= 7 && <span className="font-normal opacity-70">{d.month}</span>}
-                  </div>
-                  <div className="text-[10px] uppercase flex flex-col items-center">
-                      {days <= 7 ? d.dayNameFull : d.dayName.slice(0, 1)}
-                      {d.holiday && days > 7 && <div className="w-1.5 h-1.5 rounded-full bg-red-500 mt-0.5" />}
-                      {d.holiday && days <= 7 && <span className="text-[9px] font-bold text-red-600 dark:text-red-400 truncate max-w-[90px]">{d.holiday}</span>}
-                  </div>
+                <th key={d.str} title={d.holiday || ''} className={`${getCellWidthClass()} sticky top-0 bg-white dark:bg-slate-800 border-b border-r border-slate-200 dark:border-slate-700 p-1 text-center text-xs h-14 shadow-[0_1px_0_rgba(0,0,0,0.05)] ${
+                    d.holiday ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300' : isWeekend(d.obj) ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-300' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400'
+                  }`}>
+                  <div className="font-bold flex items-center justify-center gap-1">{d.dayNum}{days <= 7 && <span className="font-normal opacity-70">{d.month}</span>}</div>
+                  <div className="text-[10px] uppercase flex flex-col items-center">{days <= 7 ? d.dayNameFull : d.dayName.slice(0, 1)}{d.holiday && days > 7 && <div className="w-1.5 h-1.5 rounded-full bg-red-500 mt-0.5" />}{d.holiday && days <= 7 && <span className="text-[9px] font-bold text-red-600 dark:text-red-400 truncate max-w-[90px]">{d.holiday}</span>}</div>
                 </th>
               ))}
             </tr>
@@ -305,88 +228,26 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                     <div>
                       <div className="font-medium text-sm text-slate-900 dark:text-slate-100">{emp.name}</div>
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-1 mt-0.5">
-                        <span className={`px-1.5 py-0.5 rounded-full font-semibold ${
-                            emp.fte < 1.0 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                        }`}>
-                            {Math.round(emp.fte * 100)}%
-                        </span>
+                        <span className={`px-1.5 py-0.5 rounded-full font-semibold ${emp.fte < 1.0 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>{Math.round(emp.fte * 100)}%</span>
                         <span className="px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700">{emp.role.slice(0, 3)}</span>
                       </div>
                     </div>
                   </div>
                 </td>
-
                 {dates.map((d) => {
                   const shiftCode = emp.shifts[d.str] || 'OFF';
                   const shiftDef = SHIFT_TYPES[shiftCode] || SHIFT_TYPES['OFF'];
                   const selected = isCellSelected(emp.id, d.obj);
                   const isHighlighted = isViolation(emp.id, d.str);
                   const pref = getCellPreference(emp.id, d.str, d.dayIndex);
-                  
                   const isNight = shiftCode === 'S';
-                  let opacityClass = 'opacity-100';
-                  let spotlightClass = '';
-                  let specialStyle = '';
-                  let overlayIcon = null;
-                  
-                  // HIGHLIGHT NIGHT MODE
-                  if (highlightNight) {
-                      if (isNight) {
-                          spotlightClass = 'scale-110 shadow-lg ring-2 ring-indigo-500 z-10';
-                      } else {
-                          opacityClass = 'opacity-20';
-                      }
-                  }
-
-                  // VIOLATION HIGHLIGHT
-                  let violationClass = '';
-                  if (isHighlighted) {
-                      violationClass = 'ring-2 ring-red-500 z-20 animate-pulse bg-red-50';
-                  }
-
-                  // VISUALIZING PREFERENCES (DESIDERATA)
-                  if (pref) {
-                      if (pref.type === 'NO_WORK') {
-                          // If preference is NO_WORK and assigned shift is NT or RH (respected),
-                          // make the cell BLACK with White text.
-                          if (shiftCode === 'NT' || shiftCode === 'RH') {
-                              specialStyle = '!bg-black !text-white !border-black'; 
-                          }
-                      } else if (pref.type === 'NO_NIGHT') {
-                          // If NO_NIGHT, show a crossed-out S badge
-                          overlayIcon = (
-                              <div className="absolute bottom-0 right-0 bg-white rounded-tl border-t border-l border-slate-200 px-0.5 text-[8px] leading-none text-red-600 font-bold z-10" title="Pas de Nuit demandé">
-                                  <span className="relative">
-                                      S
-                                      <span className="absolute top-1/2 left-0 w-full h-[1px] bg-red-600 -translate-y-1/2 rotate-45"></span>
-                                  </span>
-                              </div>
-                          );
-                      }
-                  }
-
+                  let opacityClass = 'opacity-100'; let spotlightClass = ''; let specialStyle = ''; let overlayIcon = null;
+                  if (highlightNight) { if (isNight) { spotlightClass = 'scale-110 shadow-lg ring-2 ring-indigo-500 z-10'; } else { opacityClass = 'opacity-20'; } }
+                  let violationClass = ''; if (isHighlighted) { violationClass = 'ring-2 ring-red-500 z-20 animate-pulse bg-red-50'; }
+                  if (pref) { if (pref.type === 'NO_WORK') { if (shiftCode === 'NT' || shiftCode === 'RH') { specialStyle = '!bg-black !text-white !border-black'; } } else if (pref.type === 'NO_NIGHT') { overlayIcon = ( <div className="absolute bottom-0 right-0 bg-white rounded-tl border-t border-l border-slate-200 px-0.5 text-[8px] leading-none text-red-600 font-bold z-10" title="Pas de Nuit demandé"><span className="relative">S<span className="absolute top-1/2 left-0 w-full h-[1px] bg-red-600 -translate-y-1/2 rotate-45"></span></span></div> ); } }
                   return (
-                    <td 
-                      key={`${emp.id}-${d.str}`} 
-                      className={`
-                        border-b border-r border-slate-200 dark:border-slate-700 p-0.5 text-center cursor-pointer relative group h-12
-                        ${d.holiday ? 'bg-red-50/30 dark:bg-red-900/20' : (isWeekend(d.obj) ? 'bg-slate-50/50 dark:bg-slate-800/50' : '')}
-                        ${selected ? 'bg-blue-100 dark:bg-blue-900/40 ring-1 ring-inset ring-blue-300 dark:ring-blue-600' : ''}
-                      `}
-                      onMouseDown={() => handleMouseDown(emp.id, d.str, d.obj, shiftCode)}
-                      onMouseEnter={() => handleMouseEnter(emp.id, d.str, d.obj)}
-                    >
-                      <div 
-                        className={`
-                          w-full h-8 flex items-center justify-center text-[10px] font-bold rounded-sm shadow-sm transition-all
-                          ${!highlightNight && 'hover:opacity-80 hover:scale-105 hover:z-10 hover:shadow-md'}
-                          ${shiftDef.color} ${shiftDef.textColor}
-                          ${shiftCode === 'OFF' ? 'opacity-0 hover:opacity-100 border border-dashed border-slate-300 dark:border-slate-600' : ''}
-                          ${opacityClass} ${spotlightClass}
-                          ${violationClass}
-                          ${specialStyle}
-                        `}
-                      >
+                    <td key={`${emp.id}-${d.str}`} className={`border-b border-r border-slate-200 dark:border-slate-700 p-0.5 text-center cursor-pointer relative group h-12 ${d.holiday ? 'bg-red-50/30 dark:bg-red-900/20' : (isWeekend(d.obj) ? 'bg-slate-50/50 dark:bg-slate-800/50' : '')} ${selected ? 'bg-blue-100 dark:bg-blue-900/40 ring-1 ring-inset ring-blue-300 dark:ring-blue-600' : ''}`} onMouseDown={() => handleMouseDown(emp.id, d.str, d.obj, shiftCode)} onMouseEnter={() => handleMouseEnter(emp.id, d.str, d.obj)}>
+                      <div className={`w-full h-8 flex items-center justify-center text-[10px] font-bold rounded-sm shadow-sm transition-all ${!highlightNight && 'hover:opacity-80 hover:scale-105 hover:z-10 hover:shadow-md'} ${shiftDef.color} ${shiftDef.textColor} ${shiftCode === 'OFF' ? 'opacity-0 hover:opacity-100 border border-dashed border-slate-300 dark:border-slate-600' : ''} ${opacityClass} ${spotlightClass} ${violationClass} ${specialStyle}`}>
                         {shiftCode !== 'OFF' ? shiftCode : '+'}
                         {overlayIcon}
                       </div>
@@ -395,13 +256,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                 })}
               </tr>
             ))}
-             {employees.length === 0 && (
-                 <tr>
-                     <td colSpan={dates.length + 1} className="p-8 text-center text-slate-400 italic bg-slate-50 dark:bg-slate-800">
-                         Aucun employé ne correspond aux filtres.
-                     </td>
-                 </tr>
-             )}
+             {employees.length === 0 && ( <tr><td colSpan={dates.length + 1} className="p-8 text-center text-slate-400 italic bg-slate-50 dark:bg-slate-800">Aucun employé ne correspond aux filtres.</td></tr> )}
           </tbody>
         </table>
       </div>
