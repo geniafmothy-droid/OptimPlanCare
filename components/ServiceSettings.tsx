@@ -1,7 +1,6 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Service, Skill, SkillRequirement, Employee, ServiceAssignment, UserRole } from '../types';
-import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X, Search, UserPlus, UserMinus, ArrowRight, Filter, Scale, Briefcase, History, AlertTriangle, Baby } from 'lucide-react';
+import { Clock, Save, CheckCircle2, AlertCircle, Settings, Plus, Trash2, Users, Calendar, Shield, LayoutGrid, X, Search, UserPlus, UserMinus, ArrowRight, Filter, Scale, Briefcase, History, AlertTriangle, Baby, Eye, EyeOff, ListFilter } from 'lucide-react';
 import * as db from '../services/db';
 
 interface ServiceSettingsProps {
@@ -24,6 +23,9 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
     const [activeTab, setActiveTab] = useState<TabType>('general');
     const [isLoading, setIsLoading] = useState(false);
     const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
+    // Filter for Skills table
+    const [skillFilterType, setSkillFilterType] = useState<'all' | 'active' | 'inactive'>('all');
 
     // Create Service Modal State
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -88,6 +90,7 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
             setConfig(JSON.parse(JSON.stringify(merged)));
             setNotification(null);
             setShowAllEmployees(false); // Reset filter to show only members on switch
+            setSkillFilterType('all');
         }
     };
 
@@ -235,6 +238,18 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
 
     const daysOfWeek = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
     const selectedService = services.find(s => s.id === selectedServiceId);
+    
+    // Filtered Skills Logic
+    /* Added useMemo to React import on line 1 to fix the 'Cannot find name useMemo' error on line 243. */
+    const filteredAvailableSkills = useMemo(() => {
+        return availableSkills.filter(s => {
+            const isSelected = config.requiredSkills?.includes(s.code);
+            if (skillFilterType === 'active') return isSelected;
+            if (skillFilterType === 'inactive') return !isSelected;
+            return true;
+        });
+    }, [availableSkills, config.requiredSkills, skillFilterType]);
+
     const filteredEmployees = allEmployees.filter(emp => {
         const search = memberSearch.toLowerCase();
         const matchesSearch = emp.name.toLowerCase().includes(search) || emp.matricule.toLowerCase().includes(search);
@@ -306,8 +321,77 @@ export const ServiceSettings: React.FC<ServiceSettingsProps> = ({ service: initi
                             {activeTab === 'config' && (
                                 <div className="space-y-8">
                                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                                        <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-purple-700"><CheckCircle2 className="w-5 h-5" /> Compétences & Amplitude</h4>
-                                        <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-medium text-xs"><tr><th className="p-3 w-10">Actif</th><th className="p-3 w-20">Code</th><th className="p-3">Compétence</th><th className="p-3 w-32">Effectif Min (Défaut)</th><th className="p-3 w-32">Début</th><th className="p-3 w-32">Fin</th></tr></thead><tbody className="divide-y divide-slate-100">{availableSkills.map(s => { const isSelected = config.requiredSkills?.includes(s.code); const req = config.skillRequirements?.find((r: SkillRequirement) => r.skillCode === s.code); return (<tr key={s.id} className={isSelected ? 'bg-purple-50/30' : ''}><td className="p-3 text-center"><input type="checkbox" checked={!!isSelected} onChange={() => toggleSkill(s.code)} className="w-4 h-4 text-purple-600 rounded" /></td><td className="p-3 font-mono font-bold text-xs">{s.code}</td><td className="p-3 text-slate-700">{s.label}</td><td className="p-3"><input type="number" min="0" disabled={!isSelected} value={req?.minStaff || 0} onChange={(e) => updateSkillReq(s.code, 'minStaff', parseInt(e.target.value))} className="w-full p-1.5 border rounded text-center disabled:bg-slate-50" /></td><td className="p-3"><input type="time" disabled={!isSelected} value={req?.startTime || '00:00'} onChange={(e) => updateSkillReq(s.code, 'startTime', e.target.value)} className="w-full p-1.5 border rounded text-xs disabled:bg-slate-50" /></td><td className="p-3"><input type="time" disabled={!isSelected} value={req?.endTime || '00:00'} onChange={(e) => updateSkillReq(s.code, 'endTime', e.target.value)} className="w-full p-1.5 border rounded text-xs disabled:bg-slate-50" /></td></tr>); })}</tbody></table></div>
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h4 className="font-bold text-slate-800 flex items-center gap-2 text-purple-700"><CheckCircle2 className="w-5 h-5" /> Compétences & Amplitude</h4>
+                                            
+                                            {/* FILTRE ACTIF / INACTIF */}
+                                            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 shadow-inner">
+                                                <button 
+                                                    onClick={() => setSkillFilterType('all')}
+                                                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all ${skillFilterType === 'all' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                                >
+                                                    <ListFilter className="w-3 h-3" /> Tous
+                                                </button>
+                                                <button 
+                                                    onClick={() => setSkillFilterType('active')}
+                                                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all ${skillFilterType === 'active' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                                >
+                                                    <Eye className="w-3 h-3" /> Actifs
+                                                </button>
+                                                <button 
+                                                    onClick={() => setSkillFilterType('inactive')}
+                                                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all ${skillFilterType === 'inactive' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                                >
+                                                    <EyeOff className="w-3 h-3" /> Inactifs
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm text-left">
+                                                <thead className="bg-slate-50 text-slate-500 uppercase font-medium text-xs">
+                                                    <tr>
+                                                        <th className="p-3 w-10">Actif</th>
+                                                        <th className="p-3 w-20">Code</th>
+                                                        <th className="p-3">Compétence</th>
+                                                        <th className="p-3 w-32">Effectif Min (Défaut)</th>
+                                                        <th className="p-3 w-32">Début</th>
+                                                        <th className="p-3 w-32">Fin</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {filteredAvailableSkills.map(s => { 
+                                                        const isSelected = config.requiredSkills?.includes(s.code); 
+                                                        const req = config.skillRequirements?.find((r: SkillRequirement) => r.skillCode === s.code); 
+                                                        return (
+                                                            <tr key={s.id} className={isSelected ? 'bg-purple-50/30' : ''}>
+                                                                <td className="p-3 text-center">
+                                                                    <input type="checkbox" checked={!!isSelected} onChange={() => toggleSkill(s.code)} className="w-4 h-4 text-purple-600 rounded" />
+                                                                </td>
+                                                                <td className="p-3 font-mono font-bold text-xs">{s.code}</td>
+                                                                <td className="p-3 text-slate-700">{s.label}</td>
+                                                                <td className="p-3">
+                                                                    <input type="number" min="0" disabled={!isSelected} value={req?.minStaff || 0} onChange={(e) => updateSkillReq(s.code, 'minStaff', parseInt(e.target.value))} className="w-full p-1.5 border rounded text-center disabled:bg-slate-50" />
+                                                                </td>
+                                                                <td className="p-3">
+                                                                    <input type="time" disabled={!isSelected} value={req?.startTime || '00:00'} onChange={(e) => updateSkillReq(s.code, 'startTime', e.target.value)} className="w-full p-1.5 border rounded text-xs disabled:bg-slate-50" />
+                                                                </td>
+                                                                <td className="p-3">
+                                                                    <input type="time" disabled={!isSelected} value={req?.endTime || '00:00'} onChange={(e) => updateSkillReq(s.code, 'endTime', e.target.value)} className="w-full p-1.5 border rounded text-xs disabled:bg-slate-50" />
+                                                                </td>
+                                                            </tr>
+                                                        ); 
+                                                    })}
+                                                    {filteredAvailableSkills.length === 0 && (
+                                                        <tr>
+                                                            <td colSpan={6} className="p-8 text-center text-slate-400 italic bg-slate-50/50">
+                                                                Aucune compétence ne correspond au filtre sélectionné.
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     </div>
 
                                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
